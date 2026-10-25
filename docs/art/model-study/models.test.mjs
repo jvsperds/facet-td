@@ -5,6 +5,9 @@ import {
   createGemTower,
   GEM_TYPES,
   QUALITY_TIERS,
+  createCreep,
+  creepSize,
+  FLY_ALTITUDE,
 } from "./models.js";
 
 const geometry = (seed, x = 0) =>
@@ -64,20 +67,59 @@ assert.equal(
 for (const type of GEM_TYPES)
   for (const { tier, width } of QUALITY_TIERS) {
     const scale = width / 0.68;
-    const bounds = new Box3().setFromObject(
-      createGemTower(type.id, { quality: tier }),
-      true,
-    );
+    const tower = createGemTower(type.id, { quality: tier });
+    tower.updateMatrixWorld(true);
+    const bounds = new Box3().setFromObject(tower.children.at(-1), true);
     const label = `${type.name} tier ${tier}`;
-    assert.ok(bounds.max.y <= 1.160001 * scale, `${label} height cap`);
+    const cap = 0.08 + 1.08 * scale; // Plinth stays seated at 0.08.
+    assert.ok(bounds.max.y <= cap + 1e-6, `${label} height cap`);
     assert.ok(bounds.max.x - bounds.min.x <= width + 1e-6, `${label} width`);
     assert.ok(bounds.max.z - bounds.min.z <= width + 1e-6, `${label} depth`);
-    assert.ok(bounds.max.y >= 0.9 * scale, `${label} rises above its wall`);
+    assert.ok(bounds.max.y >= 0.5, `${label} rises well above its wall`);
+  }
+// The tower base is its cell's stone: same variation, and it joins neighbouring walls.
+const towerOnCell = createGemTower("R", {
+  x: 3,
+  z: 5,
+  seed: 9,
+  quality: 1,
+  neighbours: { east: true, north: true },
+});
+assert.deepEqual(
+  Array.from(towerOnCell.children[0].geometry.attributes.position.array),
+  Array.from(
+    createStone({ x: 3, z: 5, seed: 9 }).children[0].geometry.attributes
+      .position.array,
+  ),
+  "Tower base matches the stone variation of its cell",
+);
+assert.equal(
+  towerOnCell.children[0].material,
+  towerOnCell.children.at(-1).children[0].material,
+  "Plinth uses the base stone shade",
+);
+towerOnCell.position.set(0, 0, 0);
+towerOnCell.userData.setMerge(1);
+const joined = new Box3().setFromObject(towerOnCell);
+assert.ok(Math.abs(joined.max.x - 0.5) < 1e-6, "Tower base joins east wall");
+assert.ok(Math.abs(joined.min.z + 0.5) < 1e-6, "Tower base joins north wall");
+
+// Creeps: VPK ModelScale 1.0-2.2 for waves, up to 6.0 for the largest units.
+assert.throws(() => createCreep({ modelScale: 0 }), RangeError);
+for (const modelScale of [1, 1.6, 2.2, 3.5, 5, 6])
+  for (const flying of [false, true]) {
+    const creep = createCreep({ modelScale, flying, boss: modelScale > 2.2 });
+    const body = new Box3().setFromObject(creep.children.at(-1));
+    const length = body.max.x - body.min.x;
+    assert.ok(Math.abs(creep.userData.length - creepSize(modelScale)) < 1e-9);
+    assert.ok(length <= (modelScale <= 2.2 ? 0.5 : 1) + 1e-6, "Creep fits");
+    if (flying) assert.ok(body.min.y > 1.16, "Air units fly above towers");
+    else assert.ok(body.max.y >= 0.2, "Ground creeps stand above walls");
   }
 
 // Occlusion probe: which neighbouring cell centres (creep height) does one tower hide in the isometric view?
 const elevation = Math.atan(1 / Math.sqrt(2));
-const hidden = (tower, azimuth) => {
+const hidden = (tower, azimuth, y = 0.15) => {
   const toCamera = new Vector3(
     Math.sin(azimuth) * Math.cos(elevation),
     Math.sin(elevation),
@@ -87,7 +129,7 @@ const hidden = (tower, azimuth) => {
   for (let x = -2; x <= 2; x++)
     for (let z = -2; z <= 2; z++) {
       if (!x && !z) continue;
-      const point = new Vector3(x, 0.15, z);
+      const point = new Vector3(x, y, z);
       const ray = new Raycaster(
         point.clone().addScaledVector(toCamera, 50),
         toCamera.clone().negate(),
@@ -97,6 +139,7 @@ const hidden = (tower, azimuth) => {
     }
   return cells;
 };
+const smallest = createCreep().userData.height;
 const occlusion = QUALITY_TIERS.map(({ tier, name }) => {
   const views = [0, 0.5, 1, 2, 3].map((quarter) =>
     Math.max(
@@ -107,7 +150,23 @@ const occlusion = QUALITY_TIERS.map(({ tier, name }) => {
       }),
     ),
   );
-  return { tier, name, worstHiddenNeighbours: Math.max(...views) };
+  const creepViews = [0, 1, 2, 3, 0.5].map((quarter) =>
+    Math.max(
+      ...GEM_TYPES.map((type) => {
+        const tower = createGemTower(type.id, { quality: tier });
+        tower.updateMatrixWorld(true);
+        return hidden(tower, Math.PI / 4 + (quarter * Math.PI) / 2, smallest)
+          .length;
+      }),
+    ),
+  );
+  return {
+    tier,
+    name,
+    worstHiddenNeighbours: Math.max(...views),
+    creepTopHiddenIso: Math.max(...creepViews.slice(0, 4)),
+    creepTopHiddenAxis: creepViews[4],
+  };
 });
 console.table(occlusion);
 // Budget: a tower may hide at most the one cell diagonally behind it; P2 must reveal that cell when it matters.
@@ -115,6 +174,13 @@ assert.ok(
   occlusion.every((o) => o.worstHiddenNeighbours <= 1),
   "Occlusion budget",
 );
+// Even the smallest creep shows its top over any single tower in the four default views.
+assert.ok(
+  occlusion.every(
+    (o) => o.creepTopHiddenIso === 0 && o.creepTopHiddenAxis <= 1,
+  ),
+  "Creep visibility budget",
+);
 console.log(
-  "PASS: 16 adjacency masks, merge bounds, deterministic variation, eight distinct towers at six tier bounds, occlusion probe and invalid inputs",
+  "PASS: 16 adjacency masks, merge bounds, deterministic variation, eight distinct towers at six tier bounds, tower-wall joins, creep scale, occlusion budgets and invalid inputs",
 );

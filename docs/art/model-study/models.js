@@ -285,8 +285,14 @@ export const QUALITY_TIERS = [
   { tier: 6, name: "Huge", width: 0.68 },
 ];
 
-/** Masonry tower with a type-specific shaft, crowned by its gem. Quality scales the whole model. */
-export function createGemTower(type, { seed = 1, quality = 6 } = {}) {
+/**
+ * Masonry tower on its cell's stone: the base joins neighbouring walls and shares their variation.
+ * Quality scales the tower above the base; the base stays wall-sized so joins meet the cell edge.
+ */
+export function createGemTower(
+  type,
+  { x = 0, z = 0, neighbours = {}, seed = 1, quality = 6 } = {},
+) {
   const spec = GEM_TYPES.find((g) => g.id === type);
   if (!spec) throw new RangeError(`Unknown gem type: ${type}`);
   const tier = QUALITY_TIERS.find((q) => q.tier === quality);
@@ -296,13 +302,14 @@ export function createGemTower(type, { seed = 1, quality = 6 } = {}) {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     mesh.userData.sharedMaterial = true;
-    model.add(mesh);
+    tower.add(mesh);
     return mesh;
   };
-  const model = createStone({ seed });
+  const model = createStone({ x, z, neighbours, seed });
+  const tower = new THREE.Group();
   const plinth = stoneMesh(
     new THREE.CylinderGeometry(0.28, 0.31, 0.12, 8),
-    stoneMaterials[4],
+    model.children[0].material,
   );
   plinth.position.y = 0.14;
   plinth.rotation.y = Math.PI / 8;
@@ -354,10 +361,102 @@ export function createGemTower(type, { seed = 1, quality = 6 } = {}) {
     gem.rotation.y = Math.PI / 4;
     gem.castShadow = true;
     gem.receiveShadow = true;
-    model.add(gem);
+    tower.add(gem);
   }
-  model.scale.setScalar(tier.width / 0.68);
+  const scale = tier.width / 0.68;
+  tower.scale.setScalar(scale);
+  tower.position.y = 0.08 * (1 - scale); // Keep the plinth seated on the stone.
+  model.add(tower);
   model.name = spec.name;
   model.userData.quality = tier;
   return model;
+}
+
+const creepBody = new THREE.MeshStandardMaterial({
+  color: "#4b3a33",
+  roughness: 0.9,
+  flatShading: true,
+});
+const creepWing = new THREE.MeshStandardMaterial({
+  color: "#e6ded3",
+  roughness: 0.9,
+  flatShading: true,
+});
+const creepShadow = new THREE.MeshBasicMaterial({
+  color: "#1d2024",
+  transparent: true,
+  opacity: 0.3,
+  depthWrite: false,
+});
+export const FLY_ALTITUDE = 1.35;
+
+/** Creep body length in cells for a VPK ModelScale; the square root keeps late bosses under one cell. */
+export const creepSize = (modelScale) => 0.32 * Math.sqrt(modelScale);
+
+/** Placeholder creep proxy, facing +x. It fixes scale and readability, not creep designs. */
+export function createCreep({
+  modelScale = 1,
+  flying = false,
+  boss = false,
+} = {}) {
+  if (!(modelScale > 0 && Number.isFinite(modelScale)))
+    throw new RangeError("Creep ModelScale must be a positive number");
+  const length = creepSize(modelScale),
+    width = 0.7 * length,
+    height = 0.66 * length;
+  const points = [];
+  for (let i = 0; i < 8; i++) {
+    const a = (i * Math.PI) / 4,
+      cx = Math.cos(a) * (length / 2) * (Math.cos(a) > 0 ? 1 : 0.85),
+      cz = (Math.sin(a) * width) / 2;
+    points.push(
+      new THREE.Vector3(cx * 0.8, 0.02, cz * 0.8),
+      new THREE.Vector3(cx, 0.55 * height, cz),
+    );
+  }
+  points.push(
+    new THREE.Vector3(-0.2 * length, height, 0),
+    new THREE.Vector3(0.15 * length, height, 0),
+    new THREE.Vector3(0.58 * length, 0.6 * height, 0), // Snout shows the walking direction.
+  );
+  const group = new THREE.Group();
+  const body = new THREE.Group();
+  const add = (geometry, material, parent = body) => {
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.castShadow = material !== creepShadow;
+    mesh.userData.sharedMaterial = true;
+    parent.add(mesh);
+    return mesh;
+  };
+  add(new ConvexGeometry(points), creepBody);
+  if (boss)
+    for (const x of [-0.25, 0, 0.25]) {
+      const spike = add(
+        new THREE.ConeGeometry(0.07 * length, 0.25 * height, 4),
+        creepBody,
+      );
+      spike.position.set(x * length, height + 0.1 * height, 0);
+    }
+  if (flying) {
+    for (const side of [-1, 1]) {
+      const wing = add(
+        new THREE.BoxGeometry(0.45 * length, 0.03, 0.55 * length),
+        creepWing,
+      );
+      wing.position.set(-0.05 * length, 0.6 * height, side * 0.55 * length);
+      wing.rotation.x = side * 0.25;
+    }
+    body.position.y = FLY_ALTITUDE;
+    // Air units float off the grid in isometric view; the shadow marks their cell.
+    const shadow = add(
+      new THREE.CircleGeometry(0.45 * length, 12),
+      creepShadow,
+      group,
+    );
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.position.y = 0.01;
+  }
+  group.add(body);
+  group.userData = { length, height, flying, boss };
+  return group;
 }
