@@ -43,3 +43,7 @@ Local checks: six SVG files parse with accessible titles; Chromium rendered all 
 ![Phone study](previews/phone.png)
 
 ![Top-down phone study](previews/phone-top.png)
+
+## Art-style options
+
+[Faceted, voxel and hybrid cave mockups](style-studies/README.md) compare three art treatments using the same HUD and board composition. They are review options; the source-verified board specification remains unchanged.
