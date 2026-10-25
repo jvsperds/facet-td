@@ -51,3 +51,7 @@ Local checks: six SVG files parse with accessible titles; Chromium rendered all 
 [Connected cave revision](style-studies/d-connected-hybrid.png) adds the requested entrance/goal continuity. The original gems protect a castle; a crystal vault is the proposed visual interpretation. See the [environment and goal handoff](IMPLEMENTATION.md).
 
 [Corrected E-to-castle approach: four isometric rotations and top view](camera-studies/README.md) supersedes the ambiguous connection in concept D.
+
+## Environment first
+
+[Interactive Three.js sunken cave blockout](environment/README.md): continuous floor, wall-embedded fixed openings, camera rotation, top view and foreground cutaways. [Future model brief](environment/MODEL_BRIEF.md) records the latest requirements. Earlier generated images remain inspiration; their bridges and camera-facing architecture are superseded.

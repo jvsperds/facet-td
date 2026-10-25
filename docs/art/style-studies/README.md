@@ -31,3 +31,7 @@ Generated with built-in `image_gen.imagegen` from C, with the [exact edit prompt
 ![Connected cave entrance and defended crystal vault](d-connected-hybrid.png)
 
 [Corrected E-to-castle approach: four isometric rotations and top view](../camera-studies/README.md) supersedes the ambiguous connection in concept D.
+
+## Latest environment correction
+
+No bridge is required at either endpoint. Use unobstructed continuous cave floor, with the entrance and castle embedded in the sunken chamber walls and fixed in world orientation. The [model brief](../environment/MODEL_BRIEF.md) supersedes these details in the retained concept images; the [actual Three.js blockout](../environment/README.md) demonstrates the spatial arrangement.
