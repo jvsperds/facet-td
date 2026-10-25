@@ -1,0 +1,23 @@
+{
+ "custom_events.json": "8b3d1d451d8ebfa80db742016b4ac893baddaaf8ae8f8e3e4d8a43ab6c27f36d",
+ "custom_net_tables.json": "00e1f1930ccac39fc19b13cea1a17f80cceb9965b43f9efb2dc3f329005b9f32",
+ "localization/english.json": "52ee16c32e91042d4563d9bd9a4c5fdb116c6273ff5ef113914f30d4e29f7c49",
+ "lua/addon_game_mode.json": "8f9218657632e5b05b0d92adba74a6047df8e8c57cf8b0da873a34e8baa24fa6",
+ "manifest.json": "28be4db230df9f28b6dd78cf79278f32582f172f60ab120b2a7daeb3a08c699d",
+ "maps/gemtd_1p.entities.json": "74175e68405de5e8643b3155001b378041394458111e1696542582f27db18287",
+ "maps/gemtd_1p.gridnav.json": "20b0c32f1efce5a920cb03cc410f6e15035e9961720050cffb8a264781c55acb",
+ "maps/gemtd_coop.entities.json": "d3ba9bfa91591544e4d246f19012e380d2aa1ae95609308d64d111183ef9f931",
+ "maps/gemtd_coop.gridnav.json": "73bb615afdbc5b0ec8bf7c99068ee9697829d4e187ca8cd2b92f40c25da03e63",
+ "maps/gemtd_race.entities.json": "ef7f4ca6b83a33624ef4db0400c6cee06dc3eef5132739825bd4361c91bf39e3",
+ "maps/gemtd_race.gridnav.json": "c82b6dcff9b2b8639e2f82c31d1070d5850b5673d23cca650200927649cbaaf9",
+ "npc/abilities.json": "d30ce76ea02ed1d4e185e6a572754f3229e4d27c053dca6d190a40e2d2b098fb",
+ "npc/activelist.json": "e1cfe865ead61d2d49a2b87d06ccd7ae2e4974a491c518b73d5e39882c3eff6f",
+ "npc/heroes.json": "0c8da6c06c02311c569fb7fe12d403991e770af16074124fcc271907564a128f",
+ "npc/herolist.json": "9eb393c3ec261b84db1c2b5042555746a9d1a1fb0d839c3aed654aec208b43b8",
+ "npc/items.json": "c90eaef7c69e61628231cafa27503b39cb5a07332fab7020633fa8b5aee94065",
+ "npc/portraits.json": "23eb4d67e652428489663d0f6bec344df761e795b926324ac1d5903709e7bb36",
+ "npc/units.json": "1bd69670a388f0620b4180bbd6410d372af9b0fe6f335a45f6703cdac066e966",
+ "shops/gemtd_1p.json": "66bc79c913aa92449aa663beb178ce0960b1a5cb710f2497d64f2c9bfbc2c9ba",
+ "shops/gemtd_coop.json": "66bc79c913aa92449aa663beb178ce0960b1a5cb710f2497d64f2c9bfbc2c9ba",
+ "shops/gemtd_race.json": "a50e5326bfb929a915021fe868a28a84d886d488046e1e5fb0f4b825c80d98a3"
+}

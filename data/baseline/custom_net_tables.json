@@ -1,0 +1,8 @@
+{
+ "custom_net_tables": [
+  "game_state",
+  "game_maze",
+  "gemtd_ranking",
+  "player_info_table"
+ ]
+}

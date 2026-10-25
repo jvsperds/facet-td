@@ -1,0 +1,19 @@
+{
+ "dota_shops": {
+  "consumables": {
+   "item": "item_moshuhe"
+  },
+  "attributes": {},
+  "weapons_armor": {},
+  "misc": {},
+  "basics": {},
+  "support": {},
+  "magics": {},
+  "defense": {},
+  "weapons": {},
+  "artifacts": {},
+  "sideshop1": {},
+  "sideshop2": {},
+  "secretshop": {}
+ }
+}

@@ -1,0 +1,19 @@
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #0a0c0f;
+  color: #e4e8ed;
+  font:
+    14px system-ui,
+    sans-serif;
+}
+canvas {
+  display: block;
+}
+.hud {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+}
