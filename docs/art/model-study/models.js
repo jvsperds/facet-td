@@ -13,6 +13,15 @@ export const GEM_TYPES = [
       [0.17, 0.31],
       [0, 0.43],
     ],
+    tower: {
+      shape: "obelisk",
+      profile: [
+        [0, 0.2],
+        [0.21, 0.2],
+        [0.09, 0.78],
+        [0, 0.78],
+      ],
+    },
   },
   {
     id: "B",
@@ -25,6 +34,17 @@ export const GEM_TYPES = [
       [0.18, 0.32],
       [0, 0.43],
     ],
+    tower: {
+      shape: "column",
+      profile: [
+        [0, 0.2],
+        [0.16, 0.2],
+        [0.16, 0.66],
+        [0.21, 0.68],
+        [0.21, 0.78],
+        [0, 0.78],
+      ],
+    },
   },
   {
     id: "Y",
@@ -37,6 +57,17 @@ export const GEM_TYPES = [
       [0.17, 0.28],
       [0, 0.43],
     ],
+    tower: {
+      shape: "waist",
+      profile: [
+        [0, 0.2],
+        [0.21, 0.2],
+        [0.09, 0.48],
+        [0.22, 0.76],
+        [0, 0.76],
+      ],
+      prongs: 3,
+    },
   },
   {
     id: "R",
@@ -50,6 +81,18 @@ export const GEM_TYPES = [
       [0.14, 0.33],
       [0, 0.33],
     ],
+    tower: {
+      shape: "keep",
+      profile: [
+        [0, 0.2],
+        [0.17, 0.2],
+        [0.17, 0.58],
+        [0.27, 0.66],
+        [0.27, 0.74],
+        [0, 0.74],
+      ],
+      prongs: 8,
+    },
   },
   {
     id: "G",
@@ -63,6 +106,16 @@ export const GEM_TYPES = [
       [0.11, 0.43],
       [0, 0.43],
     ],
+    tower: {
+      shape: "spire",
+      profile: [
+        [0, 0.2],
+        [0.13, 0.2],
+        [0.13, 0.8],
+        [0, 0.8],
+      ],
+      prongs: 4,
+    },
   },
   {
     id: "E",
@@ -75,9 +128,56 @@ export const GEM_TYPES = [
       [0.23, 0.21],
       [0, 0.29],
     ],
+    tower: {
+      shape: "cup",
+      profile: [
+        [0, 0.2],
+        [0.21, 0.2],
+        [0.11, 0.34],
+        [0.11, 0.52],
+        [0.26, 0.7],
+        [0, 0.7],
+      ],
+    },
   },
-  { id: "Q", name: "Aquamarine", color: "#31b1bf", sides: 5, cluster: 2 },
-  { id: "P", name: "Amethyst", color: "#9963d2", sides: 6, cluster: 3 },
+  {
+    id: "Q",
+    name: "Aquamarine",
+    color: "#31b1bf",
+    sides: 5,
+    cluster: 2,
+    tower: {
+      shape: "stepped",
+      profile: [
+        [0, 0.2],
+        [0.25, 0.2],
+        [0.25, 0.36],
+        [0.19, 0.36],
+        [0.19, 0.54],
+        [0.13, 0.54],
+        [0.13, 0.76],
+        [0, 0.76],
+      ],
+    },
+  },
+  {
+    id: "P",
+    name: "Amethyst",
+    color: "#9963d2",
+    sides: 6,
+    cluster: 3,
+    tower: {
+      shape: "drum",
+      profile: [
+        [0, 0.2],
+        [0.26, 0.2],
+        [0.23, 0.5],
+        [0.27, 0.56],
+        [0.27, 0.62],
+        [0, 0.62],
+      ],
+    },
+  },
 ];
 
 const stoneMaterials = [
@@ -176,36 +276,58 @@ export function createStone({ x = 0, z = 0, neighbours = {}, seed = 1 } = {}) {
   return group;
 }
 
-/** Tapered masonry tower with a gem mounted on its crown. */
-export function createGemTower(type, { seed = 1 } = {}) {
+export const QUALITY_TIERS = [
+  { tier: 1, name: "Chipped", width: 0.38 },
+  { tier: 2, name: "Flawed", width: 0.44 },
+  { tier: 3, name: "Normal", width: 0.5 },
+  { tier: 4, name: "Flawless", width: 0.56 },
+  { tier: 5, name: "Perfect", width: 0.62 },
+  { tier: 6, name: "Huge", width: 0.68 },
+];
+
+/** Masonry tower with a type-specific shaft, crowned by its gem. Quality scales the whole model. */
+export function createGemTower(type, { seed = 1, quality = 6 } = {}) {
   const spec = GEM_TYPES.find((g) => g.id === type);
   if (!spec) throw new RangeError(`Unknown gem type: ${type}`);
-  const group = createStone({ seed });
-  const shaftMaterial = stoneMaterials[2];
-  const trimMaterial = stoneMaterials[4];
-  const masonry = (bottom, top, height, y, material, sides = 8) => {
-    const mesh = new THREE.Mesh(
-      new THREE.CylinderGeometry(top, bottom, height, sides),
-      material,
-    );
-    mesh.position.y = y;
-    mesh.rotation.y = Math.PI / 8;
+  const tier = QUALITY_TIERS.find((q) => q.tier === quality);
+  if (!tier) throw new RangeError(`Unknown quality tier: ${quality}`);
+  const stoneMesh = (geometry, material) => {
+    const mesh = new THREE.Mesh(geometry, material);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     mesh.userData.sharedMaterial = true;
-    group.add(mesh);
+    model.add(mesh);
     return mesh;
   };
-  masonry(0.31, 0.28, 0.12, 0.14, trimMaterial);
-  masonry(0.24, 0.18, 0.47, 0.425, shaftMaterial);
-  masonry(0.225, 0.21, 0.055, 0.34, trimMaterial);
-  masonry(0.19, 0.27, 0.11, 0.7, trimMaterial);
-  masonry(0.27, 0.27, 0.06, 0.785, shaftMaterial);
-  // Four stone prongs make the crown read as a tower even when the gem is squat.
-  for (let i = 0; i < 4; i++) {
-    const prong = masonry(0.055, 0.045, 0.14, 0.85, trimMaterial, 4);
-    prong.position.x = Math.cos((i * Math.PI) / 2) * 0.205;
-    prong.position.z = Math.sin((i * Math.PI) / 2) * 0.205;
+  const model = createStone({ seed });
+  const plinth = stoneMesh(
+    new THREE.CylinderGeometry(0.28, 0.31, 0.12, 8),
+    stoneMaterials[4],
+  );
+  plinth.position.y = 0.14;
+  plinth.rotation.y = Math.PI / 8;
+  // The shaft shares its gem's facet count and owns the silhouette, so type reads without colour.
+  const { profile: shaft, prongs = 0 } = spec.tower;
+  stoneMesh(
+    new THREE.LatheGeometry(
+      shaft.map(([r, h]) => new THREE.Vector2(r, h)),
+      spec.sides,
+      Math.PI / spec.sides,
+    ),
+    stoneMaterials[2],
+  );
+  const [crownRadius, crown] = shaft.at(-2);
+  for (let i = 0; i < prongs; i++) {
+    const prong = stoneMesh(
+      new THREE.CylinderGeometry(0.04, 0.05, 0.12, 4),
+      stoneMaterials[4],
+    );
+    const a = (i * 2 * Math.PI) / prongs;
+    prong.position.set(
+      Math.cos(a) * (crownRadius - 0.04),
+      crown + 0.05,
+      Math.sin(a) * (crownRadius - 0.04),
+    );
   }
   const material = new THREE.MeshStandardMaterial({
     color: spec.color,
@@ -228,12 +350,14 @@ export function createGemTower(type, { seed = 1 } = {}) {
     geometry.computeVertexNormals();
     const gem = new THREE.Mesh(geometry, material);
     gem.scale.set(0.85, 0.8, 0.85);
-    gem.position.set((i - (count - 1) / 2) * 0.145, 0.815, 0);
+    gem.position.set((i - (count - 1) / 2) * 0.145, crown, 0);
     gem.rotation.y = Math.PI / 4;
     gem.castShadow = true;
     gem.receiveShadow = true;
-    group.add(gem);
+    model.add(gem);
   }
-  group.name = spec.name;
-  return group;
+  model.scale.setScalar(tier.width / 0.68);
+  model.name = spec.name;
+  model.userData.quality = tier;
+  return model;
 }

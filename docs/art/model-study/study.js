@@ -1,5 +1,10 @@
 import * as THREE from "three";
-import { createStone, createGemTower, GEM_TYPES } from "./models.js";
+import {
+  createStone,
+  createGemTower,
+  GEM_TYPES,
+  QUALITY_TIERS,
+} from "./models.js";
 
 const stage = document.querySelector("#stage");
 const labels = document.querySelector("#labels");
@@ -33,7 +38,7 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.domElement.setAttribute("role", "img");
 renderer.domElement.setAttribute(
   "aria-label",
-  "3D study: faceted rock walls join across shared edges. Eight named gems crown tapered masonry towers. Use the view, merge and variation controls to inspect.",
+  "3D study: faceted rock walls join across shared edges. Eight named gems crown masonry towers, each with its own shaft shape. A row shows the six quality tiers. Use the view, merge and variation controls to inspect.",
 );
 stage.prepend(renderer.domElement);
 scene.add(new THREE.HemisphereLight("#f6f3e9", "#56616a", 2.5));
@@ -50,15 +55,15 @@ sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.bias = -0.0003;
 scene.add(sun);
 const floor = new THREE.Mesh(
-  new THREE.BoxGeometry(12, 0.12, 8),
+  new THREE.BoxGeometry(12, 0.12, 10),
   new THREE.MeshStandardMaterial({ color: "#c7cac9", roughness: 1 }),
 );
-floor.position.y = -0.07;
+floor.position.set(0, -0.07, 1);
 floor.receiveShadow = true;
 scene.add(floor);
 const gridLines = [];
-for (let x = -6; x <= 6; x++) gridLines.push(x, 0, -4, x, 0, 4);
-for (let z = -4; z <= 4; z++) gridLines.push(-6, 0, z, 6, 0, z);
+for (let x = -6; x <= 6; x++) gridLines.push(x, 0, -4, x, 0, 6);
+for (let z = -4; z <= 6; z++) gridLines.push(-6, 0, z, 6, 0, z);
 const grid = new THREE.LineSegments(
   new THREE.BufferGeometry().setAttribute(
     "position",
@@ -165,6 +170,15 @@ function build() {
     models.add(tower);
     label(type.name, x, 3.15, type.id);
   });
+  // Quality is the only variable along this row.
+  QUALITY_TIERS.forEach(({ tier, name }, i) => {
+    const tower = createGemTower("R", { seed, quality: tier });
+    const x = -3.25 + i * 1.3;
+    tower.position.set(x, 0, 5.1);
+    tower.name = `${name} Ruby`;
+    models.add(tower);
+    label(name, x, 5.6, String(tier));
+  });
   scene.add(models);
   updateMerge(Number(slider.value));
   resize();
@@ -189,15 +203,15 @@ function resize() {
   );
   const target = selected
     ? selected.position.clone().add(new THREE.Vector3(0, 0.55, 0))
-    : new THREE.Vector3();
+    : new THREE.Vector3(0, 0, 1);
   const viewAngle = angle - (top ? Math.PI / 4 : 0);
   const sine = Math.abs(Math.sin(viewAngle)),
     cosine = Math.abs(Math.cos(viewAngle));
   const half = selected
     ? Math.max(0.85, 0.65 / aspect)
     : Math.max(
-        (6 * sine + 4 * cosine) * (top ? 1 : 1 / Math.sqrt(3)) + 0.85,
-        (6 * cosine + 4 * sine + 0.85) / aspect,
+        (6 * sine + 5 * cosine) * (top ? 1 : 1 / Math.sqrt(3)) + 0.85,
+        (6 * cosine + 5 * sine + 0.85) / aspect,
       );
   models.children.forEach((child) => {
     child.visible =
