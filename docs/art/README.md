@@ -3,13 +3,13 @@
 Start with the compact [direction sheet](DIRECTION.md).
 
 - [Desktop reference mockup](desktop.svg): bright arena, upper-left build guidance, lower-left inspector and lower-right command dock.
-- [Top-down desktop mockup](top-view.svg): the same board, selection and HUD, with an Iso view return button.
+- [Top-down desktop mockup](top-view.svg): the same verified board and HUD, with an Iso view return button.
 - [Phone reference mockup](phone.svg): dark status and context panels, camera row and labeled actions.
 - [Top-down phone mockup](phone-top.svg): square board with the view toggle still visible.
 - [Gem readability reference](gems.svg): eight silhouettes, grayscale comparison, six quality tiers.
 - [HUD wireframe](hud-wireframe.svg): desktop, tablet, portrait and short landscape rules.
 
-These are static vector studies, not a game build. Their reduced board, paths, values and selected state are illustrative. Reference controls are not interactive. Keep only actions that the converted Classic rules allow.
+These are static vector studies, not a game build. Their board geometry and marker order now match the current GemTD board source, checked against the opened local game. See [BOARD.md](BOARD.md) for coordinates, walls, route checks and original VPK offsets. HUD state and values remain illustrative. Reference controls are not interactive. Keep only actions that the converted Classic rules allow.
 
 ## Evidence reused
 
@@ -33,6 +33,8 @@ The bright identity follows the user's explicit choice. Both camera modes, palet
 PNG files in `previews/` are Chromium captures of the adjacent authored SVG studies, at their native dimensions. They use no external assets or fonts. The supplied screenshot is retained separately as reference material and is not composited into these studies. They are derived previews, not AI-generated reference images.
 
 Local checks: six SVG files parse with accessible titles; Chromium rendered all six with no text outside their viewports. Contrast checks passed for body text, secondary text, mint actions, control borders, focus and selected-cell edges. The revised isometric/top-down desktop and phone studies and HUD wireframe were rendered and inspected. Projection and toggle behavior still require runtime validation. These checks do not establish runtime accessibility or touch behavior.
+
+![Actual GemTD board](references/actual-gemtd-board.png)
 
 ![Desktop study](previews/desktop.png)
 

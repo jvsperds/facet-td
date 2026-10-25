@@ -23,6 +23,6 @@ P1.5 direction sheet · 25 October 2026 · Baseline for P2–P4.
 
 **Inspiration:** [user-supplied UI](references/user-ui.png). Adopt its board-first composition, bright board, dark floating panels and grouped controls. Exact values, costs, assets and mechanics come from Classic data.
 
-**References:** [desktop iso](desktop.svg), [desktop top](top-view.svg), [phone iso](phone.svg), [phone top](phone-top.svg), [type and quality](gems.svg), [HUD wireframe](hud-wireframe.svg). All maps, values and states in these studies are illustrative. Use VPK geometry and rules in Classic. No new draft tray or gameplay rule is implied.
+**References:** [desktop iso](desktop.svg), [desktop top](top-view.svg), [phone iso](phone.svg), [phone top](phone-top.svg), [type and quality](gems.svg), [HUD wireframe](hud-wireframe.svg). Board geometry and marker order now follow the opened GemTD board; see [verified coordinates and original VPK anchors](BOARD.md). HUD values are illustrative. Use VPK geometry and rules in Classic. No new draft tray or gameplay rule is implied.
 
 **Before P2–P4 ship:** check both views, repeated toggles, picking and occlusion at all four rotations, actual HUD fit, crowded cells, long labels, keyboard and assistive paths, low graphics, and reduced motion. Check 1440×900, 768×1024, 390×844, 320×568 and 844×390. Detailed dimensions and validation boundaries are in [IMPLEMENTATION.md](IMPLEMENTATION.md).
