@@ -10,9 +10,9 @@ P1.5 direction sheet · 25 October 2026 · Baseline for P2–P4.
 | Shading | Opaque, flat-shaded low-poly meshes. Warm key light, neutral fill, small contact shadows. No bloom, metal reflections or surface noise. |
 | Palette | Slate cells `#C7CAC9` / `#BCC2C2`, provisional backdrop `#656D74`, charcoal HUD `#25282C`, raised controls `#393E43`, text `#F4F3EF`, secondary text `#BDC3C7`, pale grey action `#D4D8DC` with dark ink `#202429`. Gem colours retain their type meaning. |
 | States | Charcoal `#3C454C` selected-cell rim with a pale outer edge on the board. Separate blue `#164FAD` ground focus ring; white dashed focus on dark HUD. Danger uses `#FFB3AF` on dark panels plus explicit text. |
-| Scale | One cell = one world unit. Complete model width ≤**0.68 cell**, height ≤**0.65 cell**; walls ≤**0.20 cell**. Effects cannot hide the selected cell. |
+| Scale | One cell = one world unit. Complete model width ≤**0.68 cell**, current basic tower study height ≤**1.16 cell** (raised masonry pedestal; board occlusion review pending); walls ≤**0.20 cell**. Effects cannot hide the selected cell. |
 | Type | Eight distinct silhouettes and upright VPK letter stamps: D, B, Y, R, G, E, Q, P. Colour reinforces identity. |
-| Quality | Six tiers: chipped, flawed, normal, flawless, perfect, huge. Width 0.38→0.68 cell; height 0.30→0.65 cell. Full name and tier number remain in the inspector. |
+| Quality | Six tiers: chipped, flawed, normal, flawless, perfect, huge. Width 0.38→0.68 cell; tier heights need a new mapping for the taller tower study. Full name and tier number remain in the inspector. |
 | Typography | Local Segoe UI / Arial, 16 px body, 14 px secondary labels, tabular numerals. Minimum 48 × 48 px controls with 8 px gaps. |
 
 **Desktop:** compact top status bar; full-screen arena with build guidance upper left with **five selectable placement slots**, selection info lower left and an **icon-only toolstrip lower right**. Fit playable cells around measured HUD exclusion zones. If they overlap, dock or collapse the inspector and refit. Recipes open on demand. **Tablet:** collapsible inspector. **Phone portrait:** two status rows, five placement slots, board, compact icon row and selection sheet. Secondary tools sit in More. **Short landscape:** board left, 240 px scrollable inspector right; sticky action row. Respect safe areas and 320 px screens.

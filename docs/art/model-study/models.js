@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { ConvexGeometry } from "three/addons/geometries/ConvexGeometry.js";
 
 export const GEM_TYPES = [
   {
@@ -79,15 +80,16 @@ export const GEM_TYPES = [
   { id: "P", name: "Amethyst", color: "#9963d2", sides: 6, cluster: 3 },
 ];
 
-const cube = new THREE.BoxGeometry(1, 1, 1);
-const stoneColors = ["#717877", "#818784", "#8b918c", "#969b94", "#a4a79d"].map(
-  (color) => new THREE.Color(color),
+const stoneMaterials = [
+  "#717877",
+  "#818784",
+  "#8b918c",
+  "#969b94",
+  "#a4a79d",
+].map(
+  (color) =>
+    new THREE.MeshStandardMaterial({ color, roughness: 1, flatShading: true }),
 );
-const stoneMaterial = new THREE.MeshStandardMaterial({
-  color: "#ffffff",
-  roughness: 1,
-  flatShading: true,
-});
 const noise = (x, y, z, seed) => {
   let n =
     Math.imul(x + 173, 374761393) ^
@@ -98,85 +100,113 @@ const noise = (x, y, z, seed) => {
   return (n ^ (n >>> 16)) >>> 0;
 };
 
-/** Pure voxel layout: cardinal neighbours reach the shared cell edge; diagonals do not connect. */
-export function stoneVoxels(x, z, neighbours = {}, seed = 1) {
+/** Broad irregular boulder, with cardinal ridges that meet the adjacent cell. */
+export function createStone({ x = 0, z = 0, neighbours = {}, seed = 1 } = {}) {
   if (![x, z, seed].every(Number.isInteger))
     throw new TypeError("Stone coordinates and seed must be integers");
-  const voxels = [];
-  const shape = noise(x, 0, z, seed);
-  const radiusX = 0.084 + (shape % 4) * 0.007;
-  const radiusZ = 0.063 + ((shape >>> 2) % 4) * 0.007;
-  for (let i = -5; i < 5; i++)
-    for (let k = -5; k < 5; k++) {
-      const px = (i + 0.5) * 0.1,
-        pz = (k + 0.5) * 0.1;
-      const core = (px * px) / radiusX + (pz * pz) / radiusZ < 1;
-      const arm =
-        (neighbours.east && px > 0 && Math.abs(pz) < 0.21) ||
-        (neighbours.west && px < 0 && Math.abs(pz) < 0.21) ||
-        (neighbours.north && pz < 0 && Math.abs(px) < 0.21) ||
-        (neighbours.south && pz > 0 && Math.abs(px) < 0.21);
-      if (!core && !arm) continue;
-      const h = 2 + (noise(x * 10 + i, 0, z * 10 + k, seed) % 3);
-      for (let j = 0; j < h; j++)
-        voxels.push({
-          x: px,
-          y: (j + 0.5) * 0.05,
-          z: pz,
-          color: noise(x * 10 + i, j, z * 10 + k, seed) % stoneColors.length,
-        });
-    }
-  return voxels;
-}
-
-/** progress 0 = separate stone, 1 = connected wall. Reuse the same seed when adjacency changes. */
-export function createStone({ x = 0, z = 0, neighbours = {}, seed = 1 } = {}) {
   const group = new THREE.Group();
-  const voxels = stoneVoxels(x, z, neighbours, seed);
-  const mesh = new THREE.InstancedMesh(cube, stoneMaterial, voxels.length);
-  // Each instance uses a vertex colour; one material keeps all voxels in one draw call.
-  const matrix = new THREE.Matrix4();
-  const scale = new THREE.Vector3(0.1, 0.05, 0.1);
-  const rotation = new THREE.Quaternion();
-  voxels.forEach((v, i) => mesh.setColorAt(i, stoneColors[v.color]));
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  group.add(mesh);
+  const points = [];
+  for (let i = 0; i < 8; i++) {
+    const angle = (i * Math.PI) / 4;
+    const radius = 0.27 + (noise(x, i, z, seed) % 50) / 1000;
+    const px = Math.cos(angle) * radius,
+      pz = Math.sin(angle) * radius;
+    points.push(
+      new THREE.Vector3(px, 0, pz),
+      new THREE.Vector3(
+        px * 0.88,
+        0.11 + (noise(x, i, z, seed + 1) % 50) / 1000,
+        pz * 0.88,
+      ),
+    );
+  }
+  points.push(new THREE.Vector3(0.035, 0.2, -0.025));
+  const material = stoneMaterials[noise(x, 0, z, seed) % stoneMaterials.length];
+  const core = new THREE.Mesh(new ConvexGeometry(points), material);
+  group.add(core);
+  const arms = [];
+  for (const [side, dx, dz] of [
+    ["north", 0, -1],
+    ["east", 1, 0],
+    ["south", 0, 1],
+    ["west", -1, 0],
+  ]) {
+    if (!neighbours[side]) continue;
+    const ridge = [];
+    // Matching edge cross-sections avoid cracks between neighbouring cell meshes.
+    for (const length of [0, 0.5])
+      for (const [width, height] of [
+        [-0.18, 0],
+        [0.18, 0],
+        [-0.16, 0.11],
+        [0.16, 0.11],
+        [0, 0.18],
+      ]) {
+        ridge.push(
+          new THREE.Vector3(
+            dx * length + dz * width,
+            height,
+            dz * length - dx * width,
+          ),
+        );
+      }
+    const arm = new THREE.Mesh(new ConvexGeometry(ridge), material);
+    group.add(arm);
+    arms.push({ arm, dx });
+  }
+  group.traverse((object) => {
+    if (object.isMesh) {
+      object.castShadow = true;
+      object.receiveShadow = true;
+      object.userData.sharedMaterial = true;
+    }
+  });
   group.position.set(x, 0, z);
   group.userData.setMerge = (progress) => {
     const t = THREE.MathUtils.clamp(progress, 0, 1);
     const eased = t * t * (3 - 2 * t);
-    voxels.forEach((v, i) => {
-      const connected = Math.abs(v.x) > 0.3 || Math.abs(v.z) > 0.3;
-      const amount = connected ? 0.64 + 0.36 * eased : 1;
-      matrix.compose(
-        new THREE.Vector3(
-          v.x * amount,
-          v.y * (connected ? 0.35 + 0.65 * eased : 1),
-          v.z * amount,
-        ),
-        rotation,
-        new THREE.Vector3(
-          scale.x,
-          scale.y * (connected ? 0.35 + 0.65 * eased : 1),
-          scale.z,
-        ),
+    for (const { arm, dx } of arms)
+      arm.scale.set(
+        dx ? 0.45 + 0.55 * eased : 1,
+        0.65 + 0.35 * eased,
+        dx ? 1 : 0.45 + 0.55 * eased,
       );
-      mesh.setMatrixAt(i, matrix);
-    });
-    mesh.instanceMatrix.needsUpdate = true;
-    mesh.computeBoundingBox();
-    mesh.computeBoundingSphere();
   };
   group.userData.setMerge(1);
   return group;
 }
 
-/** Basic gem mockups. All geometry is local to one cell and uses shared stone geometry. */
+/** Tapered masonry tower with a gem mounted on its crown. */
 export function createGemTower(type, { seed = 1 } = {}) {
   const spec = GEM_TYPES.find((g) => g.id === type);
   if (!spec) throw new RangeError(`Unknown gem type: ${type}`);
   const group = createStone({ seed });
+  const shaftMaterial = stoneMaterials[2];
+  const trimMaterial = stoneMaterials[4];
+  const masonry = (bottom, top, height, y, material, sides = 8) => {
+    const mesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(top, bottom, height, sides),
+      material,
+    );
+    mesh.position.y = y;
+    mesh.rotation.y = Math.PI / 8;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData.sharedMaterial = true;
+    group.add(mesh);
+    return mesh;
+  };
+  masonry(0.31, 0.28, 0.12, 0.14, trimMaterial);
+  masonry(0.24, 0.18, 0.47, 0.425, shaftMaterial);
+  masonry(0.225, 0.21, 0.055, 0.34, trimMaterial);
+  masonry(0.19, 0.27, 0.11, 0.7, trimMaterial);
+  masonry(0.27, 0.27, 0.06, 0.785, shaftMaterial);
+  // Four stone prongs make the crown read as a tower even when the gem is squat.
+  for (let i = 0; i < 4; i++) {
+    const prong = masonry(0.055, 0.045, 0.14, 0.85, trimMaterial, 4);
+    prong.position.x = Math.cos((i * Math.PI) / 2) * 0.205;
+    prong.position.z = Math.sin((i * Math.PI) / 2) * 0.205;
+  }
   const material = new THREE.MeshStandardMaterial({
     color: spec.color,
     roughness: 0.48,
@@ -197,7 +227,8 @@ export function createGemTower(type, { seed = 1 } = {}) {
     ).toNonIndexed();
     geometry.computeVertexNormals();
     const gem = new THREE.Mesh(geometry, material);
-    gem.position.set((i - (count - 1) / 2) * 0.17, 0.2, 0);
+    gem.scale.set(0.85, 0.8, 0.85);
+    gem.position.set((i - (count - 1) / 2) * 0.145, 0.815, 0);
     gem.rotation.y = Math.PI / 4;
     gem.castShadow = true;
     gem.receiveShadow = true;

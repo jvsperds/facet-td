@@ -33,7 +33,7 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.domElement.setAttribute("role", "img");
 renderer.domElement.setAttribute(
   "aria-label",
-  "3D study: voxel stone walls join across shared edges. Eight named gem towers stand on stone bases. Use the view, merge and variation controls to inspect.",
+  "3D study: faceted rock walls join across shared edges. Eight named gems crown tapered masonry towers. Use the view, merge and variation controls to inspect.",
 );
 stage.prepend(renderer.domElement);
 scene.add(new THREE.HemisphereLight("#f6f3e9", "#56616a", 2.5));
@@ -126,12 +126,12 @@ function label(text, x, z, detail = "") {
 }
 function build() {
   scene.remove(models);
-  // Shared stone geometry/materials stay alive; dispose only the replaced gem resources.
+  // Stone materials are shared; rebuilt meshes own their geometry.
   models.traverse((object) => {
     if (object.isInstancedMesh) object.dispose();
     if (object.isMesh && !object.isInstancedMesh) {
       object.geometry.dispose();
-      object.material.dispose();
+      if (!object.userData.sharedMaterial) object.material.dispose();
     }
   });
   models = new THREE.Group();
@@ -188,13 +188,13 @@ function resize() {
     (child) => child.name === inspect.value && inspect.value,
   );
   const target = selected
-    ? selected.position.clone().add(new THREE.Vector3(0, 0.25, 0))
+    ? selected.position.clone().add(new THREE.Vector3(0, 0.55, 0))
     : new THREE.Vector3();
   const viewAngle = angle - (top ? Math.PI / 4 : 0);
   const sine = Math.abs(Math.sin(viewAngle)),
     cosine = Math.abs(Math.cos(viewAngle));
   const half = selected
-    ? Math.max(0.65, 0.65 / aspect)
+    ? Math.max(0.85, 0.65 / aspect)
     : Math.max(
         (6 * sine + 4 * cosine) * (top ? 1 : 1 / Math.sqrt(3)) + 0.85,
         (6 * cosine + 4 * sine + 0.85) / aspect,

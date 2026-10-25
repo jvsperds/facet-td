@@ -1,28 +1,24 @@
 import assert from "node:assert/strict";
 import { Box3 } from "three";
-import {
-  stoneVoxels,
-  createStone,
-  createGemTower,
-  GEM_TYPES,
-} from "./models.js";
+import { createStone, createGemTower, GEM_TYPES } from "./models.js";
 
-const a = stoneVoxels(0, 0, {}, 7);
+const geometry = (seed, x = 0) =>
+  Array.from(
+    createStone({ x, seed }).children[0].geometry.attributes.position.array,
+  );
 assert.deepEqual(
-  a,
-  stoneVoxels(0, 0, {}, 7),
-  "Stable variation for a fixed cell/seed",
+  geometry(7),
+  geometry(7),
+  "Stable shape for a fixed cell/seed",
 );
-assert.notDeepEqual(a, stoneVoxels(0, 0, {}, 8), "Seeds change the stone");
+assert.notDeepEqual(geometry(7), geometry(8), "Seeds change the boulder shape");
 assert.notDeepEqual(
-  a,
-  stoneVoxels(1, 0, {}, 7),
+  geometry(7),
+  geometry(7, 1),
   "Cells vary without a new seed",
 );
-assert.throws(() => stoneVoxels(0.5, 0), TypeError);
+assert.throws(() => createStone({ x: 0.5 }), TypeError);
 assert.throws(() => createGemTower("invalid"), RangeError);
-const keys = new Set(a.map((v) => `${v.x},${v.y},${v.z}`));
-assert.equal(keys.size, a.length, "No duplicate voxels");
 for (let mask = 0; mask < 16; mask++) {
   const neighbours = Object.fromEntries(
     ["north", "east", "south", "west"].map((side, i) => [
@@ -38,6 +34,11 @@ for (let mask = 0; mask < 16; mask++) {
     assert.ok(bounds.min.x >= -0.500001 && bounds.max.x <= 0.500001);
     assert.ok(bounds.min.z >= -0.500001 && bounds.max.z <= 0.500001);
   }
+  assert.equal(
+    stone.children.length,
+    1 + Object.values(neighbours).filter(Boolean).length,
+    "One boulder plus one ridge per neighbour",
+  );
   const bounds = new Box3().setFromObject(stone);
   if (neighbours.east)
     assert.ok(Math.abs(bounds.max.x - 0.5) < 1e-6, "East edge joins");
@@ -52,10 +53,10 @@ assert.equal(new Set(GEM_TYPES.map((g) => g.id)).size, 8);
 for (const type of GEM_TYPES) {
   const tower = createGemTower(type.id);
   const bounds = new Box3().setFromObject(tower, true);
-  assert.ok(bounds.max.y <= 0.650001, `${type.name} height cap`);
+  assert.ok(bounds.max.y <= 1.160001, `${type.name} height cap`);
   assert.ok(bounds.max.x - bounds.min.x <= 0.680001, `${type.name} width cap`);
   assert.ok(bounds.max.z - bounds.min.z <= 0.680001, `${type.name} depth cap`);
-  assert.ok(bounds.max.y >= 0.48, "Gem stands above the stone");
+  assert.ok(bounds.max.y >= 1.04, "Tower is visibly taller than its wall base");
 }
 console.log(
   "PASS: 16 adjacency masks, merge bounds, deterministic variation, eight tower bounds and invalid inputs",
