@@ -2,6 +2,8 @@
 
 Start with the compact [direction sheet](DIRECTION.md).
 
+[Stone and basic gem 3D models](model-study/README.md): reusable three.js voxel stone factories, animated wall joins, eight gem towers and a standalone interactive preview.
+
 - [Desktop reference mockup](desktop.svg): cave-grey arena, top-left five-gem quick selection, lower-left selection info and lower-right icon-only tools.
 - [Top-down desktop mockup](top-view.svg): the same verified board and HUD, with an Iso view return button.
 - [Phone reference mockup](phone.svg): grey status and selection panels, five-gem summary and compact icon tools.
