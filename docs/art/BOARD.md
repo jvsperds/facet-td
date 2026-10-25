@@ -37,3 +37,5 @@ The current GemTD grid is a prior screenshot-derived reconstruction. Its start a
 ## Checks
 
 Each board study embeds marker coordinates. Checks compare all seven labels against the current map source in both views and both screen sizes. A no-corner-cutting shortest-path check matches the existing empty-map route fixture. These validate the current UI reference; they do not claim that the reference grid is an exact VPK map conversion.
+
+The cave-grey HUD studies add three explicitly illustrative current-round gems at zero-based cells (12,12), (24,12), and (12,24). These are legal cells in the reference map, outside the fixed walls, central cross and corner no-build zones. Their IDs match the three filled quick-selection slots; they do not move any checkpoint or redefine the board.
