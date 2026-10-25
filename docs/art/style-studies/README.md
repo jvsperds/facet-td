@@ -19,3 +19,13 @@ Created with built-in `image_gen.imagegen`, using `docs/art/previews/desktop.png
 ![B: voxel](b-voxel.png)
 
 ![C: voxel cave with faceted gems](c-hybrid.png)
+
+## Connected entrance and defended destination
+
+[Revised connected-cave mockup](d-connected-hybrid.png) follows the user's request to retain the board's connection to its environment. A tunnel feeds the logical northwest/start corner; the southeast/exit corner connects by stone approach to a defended goal embedded in the cave. The arena now sits within continuous cave floor instead of being an isolated floating island.
+
+The proposed goal is a fortified crystal vault protecting a heart crystal. This is an art interpretation of the original **castle**, not a new rule. Original Lua creates `gemtd_castle` at `path7` (line 2031); enemies reaching the goal reduce `_G.gem_castle_hp` (line 3798). The route remains S → 1 → 2 → 3 → 4 → 5 → castle/exit. The original has five intermediate checkpoints; the goal is the sixth destination after the start.
+
+Generated with built-in `image_gen.imagegen` from C, with the [exact edit prompt](d-connected-hybrid.prompt.json). The user requested the connections; the specific crystal-vault motif is proposed for review. Markers and HUD regions were visually reviewed; exact tile geometry and runtime behavior remain governed by the source references.
+
+![Connected cave entrance and defended crystal vault](d-connected-hybrid.png)
