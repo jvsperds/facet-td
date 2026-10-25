@@ -56,6 +56,21 @@ The lower-left info panel reflects the selected gem, stone, creep or empty cell.
 
 The DOM owns menus, controls, descriptions and status announcements. Provide one keyboard board cursor with arrow navigation, Enter to select and Escape to close the top panel. Keep screen-relative arrows consistent after rotation and announce logical cell coordinates. Announce selection, invalid actions and phase changes, not combat ticks. Preserve keyboard focus when the HUD updates. A DOM cell inspector must expose the same selection and commands to assistive technology; a canvas label alone is insufficient.
 
+## End-of-run summary
+
+[User reference](references/user-end-card.png), received 25 October 2026. Show a modal summary when the castle falls or the last wave clears. Use the HUD palette, Main menu and Play again actions, and keyboard focus on Play again.
+
+- **Header:** result, mode and one-line cause.
+- **Score card:** final score with its parts, and "New best" against the local best. Use the Classic score definition; the VPK ranks by kills. Do not invent a formula.
+- **Totals grid:** waves cleared, kills, leaked, damage, towers, build level, accuracy and time.
+- **Per-wave chart:** one bar per wave on a log scale, with Damage / Gold / Castle / Kills tabs. Hovering or focusing a bar shows that wave; give the chart a text summary for assistive technology.
+- **Top towers:** the five towers that dealt the most damage, with the gem icon, name, damage, share, kills and combine wave. Add a damage-type split bar.
+- **Highlights:** biggest hit, hardest wave, longest wave, leaks, critical hits, dodges (evasion), gold stolen by thieves, gold spent, and towers built with combines, downgrades and removed stones. Each highlight appears only when its Classic mechanic exists: prayers, thieves, evasion and crit do.
+- **Gems placed by quality:** six bars, chipped to huge, plus a prayer count and cost.
+- **Best runs:** a local top list per mode, marking this run. Stored on the device only.
+
+Every value comes from simulation events, not from the renderer. The sim must record per-wave damage, kills, leaks, gold and castle HP; per-tower damage, kills and damage type; hits, crits and dodges; thief gold; and build actions. This screen is P3 or later; P1.5 records the layout only.
+
 ## Implementation gate
 
 P2 checks isometric and top-down projection, four cardinal rotations and an intermediate free angle in both modes, cell picking and camera fit at 1440×900, 768×1024, 390×844, 320×568 and 844×390. Check Fixed and Rotate modes, locking at a non-default angle, reset, drag/pick separation, and gesture-free rotation controls. Repeatedly toggle views at fit and zoomed-in scales, with a selected corner cell, keyboard cursor and open inspector; selection, rotation, pan anchor and relative zoom must not drift, no gem or wave may change, and pointer picks must match the shown grid. Verify the toggle is keyboard/touch accessible and reduced motion switches immediately. P3 checks that each of five slots selects the same gem as the board, empty/stale/removed slots cannot act, selection updates the info panel, both selection paths announce consistently, and round transitions replace old slot IDs. It also checks legal/illegal actions, long translated labels, keyboard/assistive paths, visible focus and contrast. P4 checks crowded cells, effects and low graphics. Use actual VPK map geometry, rules, costs and labels. The studies use the verified current GemTD board geometry from [board-reference.json](board-reference.json); [BOARD.md](BOARD.md) records its coordinates and differences from original VPK anchors. P2 must use the original world anchors for Classic, not substitute the screenshot-derived grid. HUD values remain illustrative; no new draft tray, stat value or Classic mechanic is defined.

@@ -22,6 +22,9 @@ These are static vector studies, not a game build. Their board geometry and mark
 
 ## User reference
 
+Later references, received 25 October 2026: [arena with rock-ridge walls and large creeps](references/user-arena-2.png) and [end-of-run summary](references/user-end-card.png). The model study adopts the ridge walls and creep scale; the summary layout is specified in [IMPLEMENTATION.md](IMPLEMENTATION.md#end-of-run-summary). Both are inspiration only.
+
+
 [Original supplied screenshot](references/user-ui.png), received 25 October 2026. It supplies composition and mood: a large bright arena, a compact status bar, upper-left build guidance, lower-left gem/recipe inspector and grouped bottom-right controls. Publisher and asset licensing are unknown; use it as visual inspiration. Build original procedural scenery and use VPK-derived gameplay data.
 
 The latest studies use the user-requested cave-grey palette, lower-right icon-only tools, lower-left context info and selectable five-gem summary. This supersedes the forest-green/mint palette. Fixed-angle and unlocked board rotation complement the Isometric / Top toggle. The camera now supports toggleable isometric and top-down modes. Both preserve selection, logical pan anchor, relative rotation offset and relative zoom. Background styling is deferred; the studies use a neutral slate-grey backdrop. The model caps, eight gem silhouettes, six tiers and accessible input requirements continue. Phone sheets reserve board space; desktop floating panels must remain outside projected playable cells.
