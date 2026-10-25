@@ -104,18 +104,24 @@ const joined = new Box3().setFromObject(towerOnCell);
 assert.ok(Math.abs(joined.max.x - 0.5) < 1e-6, "Tower base joins east wall");
 assert.ok(Math.abs(joined.min.z + 0.5) < 1e-6, "Tower base joins north wall");
 
-// Creeps: VPK ModelScale 1.0-2.2 for waves, up to 6.0 for the largest units.
+// Creeps: VPK ModelScale 1.0-2.2 for waves, 2.2-5.0 for bosses, 6.0 at most.
 assert.throws(() => createCreep({ modelScale: 0 }), RangeError);
+// Walls one cell either side of a corridor protrude up to 0.27 (rock) or 0.31 (huge tower plinth).
+const corridor = 2 - 2 * 0.31;
 for (const modelScale of [1, 1.6, 2.2, 3.5, 5, 6])
   for (const flying of [false, true]) {
     const creep = createCreep({ modelScale, flying, boss: modelScale > 2.2 });
     const body = new Box3().setFromObject(creep.children.at(-1));
-    const length = body.max.x - body.min.x;
+    const size = body.getSize(new Vector3());
     assert.ok(Math.abs(creep.userData.length - creepSize(modelScale)) < 1e-9);
-    assert.ok(length <= (modelScale <= 2.2 ? 0.5 : 1) + 1e-6, "Creep fits");
+    assert.ok(size.x <= creepSize(modelScale) + 1e-6, "Length matches scale");
+    if (!flying && modelScale <= 5)
+      assert.ok(size.z <= corridor, "Creep clears corridor walls");
+    assert.ok(creep.userData.healthBarY > body.max.y, "Health bar above body");
     if (flying) assert.ok(body.min.y > 1.16, "Air units fly above towers");
     else assert.ok(body.max.y >= 0.2, "Ground creeps stand above walls");
   }
+assert.ok(creepSize(5) >= 1.5, "Bosses read at 1.5+ cells");
 
 // Occlusion probe: which neighbouring cell centres (creep height) does one tower hide in the isometric view?
 const elevation = Math.atan(1 / Math.sqrt(2));

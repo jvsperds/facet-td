@@ -39,7 +39,7 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.domElement.setAttribute("role", "img");
 renderer.domElement.setAttribute(
   "aria-label",
-  "3D study: faceted rock walls join across shared edges. Eight named gems crown masonry towers, each with its own shaft shape, and towers join the walls they stand in. A row shows the six quality tiers. Placeholder creeps walk a corridor at their VPK-derived scale. Use the view, merge and variation controls to inspect.",
+  "3D study: faceted rock walls join across shared edges. Eight named gems crown masonry towers, each with its own shaft shape, and towers join the walls they stand in. A row shows the six quality tiers. Placeholder creeps with health bars walk a corridor at their VPK-derived scale. Use the view, merge and variation controls to inspect.",
 );
 stage.prepend(renderer.domElement);
 scene.add(new THREE.HemisphereLight("#f6f3e9", "#56616a", 2.5));
@@ -136,6 +136,20 @@ function label(text, x, z, detail = "") {
   labels.append(element);
   anchors.push({ element, position: new THREE.Vector3(x, 0.01, z) });
 }
+// Health bars are HUD overlays: never depth-tested, so towers cannot hide them.
+function healthBar(creep, fraction, hp) {
+  const element = document.createElement("div");
+  element.className = "health";
+  element.setAttribute("aria-hidden", "true");
+  if (hp) element.dataset.hp = hp;
+  element.style.setProperty("--fill", `${fraction * 100}%`);
+  labels.append(element);
+  const { x, z } = creep.position;
+  anchors.push({
+    element,
+    position: new THREE.Vector3(x, creep.userData.healthBarY, z),
+  });
+}
 function build() {
   scene.remove(models);
   // Stone materials are shared; rebuilt meshes own their geometry.
@@ -184,18 +198,19 @@ function build() {
     label(type.name, x, 3.15, type.id);
   });
   // Creeps walk the corridor between walls; sizes follow VPK ModelScale.
+  // HP values are illustrative; only bosses show the number, as in the user's reference.
   [
-    { modelScale: 1, title: "Wave creep", detail: "1.0" },
-    { modelScale: 1.6, title: "Mid wave", detail: "1.6" },
-    { modelScale: 2.2, title: "Late wave", detail: "2.2" },
-    { modelScale: 5, boss: true, title: "Boss", detail: "5.0" },
-    { modelScale: 1.6, flying: true, title: "Air", detail: "1.6" },
-  ].forEach(({ title, detail, ...options }, i) => {
+    { x: -4.6, modelScale: 1, title: "Wave creep", detail: "1.0", hp: 1 },
+    { x: -3.4, modelScale: 1.6, title: "Mid wave", detail: "1.6", hp: 0.7 },
+    { x: -2, modelScale: 2.2, title: "Late wave", detail: "2.2", hp: 0.45 },
+    { x: 0.3, modelScale: 5, boss: true, title: "Boss", detail: "5.0" },
+    { x: 2.6, modelScale: 1.6, flying: true, title: "Air", detail: "1.6" },
+  ].forEach(({ x, title, detail, hp = 0.8, ...options }) => {
     const creep = createCreep(options);
-    const x = -4 + i * 1.6;
     creep.position.set(x, 0, -4);
     models.add(creep);
-    label(title, x, -3.45, detail);
+    label(title, x, -3, detail);
+    healthBar(creep, hp, options.boss ? "1925" : "");
   });
   // Quality is the only variable along this row.
   QUALITY_TIERS.forEach(({ tier, name }, i) => {

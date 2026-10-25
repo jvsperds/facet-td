@@ -180,16 +180,17 @@ export const GEM_TYPES = [
   },
 ];
 
+const flat = (color) =>
+  new THREE.MeshStandardMaterial({ color, roughness: 1, flatShading: true });
+// Dark rock against the light slate floor, so the maze reads at overview zoom.
 const stoneMaterials = [
-  "#717877",
-  "#818784",
-  "#8b918c",
-  "#969b94",
-  "#a4a79d",
-].map(
-  (color) =>
-    new THREE.MeshStandardMaterial({ color, roughness: 1, flatShading: true }),
-);
+  "#565b5e",
+  "#5f6466",
+  "#686c6c",
+  "#717473",
+  "#7a7c78",
+].map(flat);
+const masonryMaterials = ["#8b918c", "#a4a79d"].map(flat);
 const noise = (x, y, z, seed) => {
   let n =
     Math.imul(x + 173, 374761393) ^
@@ -199,61 +200,87 @@ const noise = (x, y, z, seed) => {
   n = Math.imul(n ^ (n >>> 13), 1274126177);
   return (n ^ (n >>> 16)) >>> 0;
 };
+// Every arm ends in this cross-section, so neighbouring cells meet without cracks.
+const RIDGE_SECTION = [
+  [-0.19, 0],
+  [0.19, 0],
+  [-0.1, 0.07],
+  [0.1, 0.07],
+  [0, 0.09],
+];
 
-/** Broad irregular boulder, with cardinal ridges that meet the adjacent cell. */
+/** Craggy rock; cardinal neighbours extend it into one continuous jagged ridge. */
 export function createStone({ x = 0, z = 0, neighbours = {}, seed = 1 } = {}) {
   if (![x, z, seed].every(Number.isInteger))
     throw new TypeError("Stone coordinates and seed must be integers");
+  const rand = (i, k) => (noise(x, i, z, seed + k) % 1000) / 1000;
   const group = new THREE.Group();
   const points = [];
-  for (let i = 0; i < 8; i++) {
-    const angle = (i * Math.PI) / 4;
-    const radius = 0.27 + (noise(x, i, z, seed) % 50) / 1000;
+  for (let i = 0; i < 7; i++) {
+    const angle = (i * 2 * Math.PI) / 7 + rand(i, 2) * 0.4;
+    const radius = 0.2 + rand(i, 0) * 0.07;
     const px = Math.cos(angle) * radius,
       pz = Math.sin(angle) * radius;
     points.push(
       new THREE.Vector3(px, 0, pz),
-      new THREE.Vector3(
-        px * 0.88,
-        0.11 + (noise(x, i, z, seed + 1) % 50) / 1000,
-        pz * 0.88,
-      ),
+      new THREE.Vector3(px * 0.6, 0.08 + rand(i, 1) * 0.05, pz * 0.6),
     );
   }
-  points.push(new THREE.Vector3(0.035, 0.2, -0.025));
+  points.push(
+    new THREE.Vector3(
+      (rand(0, 3) - 0.5) * 0.1,
+      0.17 + rand(0, 4) * 0.03,
+      (rand(1, 3) - 0.5) * 0.1,
+    ),
+  );
   const material = stoneMaterials[noise(x, 0, z, seed) % stoneMaterials.length];
-  const core = new THREE.Mesh(new ConvexGeometry(points), material);
-  group.add(core);
+  group.add(new THREE.Mesh(new ConvexGeometry(points), material));
   const arms = [];
-  for (const [side, dx, dz] of [
+  [
     ["north", 0, -1],
     ["east", 1, 0],
     ["south", 0, 1],
     ["west", -1, 0],
-  ]) {
-    if (!neighbours[side]) continue;
+  ].forEach(([side, dx, dz], s) => {
+    if (!neighbours[side]) return;
+    const toCell = (along, across, height) =>
+      new THREE.Vector3(
+        dx * along + dz * across,
+        height,
+        dz * along - dx * across,
+      );
+    const arm = new THREE.Group();
     const ridge = [];
-    // Matching edge cross-sections avoid cracks between neighbouring cell meshes.
-    for (const length of [0, 0.5])
-      for (const [width, height] of [
-        [-0.18, 0],
-        [0.18, 0],
-        [-0.16, 0.11],
-        [0.16, 0.11],
-        [0, 0.18],
-      ]) {
-        ridge.push(
-          new THREE.Vector3(
-            dx * length + dz * width,
-            height,
-            dz * length - dx * width,
-          ),
-        );
-      }
-    const arm = new THREE.Mesh(new ConvexGeometry(ridge), material);
+    for (const along of [0, 0.5])
+      for (const [across, height] of RIDGE_SECTION)
+        ridge.push(toCell(along, across, height));
+    arm.add(new THREE.Mesh(new ConvexGeometry(ridge), material));
+    // Big leaning crags set the jagged crest; they stay inside this cell.
+    for (const [k, along] of [0.13, 0.28, 0.41].entries()) {
+      const r = (j) => rand(10 + s * 4 + k, j);
+      const half = Math.min(0.08 + r(0) * 0.06, 0.5 - along);
+      const across = 0.13 + r(4) * 0.05;
+      arm.add(
+        new THREE.Mesh(
+          new ConvexGeometry([
+            toCell(along - half, -across, 0),
+            toCell(along - half, across, 0),
+            toCell(along + half, -across, 0),
+            toCell(along + half, across, 0),
+            toCell(along - half * 0.5, (r(5) - 0.5) * 0.12, 0.08),
+            toCell(
+              along + (r(1) - 0.5) * 0.1,
+              (r(2) - 0.5) * 0.1,
+              0.13 + r(3) * 0.07,
+            ),
+          ]),
+          material,
+        ),
+      );
+    }
     group.add(arm);
     arms.push({ arm, dx });
-  }
+  });
   group.traverse((object) => {
     if (object.isMesh) {
       object.castShadow = true;
@@ -321,13 +348,13 @@ export function createGemTower(
       spec.sides,
       Math.PI / spec.sides,
     ),
-    stoneMaterials[2],
+    masonryMaterials[0],
   );
   const [crownRadius, crown] = shaft.at(-2);
   for (let i = 0; i < prongs; i++) {
     const prong = stoneMesh(
       new THREE.CylinderGeometry(0.04, 0.05, 0.12, 4),
-      stoneMaterials[4],
+      masonryMaterials[1],
     );
     const a = (i * 2 * Math.PI) / prongs;
     prong.position.set(
@@ -372,16 +399,8 @@ export function createGemTower(
   return model;
 }
 
-const creepBody = new THREE.MeshStandardMaterial({
-  color: "#4b3a33",
-  roughness: 0.9,
-  flatShading: true,
-});
-const creepWing = new THREE.MeshStandardMaterial({
-  color: "#e6ded3",
-  roughness: 0.9,
-  flatShading: true,
-});
+const creepBody = flat("#ddd3c2");
+const creepTrim = flat("#2f3438");
 const creepShadow = new THREE.MeshBasicMaterial({
   color: "#1d2024",
   transparent: true,
@@ -390,10 +409,13 @@ const creepShadow = new THREE.MeshBasicMaterial({
 });
 export const FLY_ALTITUDE = 1.35;
 
-/** Creep body length in cells for a VPK ModelScale; the square root keeps late bosses under one cell. */
-export const creepSize = (modelScale) => 0.32 * Math.sqrt(modelScale);
+/**
+ * Creep body length in cells, proportional to VPK ModelScale so the original's size ratios hold:
+ * 0.36 for wave 1, 0.79 at the late-wave 2.2, 1.8 for a 5.0 boss.
+ */
+export const creepSize = (modelScale) => 0.36 * modelScale;
 
-/** Placeholder creep proxy, facing +x. It fixes scale and readability, not creep designs. */
+/** Boxy placeholder creep facing +x: light body, dark trim. It fixes scale and readability, not designs. */
 export function createCreep({
   modelScale = 1,
   flying = false,
@@ -404,59 +426,108 @@ export function createCreep({
   const length = creepSize(modelScale),
     width = 0.7 * length,
     height = 0.66 * length;
-  const points = [];
-  for (let i = 0; i < 8; i++) {
-    const a = (i * Math.PI) / 4,
-      cx = Math.cos(a) * (length / 2) * (Math.cos(a) > 0 ? 1 : 0.85),
-      cz = (Math.sin(a) * width) / 2;
-    points.push(
-      new THREE.Vector3(cx * 0.8, 0.02, cz * 0.8),
-      new THREE.Vector3(cx, 0.55 * height, cz),
-    );
-  }
-  points.push(
-    new THREE.Vector3(-0.2 * length, height, 0),
-    new THREE.Vector3(0.15 * length, height, 0),
-    new THREE.Vector3(0.58 * length, 0.6 * height, 0), // Snout shows the walking direction.
-  );
   const group = new THREE.Group();
   const body = new THREE.Group();
-  const add = (geometry, material, parent = body) => {
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.castShadow = material !== creepShadow;
+  const box = (w, h, d, material, x, y, z = 0, parent = body) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = true;
     mesh.userData.sharedMaterial = true;
     parent.add(mesh);
     return mesh;
   };
-  add(new ConvexGeometry(points), creepBody);
+  const legs = flying ? 0 : 0.3 * height;
+  box(
+    0.72 * length,
+    0.5 * height,
+    width,
+    creepBody,
+    -0.1 * length,
+    legs + 0.25 * height,
+  );
+  box(
+    0.74 * length,
+    0.08 * height,
+    1.04 * width,
+    creepTrim,
+    -0.1 * length,
+    legs + 0.04 * height,
+  );
+  // Head and dark visor show the walking direction.
+  box(
+    0.32 * length,
+    0.42 * height,
+    0.62 * width,
+    creepBody,
+    0.33 * length,
+    legs + 0.5 * height,
+  );
+  box(
+    0.06 * length,
+    0.12 * height,
+    0.5 * width,
+    creepTrim,
+    0.5 * length,
+    legs + 0.56 * height,
+  );
+  if (!flying)
+    for (const lx of [-0.32, 0.12])
+      for (const side of [-1, 1])
+        box(
+          0.12 * length,
+          legs,
+          0.14 * width,
+          creepTrim,
+          lx * length,
+          legs / 2,
+          side * 0.32 * width,
+        );
   if (boss)
-    for (const x of [-0.25, 0, 0.25]) {
-      const spike = add(
-        new THREE.ConeGeometry(0.07 * length, 0.25 * height, 4),
-        creepBody,
+    for (const side of [-1, 1]) {
+      box(
+        0.3 * length,
+        0.22 * height,
+        0.24 * width,
+        creepTrim,
+        -0.15 * length,
+        legs + 0.6 * height,
+        side * 0.42 * width,
       );
-      spike.position.set(x * length, height + 0.1 * height, 0);
+      box(
+        0.12 * length,
+        0.25 * height,
+        0.12 * width,
+        creepBody,
+        -0.15 * length,
+        legs + 0.83 * height,
+        side * 0.42 * width,
+      );
     }
   if (flying) {
-    for (const side of [-1, 1]) {
-      const wing = add(
-        new THREE.BoxGeometry(0.45 * length, 0.03, 0.55 * length),
-        creepWing,
+    for (const side of [-1, 1])
+      box(
+        0.4 * length,
+        0.04 * height,
+        0.5 * length,
+        creepTrim,
+        -0.1 * length,
+        0.4 * height,
+        side * (width / 2 + 0.25 * length),
       );
-      wing.position.set(-0.05 * length, 0.6 * height, side * 0.55 * length);
-      wing.rotation.x = side * 0.25;
-    }
     body.position.y = FLY_ALTITUDE;
     // Air units float off the grid in isometric view; the shadow marks their cell.
-    const shadow = add(
+    const shadow = new THREE.Mesh(
       new THREE.CircleGeometry(0.45 * length, 12),
       creepShadow,
-      group,
     );
+    shadow.userData.sharedMaterial = true;
     shadow.rotation.x = -Math.PI / 2;
     shadow.position.y = 0.01;
+    group.add(shadow);
   }
   group.add(body);
-  group.userData = { length, height, flying, boss };
+  const top = new THREE.Box3().setFromObject(body).max.y;
+  // The HUD anchors health bars here: just above the body, whatever the size.
+  group.userData = { length, height, flying, boss, healthBarY: top + 0.15 };
   return group;
 }

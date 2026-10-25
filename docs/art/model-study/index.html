@@ -95,6 +95,31 @@
       display: block;
       font-weight: 600;
     }
+    .health {
+      position: absolute;
+      width: 44px;
+      height: 6px;
+      transform: translate(-50%, -100%);
+      border: 1px solid #202429;
+      background: linear-gradient(
+        90deg,
+        #4fc36b var(--fill),
+        #3a3f44 var(--fill)
+      );
+    }
+    .health[data-hp]::before {
+      content: attr(data-hp);
+      position: absolute;
+      bottom: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #f4f3ef;
+      font-weight: 700;
+      font-size: 14px;
+      text-shadow:
+        0 0 2px #202429,
+        0 0 2px #202429;
+    }
     footer {
       display: flex;
       gap: 20px;
