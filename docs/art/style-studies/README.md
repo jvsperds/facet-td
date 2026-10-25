@@ -29,3 +29,5 @@ The proposed goal is a fortified crystal vault protecting a heart crystal. This 
 Generated with built-in `image_gen.imagegen` from C, with the [exact edit prompt](d-connected-hybrid.prompt.json). The user requested the connections; the specific crystal-vault motif is proposed for review. Markers and HUD regions were visually reviewed; exact tile geometry and runtime behavior remain governed by the source references.
 
 ![Connected cave entrance and defended crystal vault](d-connected-hybrid.png)
+
+[Corrected E-to-castle approach: four isometric rotations and top view](../camera-studies/README.md) supersedes the ambiguous connection in concept D.

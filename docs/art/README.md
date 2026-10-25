@@ -49,3 +49,5 @@ Local checks: six SVG files parse with accessible titles; Chromium rendered all 
 [Faceted, voxel and hybrid cave mockups](style-studies/README.md) compare three art treatments using the same HUD and board composition. They are review options; the source-verified board specification remains unchanged.
 
 [Connected cave revision](style-studies/d-connected-hybrid.png) adds the requested entrance/goal continuity. The original gems protect a castle; a crystal vault is the proposed visual interpretation. See the [environment and goal handoff](IMPLEMENTATION.md).
+
+[Corrected E-to-castle approach: four isometric rotations and top view](camera-studies/README.md) supersedes the ambiguous connection in concept D.
