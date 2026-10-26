@@ -138,78 +138,108 @@ assert.deepEqual(
   [true, true, true, true, false],
   "Diamond tiers gain detail",
 );
-// Sapphire adds inlays, a course, three grips and a collar band; huge only grows.
-const sapphireParts = QUALITY_TIERS.map(({ tier }) => {
-  const model = createGemTower("B", { quality: tier });
-  const tower = model.children.at(-1);
-  const head = tower.children.at(-1);
-  let meshes = 0;
-  let triangles = 0;
-  const materials = new Set();
-  const rest = [];
-  model.updateMatrixWorld(true);
-  tower.traverse((object) => {
-    if (!object.isMesh) return;
-    meshes++;
-    const p = object.geometry.attributes.position;
-    triangles += (object.geometry.index?.count ?? p.count) / 3;
-    materials.add(object.material);
-    rest.push(object.matrixWorld.clone());
-    assert.ok(object.castShadow && object.receiveShadow);
-    const vertex = (i) => new Vector3().fromBufferAttribute(p, i);
-    const index = object.geometry.index;
-    for (let i = 0; i < (index?.count ?? p.count); i += 3) {
-      const a = vertex(index ? index.getX(i) : i);
-      const b = vertex(index ? index.getX(i + 1) : i + 1);
-      const c = vertex(index ? index.getX(i + 2) : i + 2);
-      assert.ok(
-        b.sub(a).cross(c.sub(a)).lengthSq() > 1e-14,
-        "Sapphire solid faces",
-      );
-    }
-  });
-  assert.ok(meshes <= 32 && triangles <= 800 && materials.size <= 4);
-  for (const aim of aims) {
-    model.userData.aimAt(...aim);
+// Each redesigned tier gains one visible detail through perfect; huge only grows.
+for (const type of GEM_TYPES.filter(({ id }) => id !== "D")) {
+  const tierParts = QUALITY_TIERS.map(({ tier }) => {
+    const model = createGemTower(type.id, { quality: tier });
+    const tower = model.children.at(-1);
+    const head = tower.children.at(-1);
+    let meshes = 0;
+    let triangles = 0;
+    const materials = new Set();
+    const rest = [];
     model.updateMatrixWorld(true);
     tower.traverse((object) => {
       if (!object.isMesh) return;
+      meshes++;
       const p = object.geometry.attributes.position;
-      for (let i = 0; i < p.count; i++) {
-        const v = new Vector3()
-          .fromBufferAttribute(p, i)
-          .applyMatrix4(object.matrixWorld);
+      triangles += (object.geometry.index?.count ?? p.count) / 3;
+      materials.add(object.material);
+      rest.push(object.matrixWorld.clone());
+      assert.ok(object.castShadow && object.receiveShadow);
+      const vertex = (i) => new Vector3().fromBufferAttribute(p, i);
+      const index = object.geometry.index;
+      for (let i = 0; i < (index?.count ?? p.count); i += 3) {
+        const a = vertex(index ? index.getX(i) : i);
+        const b = vertex(index ? index.getX(i + 1) : i + 1);
+        const c = vertex(index ? index.getX(i + 2) : i + 2);
         assert.ok(
-          1.2376 -
-            (0.7071 * (Math.abs(v.x) + Math.abs(v.z))) / Math.SQRT2 -
-            v.y >=
-            0.01,
-          `Sapphire tier ${tier} creep-visibility margin`,
+          b.sub(a).cross(c.sub(a)).lengthSq() > 1e-14,
+          `${type.name} solid faces`,
         );
       }
     });
-  }
-  model.userData.aimAt();
-  model.updateMatrixWorld(true);
-  let i = 0;
-  tower.traverse((object) => {
-    if (object.isMesh)
-      assert.deepEqual(
-        object.matrixWorld,
-        rest[i++],
-        "Sapphire exact rest pose",
-      );
+    assert.ok(meshes <= 32 && triangles <= 800 && materials.size <= 4);
+    for (const aim of aims) {
+      model.userData.aimAt(...aim);
+      model.updateMatrixWorld(true);
+      tower.traverse((object) => {
+        if (!object.isMesh) return;
+        const p = object.geometry.attributes.position;
+        for (let i = 0; i < p.count; i++) {
+          const v = new Vector3()
+            .fromBufferAttribute(p, i)
+            .applyMatrix4(object.matrixWorld);
+          assert.ok(
+            1.2376 -
+              (0.7071 * (Math.abs(v.x) + Math.abs(v.z))) / Math.SQRT2 -
+              v.y >=
+              0.01,
+            `${type.name} tier ${tier} creep-visibility margin`,
+          );
+        }
+      });
+    }
+    model.userData.aimAt();
+    model.updateMatrixWorld(true);
+    let i = 0;
+    tower.traverse((object) => {
+      if (object.isMesh)
+        assert.deepEqual(
+          object.matrixWorld,
+          rest[i++],
+          `${type.name} exact rest pose`,
+        );
+    });
+    const gemBounds = new Box3();
+    head.traverse((object) => {
+      if (object.isMesh && !object.userData.sharedMaterial)
+        gemBounds.expandByObject(object, true);
+    });
+    const size = gemBounds.getSize(new Vector3());
+    const scale = QUALITY_TIERS[tier - 1].width / 0.68;
+    assert.ok(size.x >= 0.35 * scale - 1e-6, `${type.name} gem width`);
+    assert.ok(size.y >= 0.2 * scale - 1e-6, `${type.name} gem height`);
+    return meshes;
   });
-  const gem = head.children[0].children.at(-1);
-  const size = new Box3().setFromObject(gem, true).getSize(new Vector3());
-  assert.ok(size.x >= 0.35 * (QUALITY_TIERS[tier - 1].width / 0.68));
-  return meshes;
-});
-assert.deepEqual(
-  sapphireParts.slice(1).map((parts, i) => parts > sapphireParts[i]),
-  [true, true, true, true, false],
-  "Sapphire tiers gain detail",
-);
+  assert.deepEqual(
+    tierParts.slice(1).map((parts, i) => parts > tierParts[i]),
+    [true, true, true, true, false],
+    `${type.name} tiers gain detail`,
+  );
+}
+// Emerald's grips stay outside the gem's convex faces, including the lower bevel.
+const emeraldHead = createGemTower("G").children.at(-1).children.at(-1)
+  .children[0].children[0];
+const emeraldGem = emeraldHead.children.at(-1).geometry;
+const gemPositions = emeraldGem.attributes.position;
+const gemNormals = emeraldGem.attributes.normal;
+for (const grip of emeraldHead.children.slice(1, 5)) {
+  const positions = grip.geometry.attributes.position;
+  for (let i = 0; i < positions.count; i++) {
+    const point = new Vector3().fromBufferAttribute(positions, i);
+    let inside = true;
+    for (let face = 0; face < gemPositions.count; face += 3) {
+      const normal = new Vector3().fromBufferAttribute(gemNormals, face);
+      const vertex = new Vector3().fromBufferAttribute(gemPositions, face);
+      if (point.clone().sub(vertex).dot(normal) >= -1e-6) {
+        inside = false;
+        break;
+      }
+    }
+    assert.ok(!inside, "Emerald grip vertices stay outside its gem");
+  }
+}
 // The tower base is its cell's stone: same variation, and it joins neighbouring walls.
 const towerOnCell = createGemTower("R", {
   x: 3,
@@ -326,5 +356,5 @@ assert.ok(
   "Creep visibility budget",
 );
 console.log(
-  "PASS: 16 adjacency masks, merge bounds, deterministic variation, eight distinct towers at six tier bounds with aimed heads, head aim, Diamond and Sapphire tier detail, Sapphire budgets and visibility margins, tower-wall joins, creep scale, occlusion budgets and invalid inputs",
+  "PASS: 16 adjacency masks, merge bounds, deterministic variation, eight distinct towers at six tier bounds with aimed heads, head aim, all tower tier details, redesigned tower budgets and visibility margins, tower-wall joins, creep scale, occlusion budgets and invalid inputs",
 );

@@ -33,15 +33,15 @@ This sheet tells an agent how to build, change and check a procedural gem-tower 
 
 ## 1. Read first
 
-| Source                                                                                | Use it for                                                                                                                                        |
-| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [models.js](models.js)                                                                | The code. `buildDiamond` is the pattern to copy. Sapphire also has its own builder; the six remaining lathe towers use the shared version-1 path. |
-| [models.test.mjs](models.test.mjs)                                                    | Bounds, occlusion, aim and tier tests. The test is the authority for every number in this sheet.                                                  |
-| [README.md](README.md)                                                                | Current model descriptions and run commands.                                                                                                      |
-| [../DIRECTION.md](../DIRECTION.md)                                                    | Camera, palette, scale and type rules for the whole game.                                                                                         |
-| [../IMPLEMENTATION.md](../IMPLEMENTATION.md), section "Model scale and readable gems" | Occlusion rules and what the game renderer (P2) expects.                                                                                          |
-| [../references/user-arena-2.png](../references/user-arena-2.png)                      | The chunky, stylised look the user likes.                                                                                                         |
-| [overview.png](overview.png), [grayscale.png](grayscale.png)                          | The current models on the study board.                                                                                                            |
+| Source                                                                                | Use it for                                                                                                                                                   |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [models.js](models.js)                                                                | The code. `buildDiamond` is the pattern to copy. All eight types now have their own builder; the six latest builders share solid, palette and setting tools. |
+| [models.test.mjs](models.test.mjs)                                                    | Bounds, occlusion, aim and tier tests. The test is the authority for every number in this sheet.                                                             |
+| [README.md](README.md)                                                                | Current model descriptions and run commands.                                                                                                                 |
+| [../DIRECTION.md](../DIRECTION.md)                                                    | Camera, palette, scale and type rules for the whole game.                                                                                                    |
+| [../IMPLEMENTATION.md](../IMPLEMENTATION.md), section "Model scale and readable gems" | Occlusion rules and what the game renderer (P2) expects.                                                                                                     |
+| [../references/user-arena-2.png](../references/user-arena-2.png)                      | The chunky, stylised look the user likes.                                                                                                                    |
+| [overview.png](overview.png), [grayscale.png](grayscale.png)                          | The current models on the study board.                                                                                                                       |
 
 Also read the repository `AGENTS.md` and `docs/PLAN.md` before you edit.
 
@@ -142,7 +142,7 @@ model                      Group from createStone(x, z, neighbours, seed); posit
 | REQ-07 | The head follows [section 8](#8-head-and-aiming). `aimAt()` returns every mesh to its exact rest transform.                                                                                                                                                                                                  | Test                                                          |
 | REQ-08 | Materials: stone, masonry and setting materials are module-level and shared. Add them through `stoneMesh` (a builder's `add`), which sets `userData.sharedMaterial = true`. Gem materials belong to one tower; add them through `place`, which does not set the flag. Every mesh casts and receives shadows. | Review                                                        |
 | REQ-09 | Geometry: closed solids with flat faces. Use `ConvexGeometry` (non-indexed, face normals) or `LatheGeometry(...).toNonIndexed()` followed by `computeVertexNormals()`. No zero-area faces. Separate coplanar surfaces by at least 0.004 to prevent z-fighting.                                               | Review, close-up capture                                      |
-| REQ-10 | Budget per tower at tier 6: superstructure ≤ 800 triangles, ≤ 32 meshes, ≤ 4 materials. Today the maximum is Diamond: 590 triangles, 28 meshes.                                                                                                                                                              | [Appendix](#151-current-measurements)                         |
+| REQ-10 | Budget per tower at tier 6: superstructure ≤ 800 triangles, ≤ 32 meshes, ≤ 4 materials. The current maxima are Ruby at 708 triangles and Diamond at 28 meshes.                                                                                                                                               | [Appendix](#151-current-measurements)                         |
 | REQ-11 | A change to one type does not change any other type's rest pose.                                                                                                                                                                                                                                             | [Rest-pose script](#153-rest-pose-comparison)                 |
 | REQ-12 | Edit only `docs/art/model-study/`. Do not edit `src/`. Do not add packages. Use three.js and its addons from the root `node_modules`.                                                                                                                                                                        | Review                                                        |
 | REQ-13 | Prettier passes. Match the surrounding code style. Comment only what the code cannot show.                                                                                                                                                                                                                   | `prettier --check`                                            |
@@ -175,12 +175,12 @@ Keep each type's silhouette family when you redesign it. A redesign MAY change c
 | ---- | ---------- | ---------- | --------------------------------------------------------- | ---------------------------------- | -------- | -------------------- |
 | D    | Diamond    | `#dceef2`  | Square coursed tower, battered foot, corbel, claw setting | Brilliant cut, point down, 8-fold  | 4 / 8    | Version 2, reference |
 | B    | Sapphire   | `#386bd6`  | Straight column with a wider capital                      | Hexagonal prism, pointed top       | 6        | Version 2            |
-| Y    | Topaz      | `#edb837`  | Waisted hourglass, three prongs                           | Pointed three-sided cut            | 3        | Version 1            |
-| R    | Ruby       | `#ce4059`  | Keep: straight shaft, wide battlemented crown             | Wide eight-sided cushion           | 8        | Version 1            |
-| G    | Emerald    | `#23956d`  | Tall slim spire, four prongs                              | Step-cut column with chamfered top | 4        | Version 1            |
-| E    | Opal       | `#c86daf`  | Goblet: thin stem, flared cup                             | Flat eight-sided cabochon          | 8        | Version 1            |
-| Q    | Aquamarine | `#31b1bf`  | Stepped ziggurat, three tiers                             | Cluster of two crystals            | 5        | Version 1            |
-| P    | Amethyst   | `#9963d2`  | Squat drum with a lip                                     | Cluster of three crystals          | 6        | Version 1            |
+| Y    | Topaz      | `#edb837`  | Waisted hourglass, three prongs                           | Pointed three-sided cut            | 3        | Version 2            |
+| R    | Ruby       | `#ce4059`  | Keep: straight shaft, wide battlemented crown             | Wide eight-sided cushion           | 8        | Version 2            |
+| G    | Emerald    | `#23956d`  | Tall slim spire, four prongs                              | Step-cut column with chamfered top | 4        | Version 2            |
+| E    | Opal       | `#c86daf`  | Goblet: thin stem, flared cup                             | Flat eight-sided cabochon          | 8        | Version 2            |
+| Q    | Aquamarine | `#31b1bf`  | Stepped ziggurat, three tiers                             | Cluster of two crystals            | 5        | Version 2            |
+| P    | Amethyst   | `#9963d2`  | Squat drum with a lip                                     | Cluster of three crystals          | 6        | Version 2            |
 
 **Distinctness tests (REQ-14).** For every new or changed type:
 
@@ -290,7 +290,7 @@ Dispatch it in `createGemTower` next to the Diamond branch. When the second buil
 - Brilliant cut: a culet point, an eight-point girdle ring twice (0.02 apart for the girdle band), and an eight-point table ring rotated by π/8. The hull gives a table, 16 crown facets, a girdle and 8 pavilion facets. The Diamond uses girdle radius 0.24 and a table at y 1.07; a larger or higher stone reduces its 0.045 aimed margin.
 - Claw: two hulls. A wedge from the setting base to the girdle grip, then a beak from the grip over the crown.
 
-**Shared helpers in models.js.** `noise(x, y, z, seed)`, `flat(color)`, `masonryMaterials`, `carvedMaterials` (vertex-coloured: shaft, caps, setting), `paint(geometry, colorOf)`, `stoneShade(key)`, `squareRing(half, y)`. `radial`, `ring`, `tone` and `facet` are local to `buildDiamond`. When a second builder needs one of them, move it to module level unchanged; the lead approves helper changes because they affect every tower.
+**Shared helpers in models.js.** `noise(x, y, z, seed)`, `flat(color)`, `carvedMaterials` (vertex-coloured: shaft, caps, setting), `paint(geometry, colorOf)`, `stoneShade(key)`, `squareRing(half, y)`, `paletteMasonry` (shared white material carrying the masonry palette in vertex colours) and `towerTools` (solid, block, ring, gem, seat, inlays, grips and courses for the six latest builders). `radial`, `ring`, `tone` and `facet` are local to `buildDiamond`. When a second builder needs one of them, move it to module level unchanged; the lead approves helper changes because they affect every tower.
 
 **Do not.** Do not create a material per mesh for masonry; vary shade with vertex colours. Do not use `Math.random`. Do not import assets or textures. Do not change `createStone`, the plinth, `QUALITY_TIERS` or `AIM_LEAN` without the lead.
 
@@ -411,7 +411,8 @@ Copy this into the task.
 
 ## 13. Known limits and open questions
 
-- **Version 1 lathe towers.** Six towers still use the shared lathe path. Emerald's prongs sit inside its gem radius, so the gem passes through them at rest and when aimed. Emerald also has the smallest REQ-05 margin (0.015 aimed). Fix both in its redesign.
+- **Approved Diamond material count.** The existing Diamond uses five materials including the shared plinth. Its geometry is preserved in this pass; Sapphire uses four, and the six latest towers use three. The new builders meet the four-material requirement including the plinth.
+- **Emerald grip regression.** The old prong intersection is fixed. Tests check grip vertices against the new gem hull, and the setting leans with the gem.
 - **Draw calls.** Diamond uses 28 meshes in its superstructure. On a full board, the game renderer should merge static meshes that share a material. Keep static masonry on shared materials so that merge stays possible.
 - **Probe coverage.** The occlusion test samples five camera angles and aims at each probed cell. It is not exhaustive for free rotation.
 - **Not specified here.** Turn easing, attack and impact effects, idle animation, level-of-detail models, special-tower recipes and their final look.
@@ -447,12 +448,12 @@ Measured on 26 October 2026, tier 6, rest pose, no wall neighbours.
 | ---- | ----- | ------------ | ----------------------- | -------------------------- | ----------------------------- |
 | D    | 1.070 | 0.825        | 28                      | 590                        | 0.055 / 0.045                 |
 | B    | 1.105 | 0.765        | 21                      | 518                        | 0.104 / 0.096                 |
-| Y    | 1.104 | 0.760        | 6                       | 122                        | 0.134 / 0.097                 |
-| R    | 1.004 | 0.740        | 11                      | 304                        | 0.149 / 0.143                 |
-| G    | 1.144 | 0.800        | 7                       | 152                        | 0.027 / 0.015                 |
-| E    | 0.932 | 0.700        | 3                       | 160                        | 0.231 / 0.223                 |
-| Q    | 1.104 | 0.760        | 4                       | 162                        | 0.097 / 0.046                 |
-| P    | 0.964 | 0.620        | 5                       | 200                        | 0.274 / 0.223                 |
+| Y    | 1.105 | 0.755        | 16                      | 256                        | 0.096 / 0.094                 |
+| R    | 1.025 | 0.735        | 22                      | 708                        | 0.117 / 0.114                 |
+| G    | 1.070 | 0.780        | 18                      | 412                        | 0.060 / 0.056                 |
+| E    | 0.975 | 0.745        | 14                      | 548                        | 0.186 / 0.176                 |
+| Q    | 1.115 | 0.765        | 18                      | 418                        | 0.065 / 0.025                 |
+| P    | 1.065 | 0.665        | 21                      | 582                        | 0.087 / 0.065                 |
 
 Every type's superstructure is 0.573 wide at tier 6; the plinth sets that width.
 
