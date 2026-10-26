@@ -49,3 +49,7 @@ No art changes or production renderer changes were made by this study.
 This is one older integrated GPU and a synthetic, full-view, cached-template board at Huge quality. It includes creep proxies and continuous head movement, but no game simulation, HUD, particles, attacks, real creep art, loading or multiplayer. It is not a mobile test, a high-DPI test or a sustained thermal test. Source geometry/materials are shared as templates even in the unbatched baseline; the study page's per-cell factory allocation pattern is not measured.
 
 Validate the real game's frame pacing at the target camera distances and device classes before claiming 30/60 FPS. The 512/1,024 cases are stress loads, not assertions about normal gameplay.
+
+## Later comparison correction
+
+The integrated-optimization review found that this original naive-instancing prototype forced shadow receiving on creep proxies. Its draw-call reduction still holds, but it was not a strictly appearance-equivalent comparison. The follow-up integrated renderer and corrected benchmark preserve each source mesh's shadow/render flags; use the newer optimization results for before/after timing decisions. The raw historical runs above remain unchanged.

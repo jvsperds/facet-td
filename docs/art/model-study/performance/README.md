@@ -2,9 +2,13 @@
 
 This is a synthetic rendering diagnostic for the current tower art. It does not change the models or choose a new art style.
 
+The [integrated optimization report](OPTIMIZATION.md) records the renderer now used by the study, corrected before/after comparisons and setup costs.
+
 ## Run
 
 Start the existing Vite server from the repository root, then open `/docs/art/model-study/performance/index.html` and press **Run bounded test suite**. Keep the page visible. The result is available as `window.benchmark` and in the page text. Each click runs a finite suite; there is no recurring benchmark.
+
+**Compare integrated optimization** runs the unbatched baseline, corrected whole-scene instancing prototype, and the reusable study renderer at 64, 256, 512 and 1,024 towers. The last variant merges static geometry, instances moving parts, and updates only head/creep transforms. All variants preserve source shadow/render flags; the integrated path also preserves transparency sorting.
 
 ```powershell
 node node_modules/vite/bin/vite.js --host 127.0.0.1 --port 5188

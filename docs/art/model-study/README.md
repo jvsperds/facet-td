@@ -55,7 +55,9 @@ emerald.userData.aimAt(creep.position.x, creep.position.z); // Each frame while 
 
 When adjacency changes, rebuild the affected stone cells with the same seed and animate their merge progress. The game owns neighbour lookup, timing and placement validity. It also owns targeting: pick the creep, then aim at its ground position (an air unit's shadow cell). `aimAt` turns the head immediately; to ease the turn, aim at an interpolated point. Geometry generation does not belong in `src/sim/`. P2 can adopt these factories into its owned rendering module after art review.
 
-Each mesh owns its geometry. Stone materials are shared and marked with `userData.sharedMaterial`; keep them when removing a model. Gem materials belong to each tower. This study does not batch the entire board. Measure the full board before choosing that optimisation.
+Each source mesh owns its geometry. Stone materials are shared and marked with `userData.sharedMaterial`; keep them when removing a model. Gem materials belong to each tower. The study renders through [model-batch.js](model-batch.js): static meshes merge by equivalent material and shadow/render flags; repeated moving parts use instancing. Factory objects stay off-scene for targeting, joins and selection. The renderer updates only changed heads, creeps or joins. Inspect and new variations rebuild the rendering copy. Facets, colours and source APIs are unchanged. Dispose the rendering copy before its source resources.
+
+To adopt the batch in the game renderer, add its group directly to an identity scene. Pass the head groups, moving creeps and animated join arms as non-overlapping `dynamicRoots`; call `update(changedRoots)` after their transforms change. Static transforms, visibility, topology and material changes require rebuilding. The module is scoped to these untextured procedural models. Frequent in-game placement/removal should rebuild spatial chunks rather than the whole board.
 
 ## Run and validate
 
@@ -68,6 +70,7 @@ From the repository root:
 ```powershell
 node node_modules/vite/bin/vite.js --host 127.0.0.1 --port 5175
 node docs/art/model-study/models.test.mjs
+node docs/art/model-study/model-batch.test.mjs
 ```
 
 Visit `/docs/art/model-study/index.html` on that server. Rebuild the standalone file after source changes:
@@ -78,7 +81,7 @@ node --input-type=module -e 'import {build} from "vite"; import {viteSingleFile}
 
 The geometry check covers all 16 cardinal neighbour masks, merge bounds, edge joins, deterministic variation, distinct tower profiles, bounds for all eight types at all six tiers at rest and with the head aimed at eight compass points, heads that lean toward targets from an off-origin cell and rest again, all eight tier-detail ladders, redesigned tower geometry/material budgets and visibility margins, tower bases that match and join their cell's stone, creep sizes for ModelScale 1.0–6.0 (ground creeps up to 5.0 clear corridor walls), health-bar anchors and invalid inputs. It also prints an occlusion probe: it casts rays from the isometric camera at four quarter-turns and one axis-aligned angle to the neighbouring cell centres at creep height. Each cell is checked with the head at rest and aimed at that cell, its worst lean. Chipped and flawed towers hide none. Normal to huge towers hide one, the cell diagonally behind. The check fails if any tower hides more. A second probe aims at the top of the smallest creep: no tower hides it in the four default views, and an axis-aligned view hides it behind one flawless-or-larger tower at most. Browser review covers playback, head tracking, seed changes, close-ups, both camera modes, quarter-turn rotation and grayscale. Saved screenshots capture the runnable meshes.
 
-Creep designs and animation, special towers, combat effects, occluder fading, game integration and full-board performance remain outside this study. Small screens need **Inspect** to see gem detail. The geometric silhouettes are proposals; this study does not establish their readability during combat.
+Creep designs and animation, special towers, combat effects, occluder fading and game integration remain outside this study. Synthetic dense-board rendering is measured in the performance study; actual gameplay frame pacing remains unvalidated. Small screens need **Inspect** to see gem detail. The geometric silhouettes are proposals; this study does not establish their readability during combat.
 
 ![Stone and gem overview](overview.png)
 

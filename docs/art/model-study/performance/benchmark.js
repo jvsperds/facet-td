@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { SimplifyModifier } from "three/addons/modifiers/SimplifyModifier.js";
 import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
+import { createModelBatch } from "../model-batch.js";
 import {
   createGemTower,
   createStone,
@@ -114,6 +115,12 @@ async function measure(count, variant) {
   }
   const reduced = variant.includes("simplified");
   const instanced = variant.includes("instanced");
+  const optimized = variant === "optimized";
+  let optimizedBatch;
+  const movingRoots = [
+    ...towers.map((tower) => tower.children.at(-1).children.at(-1)),
+    ...creeps,
+  ];
   const ownedGeometries = [];
   const batches = new Map();
   const sourceTriangles = { original: 0, actual: 0 };
@@ -171,16 +178,17 @@ async function measure(count, variant) {
         (mesh.geometry.index?.count ??
           mesh.geometry.attributes.position.count) / 3;
       if (!instanced) continue;
-      const key = `${mesh.geometry.uuid}:${mesh.material.uuid}`;
+      const key = `${mesh.geometry.uuid}:${mesh.material.uuid}:${mesh.castShadow}:${mesh.receiveShadow}:${mesh.renderOrder}`;
       if (!batches.has(key))
         batches.set(key, {
           geometry: mesh.geometry,
           material: mesh.material,
           meshes: [],
+          source: mesh,
         });
       batches.get(key).meshes.push(mesh);
     }
-    if (!instanced) scene.add(object);
+    if (!instanced && !optimized) scene.add(object);
   }
   for (const batch of batches.values()) {
     const geometry = batch.geometry.index
@@ -192,11 +200,18 @@ async function measure(count, variant) {
       batch.material,
       batch.meshes.length,
     );
-    batch.object.castShadow = true;
-    batch.object.receiveShadow = true;
+    batch.object.castShadow = batch.source.castShadow;
+    batch.object.receiveShadow = batch.source.receiveShadow;
+    batch.object.renderOrder = batch.source.renderOrder;
     batch.object.frustumCulled = false;
     batch.object.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     scene.add(batch.object);
+  }
+  if (optimized) {
+    const source = new THREE.Group();
+    source.add(...objects);
+    optimizedBatch = createModelBatch(source, { dynamicRoots: movingRoots });
+    scene.add(optimizedBatch.group);
   }
   renderer.shadowMap.enabled = !variant.includes("no-shadows");
   renderer.setSize(
@@ -229,6 +244,7 @@ async function measure(count, variant) {
         batch.object.instanceMatrix.needsUpdate = true;
       }
     }
+    optimizedBatch?.update(movingRoots);
     const updateEnd = performance.now();
     const renderStart = performance.now();
     renderer.render(scene, camera);
@@ -277,6 +293,7 @@ async function measure(count, variant) {
       "Proxy did not reduce enough triangles for a valid comparison",
     );
   floor.geometry.dispose();
+  optimizedBatch?.dispose();
   floor.material.dispose();
   sun.shadow.map?.dispose();
   for (const batch of batches.values()) batch.object.dispose();
@@ -285,26 +302,13 @@ async function measure(count, variant) {
   return result;
 }
 
-benchmark.runSuite = async () => {
+async function runCases(cases) {
   if (benchmark.state === "running") return;
   benchmark.state = "running";
   run.disabled = true;
+  document.querySelector("#optimize").disabled = true;
   benchmark.results = [];
   try {
-    const cases = [
-      [64, "current"],
-      [256, "current"],
-      [512, "current"],
-      [1024, "current"],
-      [256, "no-shadows"],
-      [256, "half-resolution"],
-      [256, "instanced"],
-      [256, "simplified"],
-      [256, "instanced-simplified"],
-      [256, "instanced-no-shadows"],
-      [256, "instanced-half-resolution"],
-      [512, "instanced"],
-    ];
     for (const [count, variant] of cases) {
       status.textContent = `Running ${count} towers / ${variant}…\n${JSON.stringify(benchmark.results, null, 2)}`;
       benchmark.results.push(await measure(count, variant));
@@ -321,6 +325,33 @@ benchmark.runSuite = async () => {
     status.textContent = benchmark.error;
   } finally {
     run.disabled = false;
+    document.querySelector("#optimize").disabled = false;
   }
-};
+}
+benchmark.runSuite = () =>
+  runCases([
+    [64, "current"],
+    [256, "current"],
+    [512, "current"],
+    [1024, "current"],
+    [256, "no-shadows"],
+    [256, "half-resolution"],
+    [256, "instanced"],
+    [256, "simplified"],
+    [256, "instanced-simplified"],
+    [256, "instanced-no-shadows"],
+    [256, "instanced-half-resolution"],
+    [512, "instanced"],
+  ]);
+benchmark.runOptimization = () =>
+  runCases(
+    [64, 256, 512, 1024].flatMap((count) => [
+      [count, "current"],
+      [count, "instanced"],
+      [count, "optimized"],
+    ]),
+  );
+document
+  .querySelector("#optimize")
+  .addEventListener("click", benchmark.runOptimization);
 run.addEventListener("click", benchmark.runSuite);

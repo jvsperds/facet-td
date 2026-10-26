@@ -6,6 +6,7 @@ import {
   QUALITY_TIERS,
   createCreep,
 } from "./models.js";
+import { createModelBatch } from "./model-batch.js";
 
 const stage = document.querySelector("#stage");
 const labels = document.querySelector("#labels");
@@ -76,6 +77,11 @@ const grid = new THREE.LineSegments(
 grid.position.y = -0.005;
 scene.add(grid);
 let models = new THREE.Group();
+let batch, batchedInspect;
+let heads = [],
+  joinRoots = [],
+  motionRoots = [],
+  motionDirty = true;
 let stones = [],
   anchors = [],
   towers = [],
@@ -159,7 +165,11 @@ function healthBar(creep, fraction, hp) {
   });
 }
 function build() {
-  scene.remove(models);
+  if (batch) {
+    scene.remove(batch.group);
+    batch.dispose();
+    batch = null;
+  }
   // Stone materials are shared; rebuilt meshes own their geometry.
   models.traverse((object) => {
     if (object.isInstancedMesh) object.dispose();
@@ -234,15 +244,23 @@ function build() {
     models.add(tower);
     label(name, x, 5.6, String(tier));
   });
-  scene.add(models);
   towers = models.children.filter((child) => child.userData.aimAt);
   creeps = models.children.filter((child) => child.userData.healthBarY);
+  heads = towers.map((tower) => tower.children.at(-1).children.at(-1));
+  joinRoots = stones.flatMap((stone) =>
+    stone.userData.aimAt
+      ? stone.children.slice(1, -1)
+      : stone.children.slice(1),
+  );
+  motionRoots = [...heads, target];
+  motionDirty = true;
   updateMerge(Number(slider.value));
   resize();
 }
 function updateMerge(value) {
   slider.value = value;
   stones.forEach((stone) => stone.userData.setMerge(value));
+  batch?.update(joinRoots);
   status.textContent = `${value === 1 ? "Connected" : value === 0 ? "Separate" : "Merging"} · variation ${seed}`;
 }
 function stop() {
@@ -275,6 +293,18 @@ function resize() {
       !inspect.value ||
       (inspect.value === "wall" ? !child.name : child === selected);
   });
+  if (!batch || batchedInspect !== inspect.value) {
+    if (batch) {
+      scene.remove(batch.group);
+      batch.dispose();
+    }
+    batch = createModelBatch(models, {
+      dynamicRoots: [...motionRoots, ...joinRoots],
+    });
+    scene.add(batch.group);
+    batchedInspect = inspect.value;
+    motionDirty = true;
+  }
   anchors.forEach((anchor) => {
     anchor.element.hidden = !!inspect.value;
   });
@@ -358,19 +388,24 @@ function updateWalk() {
 }
 walk.onclick = () => {
   walking = !walking;
+  motionDirty = true;
   updateWalk();
 };
 updateWalk();
 renderer.setAnimationLoop((time) => {
   if (walking && lastTime !== null) walkClock += time - lastTime;
   lastTime = time;
-  // Walk back and forth between x = -5.4 and 5.4 at 0.9 cell per second.
-  const step = ((walkClock / 1000) * 0.9) % 21.6;
-  target.position.x = step < 10.8 ? step - 5.4 : 16.2 - step;
-  target.rotation.y = step < 10.8 ? 0 : Math.PI;
-  anchors.find((anchor) => anchor.creep === target).position.x =
-    target.position.x;
-  aimTowers();
+  if (walking || motionDirty) {
+    // Walk back and forth between x = -5.4 and 5.4 at 0.9 cell per second.
+    const step = ((walkClock / 1000) * 0.9) % 21.6;
+    target.position.x = step < 10.8 ? step - 5.4 : 16.2 - step;
+    target.rotation.y = step < 10.8 ? 0 : Math.PI;
+    anchors.find((anchor) => anchor.creep === target).position.x =
+      target.position.x;
+    aimTowers();
+    batch.update(motionRoots);
+    motionDirty = false;
+  }
   if (animationStart !== null) {
     if (reducedMotion.matches) {
       stop();
