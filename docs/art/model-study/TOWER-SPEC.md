@@ -113,11 +113,9 @@ The deep tone is the same hue, about 30% darker and slightly more saturated. Dia
 ```text
 model                      Group from createStone({x, z, neighbours, seed, towerBase: true}); position (x, 0, z)
 │                          name = spec.name; userData: quality, setMerge, aimAt
-├── masonry pier, wall arms createStone output; towerBase: true for a wider footing
+├── masonry body, wall arms createStone output; towerBase: true, body top y 0.38
 └── tower                  superstructure Group (children.at(-1) of model)
     │                      scale = tier width / 0.68; position.y = 0.08 × (1 − scale)
-    ├── plinth             children[0]: CylinderGeometry(0.28, 0.31, 0.12, 8), y 0.14, rotation.y π/8,
-    │                      shared masonry material, dark wall-palette vertex colours
     ├── shaft and static crown meshes
     ├── static inlays      optional; gem material
     └── head               children.at(-1): Group on the shaft axis at the seat height
@@ -125,8 +123,8 @@ model                      Group from createStone({x, z, neighbours, seed, tower
         └── leaners        gems, or one lean Group holding setting and gem
 ```
 
-- **Authoring units.** Build at tier 6 (scale 1, width 0.68). One cell is one unit. Ground is y = 0. The plinth top is y = 0.20. The shaft axis is x = z = 0.
-- **Static parts** stay on the tower: plinth, shaft, corbel, static setting band, inlays.
+- **Authoring units.** Build at tier 6 (scale 1, width 0.68). One cell is one unit. Ground is y = 0. The shared masonry body reaches y = 0.38; authored shaft feet at y = 0.20 embed in it. The shaft axis is x = z = 0.
+- **Static parts** stay on the tower: shaft, corbel, static setting band, inlays.
 - **Head parts** turn: everything that holds or is the gem.
 
 ## 4. Requirements
@@ -134,7 +132,7 @@ model                      Group from createStone({x, z, neighbours, seed, tower
 | ID     | Requirement                                                                                                                                                                                                                                                                                                  | Checked by                                                    |
 | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
 | REQ-01 | Keep the API: `createGemTower(type, { x, z, neighbours, seed, quality })`. Unknown type or tier throws `RangeError`.                                                                                                                                                                                         | Test                                                          |
-| REQ-02 | Build the base with `createStone` and the same cell arguments plus `towerBase: true`. `tower.children[0]` is the plinth and uses `model.children[0].material`.                                                                                                                                               | Test                                                          |
+| REQ-02 | Build the base with `createStone` and the same cell arguments plus `towerBase: true`. The shared core forms the body from y 0–0.38; there is no separate plinth.                                                                                                                                             | Test                                                          |
 | REQ-03 | Same inputs give identical geometry. Do not use `Math.random` or time. Use `noise()` and the seed for variation.                                                                                                                                                                                             | Test, review                                                  |
 | REQ-04 | Bounds per tier, at rest and with the head aimed at eight compass points: width and depth ≤ tier width; top ≤ height cap; top ≥ 0.5 ([table](#7-quality-tiers)).                                                                                                                                             | Test                                                          |
 | REQ-05 | Creep-visibility limit (tier-6 units). Every vertex of the superstructure satisfies `y ≤ 1.2376 − 0.7071 × (abs(x) + abs(z)) / √2`, with at least 0.01 margin at rest and when aimed. The smallest creep (0.2376 high) must stay visible over the tower from the cell diagonally behind.                     | Test (raycast), [margin script](#152-creep-visibility-margin) |
@@ -154,9 +152,9 @@ Every tower shares these rules, so the eight read as one set.
 
 | ID     | Rule                                                                                                                                                                                         |
 | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| UNI-01 | Same masonry palette, connected wall arms and plinth geometry. Tower cells use a wide pier via `towerBase: true`. Do not restyle them per type.                                              |
+| UNI-01 | Same masonry palette, connected wall arms and continuous body via `towerBase: true`. Do not restyle them per type.                                                                           |
 | UNI-02 | Author at tier 6 and scale uniformly. Never scale x, y and z separately.                                                                                                                     |
-| UNI-03 | The superstructure starts at the plinth top (y 0.20). The shaft foot SHOULD stay inside the plinth top radius (0.28) so the plinth ledge shows.                                              |
+| UNI-03 | The authored shaft starts at y 0.20 and embeds in the shared body. Walls meet the body sides below its y 0.38 coping.                                                                        |
 | UNI-04 | The tier-6 top SHOULD be between 0.93 and 1.15. The head pivot (seat height) SHOULD be between 0.62 and 0.83. This keeps a common skyline.                                                   |
 | UNI-05 | Gem or cluster width at tier 6 MUST be at least 0.27. New and redesigned towers SHOULD use 0.35–0.50 (Diamond 0.48). Gem height SHOULD be at least 0.20.                                     |
 | UNI-06 | Use only the palette in ART-05. Shaft `#8B918C`, caps and corbels `#A4A79D`, settings `#4F565A`, the type gem colour.                                                                        |
@@ -205,7 +203,7 @@ Keep each type's silhouette family when you redesign it. A redesign MAY change c
 | 5    | Perfect  | 0.62                 | 0.912 | 1.065             | 0.5       |
 | 6    | Huge     | 0.68                 | 1.000 | 1.160             | 0.5       |
 
-Height cap = 0.08 + 1.08 × scale, because the plinth stays seated at y 0.08. Rounded, the caps are 0.68 / 0.78 / 0.87 / 0.97 / 1.06 / 1.16 cell, as in [DIRECTION.md](../DIRECTION.md).
+Height cap = 0.08 + 1.08 × scale, retaining the shaft's original tier offset. Rounded, the caps are 0.68 / 0.78 / 0.87 / 0.97 / 1.06 / 1.16 cell, as in [DIRECTION.md](../DIRECTION.md). The shared body remains y 0–0.38 at every tier.
 
 **TIER-01 Scale.** The whole superstructure scales uniformly by tier. The base stone does not scale.
 
@@ -397,7 +395,7 @@ Copy this into the task.
 - [ ] Silhouette family kept; distinct in grayscale and top view (REQ-14)
 - [ ] Built tower crowned by a large gem; gem width ≥ 0.35 at tier 6, or the reason recorded (UNI-05)
 - [ ] Palette, materials and vertex colours follow ART-04 to ART-06
-- [ ] Scene graph matches [section 3](#3-model-anatomy); plinth first, head last
+- [ ] Scene graph matches [section 3](#3-model-anatomy); shared body on model, head last in superstructure
 - [ ] `aimAt` works; leaners and pivots follow AIM-02 and AIM-03; no gaps above 0.02 when aimed
 - [ ] One detail per tier step; tier test added (TIER-02, TIER-03)
 - [ ] `models.test.mjs` passes; no assertion loosened

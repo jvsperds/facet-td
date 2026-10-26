@@ -7,7 +7,7 @@ The user committed to castle walls and selected **chunky battlements with broad 
 - Straight and dead-end runs are narrow; corners, T-junctions, crossings and isolated cells form wider masonry piers.
 - Footing: y 0–0.025. Two staggered brick courses sit on recessed dark mortar. Coping: y 0.108–0.122. Battlements: y 0.118–0.196.
 - The 0.196 top remains below the 0.20 wall cap. Wall footprints stay inside their cells and meet cardinal boundaries exactly at ±0.5.
-- Core piers are at most 0.44 × 0.44 cell; straight coping is 0.32 wide. Tower plinth geometry/scale stays unchanged and uses the same dark wall palette on the shared material.
+- Core piers are at most 0.44 × 0.44 cell; straight coping is 0.32 wide. Tower cells have a solid masonry body reaching y 0.38, with eight staggered courses and coping at 0.366–0.38. Walls enter the sides of this body below its top; there is no separate plinth or wall battlement beneath the tower shaft.
 - The first wide-pier-at-every-cell proposal read like paving; narrow straight cores and taller crenellations within the same height cap supersede it.
 
 ## Connected pattern
@@ -18,11 +18,11 @@ Use one common world seed across connected cells. World `x`/`z` and seed must be
 
 ## API and tower transitions
 
-`createStone({x,z,neighbours,seed,towerBase})` retains its legacy name. The default builds a wall; `towerBase: true` keeps a wide pier even on a straight run. `createGemTower` requests this automatically and uses identical wall arms at every quality tier. The first child remains the core mesh; each neighbour adds one arm Group; tower superstructure remains last. Each arm contains one merged mesh.
+`createStone({x,z,neighbours,seed,towerBase})` retains its legacy name. The default builds a wall; `towerBase: true` builds the taller masonry tower body even on a straight run. `createGemTower` requests this automatically and uses identical wall arms at every quality tier. The first child remains the core mesh; each neighbour adds one arm Group; tower superstructure remains last. Each arm contains one merged mesh. The former plinth child of the superstructure is removed; its head remains last.
 
 `userData.setMerge(0…1)` still extends/raises the arms. Intermediate states are animated construction, while reciprocal seamless alignment is required at progress 1. Source objects and join roots remain compatible with `createModelBatch`.
 
-The plinth now carries wall-palette vertex colours on the shared masonry material. Shafts, settings, gems, tier progression and aiming do not change. Exact geometry/attribute/transform comparisons against the pre-wall version passed for **288** type/tier/seed/rest-or-aim combinations above the plinth.
+The tower body uses the shared wall material and brick bond. Its extra courses surround the foot of the existing shaft, so the wall connects to a continuous body instead of a platform below it. Settings, gems, tier progression and aiming remain unchanged. The earlier 288-case comparison predates this body revision; current bounds, aiming, visibility and batch checks pass for the revised geometry.
 
 ## Geometry and validation
 
@@ -35,7 +35,7 @@ All walls use the shared rough, opaque, vertex-coloured masonry material. Indivi
 | Corner            | 3             | 696       |
 | Four-way crossing | 5             | 1,000     |
 
-`walls.test.mjs` covers 768 reciprocal profile/colour comparisons across every compatible mask pairing, both axes, multiple seeds and positive/negative coordinates; 48 tower-to-wall transitions across all types/tiers; nonzero face areas and the 1,000-triangle ceiling; and merge updates through the batch renderer. Existing bounds, occlusion and batch tests remain required. Render review covers colour, grayscale, top view, four quarter-turns and aimed tower transitions.
+`walls.test.mjs` covers 768 reciprocal profile/colour comparisons across every compatible mask pairing, both axes, multiple seeds and positive/negative coordinates; 48 tower-to-wall transitions across all types/tiers, with side raycasts at two wall courses and above the wall; nonzero face areas and the 1,000-triangle wall ceiling; and merge updates through the batch renderer. Existing bounds, occlusion and batch tests remain required. Earlier render review covered grayscale, top view, four quarter-turns and aimed joins; the latest body revision has a refreshed colour connection study.
 
 ```powershell
 node docs/art/model-study/models.test.mjs
@@ -45,7 +45,7 @@ node docs/art/model-study/walls.test.mjs
 
 ## Performance smoke check
 
-The new bricks increase source geometry versus the old rocks. A single corrected 12-case optimization suite was rerun on the same Intel UHD 620 hardware at 1280 × 720 / DPR1 / PCF 2048. These integrated-renderer samples include one wall per four towers and 64 moving creep proxies:
+These measurements predate the taller tower-body revision and must not be treated as its benchmark. The new bricks increase source geometry versus the old rocks. A single corrected 12-case optimization suite was rerun on the same Intel UHD 620 hardware at 1280 × 720 / DPR1 / PCF 2048. These integrated-renderer samples include one wall per four towers and 64 moving creep proxies:
 
 | Towers | Source triangles, walls/creeps included | Main + shadow calls | Median synchronized work ms |
 | ------ | --------------------------------------- | ------------------- | --------------------------- |

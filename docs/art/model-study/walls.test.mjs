@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { Box3, Vector3 } from "three";
+import { Box3, Raycaster, Vector3 } from "three";
 import { createStone, createGemTower, GEM_TYPES } from "./models.js";
 import { createModelBatch } from "./model-batch.js";
 
@@ -79,6 +79,16 @@ for (const type of GEM_TYPES)
       section(tower, "x", 0.5),
       `${type.name} tier ${quality} wall transition`,
     );
+    for (const y of [0.045, 0.09, 0.23]) {
+      const hit = new Raycaster(
+        new Vector3(0.5, y, 0.04),
+        new Vector3(-1, 0, 0),
+      ).intersectObject(tower.children[0])[0];
+      assert.ok(
+        hit && Math.abs(hit.point.x - 0.2) < 1e-6,
+        `${type.name} tier ${quality}: wall courses meet the body, which continues above them`,
+      );
+    }
   }
 // Animation stays closed, nondegenerate and within the existing wall/creep limits.
 const straight = createStone({ neighbours: { east: true, west: true } });

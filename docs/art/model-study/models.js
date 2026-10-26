@@ -269,11 +269,11 @@ export function createStone({
     ]);
     parts.push(paint(geometry, () => WALL_TONES[tone]));
   };
-  const bricks = (parts, rect, axis) => {
+  const bricks = (parts, rect, axis, rows = 2) => {
     // A world-aligned bond continues through tile cuts: shared bricks keep their colour and cut face.
     const [x0, x1, z0, z1] = rect;
-    for (let row = 0; row < 2; row++) {
-      const shift = row * 0.125,
+    for (let row = 0; row < rows; row++) {
+      const shift = (row % 2) * 0.125,
         pitch = 0.25,
         gap = 0.005;
       const fromX =
@@ -341,10 +341,17 @@ export function createStone({
     0,
     axis ? 0.004 : 0.005 + (noise(x, 0, z, seed) % 3) * 0.001,
   );
-  box(core, coreRect(0.195, 0.135), 0.02, 0.11, 0, 0);
-  bricks(core, coreRect(0.2, 0.14), axis);
-  box(core, coreRect(0.22, 0.16), 0.108, 0.122, 3);
-  if (axis)
+  // The tower body continues above the wall; wall arms enter its sides at the same course heights.
+  box(core, coreRect(0.195, 0.135), 0.02, towerBase ? 0.368 : 0.11, 0, 0);
+  bricks(core, coreRect(0.2, 0.14), axis, towerBase ? 8 : 2);
+  box(
+    core,
+    coreRect(0.22, 0.16),
+    towerBase ? 0.366 : 0.108,
+    towerBase ? 0.38 : 0.122,
+    3,
+  );
+  if (!towerBase && axis)
     for (const along of [-0.125, 0.125])
       box(
         core,
@@ -355,7 +362,7 @@ export function createStone({
         0.196,
         3,
       );
-  else
+  else if (!towerBase)
     for (const sx of [-1, 1])
       for (const sz of [-1, 1])
         box(
@@ -1491,15 +1498,6 @@ export function createGemTower(
   const tower = new THREE.Group();
   // The head (prongs or claws, and gems) turns on the shaft axis toward the creep under attack.
   const head = new THREE.Group();
-  const plinth = stoneMesh(
-    paint(
-      new THREE.CylinderGeometry(0.28, 0.31, 0.12, 8).toNonIndexed(),
-      (normal) => WALL_TONES[2].map((v, i) => v * stoneShade(11)(normal)[i]),
-    ),
-    model.children[0].material,
-  );
-  plinth.position.y = 0.14;
-  plinth.rotation.y = Math.PI / 8;
   const leaners = [];
   if (type === "D")
     leaners.push(...buildDiamond(stoneMesh, place, head, quality, spec));
@@ -1520,7 +1518,7 @@ export function createGemTower(
   for (const part of leaners) part.rotation.order = "ZYX"; // Lean in the head's frame.
   const scale = tier.width / 0.68;
   tower.scale.setScalar(scale);
-  tower.position.y = 0.08 * (1 - scale); // Keep the plinth seated on the stone.
+  tower.position.y = 0.08 * (1 - scale); // Keep the tier's shaft embedded in the shared masonry body.
   model.add(tower);
   model.name = spec.name;
   model.userData.quality = tier;

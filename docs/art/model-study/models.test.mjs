@@ -260,10 +260,9 @@ assert.deepEqual(
   ),
   "Tower base matches its masonry pier",
 );
-assert.equal(
-  towerOnCell.children[0].material,
-  towerOnCell.children.at(-1).children[0].material,
-  "Plinth uses the base stone shade",
+assert.ok(
+  new Box3().setFromObject(towerOnCell.children[0]).max.y > 0.196,
+  "Tower masonry body continues above the joining wall",
 );
 towerOnCell.position.set(0, 0, 0);
 towerOnCell.userData.setMerge(1);
