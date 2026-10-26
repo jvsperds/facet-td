@@ -3,6 +3,7 @@ import {
   createStone,
   createGemTower,
   GEM_TYPES,
+  SPECIAL_TOWERS,
   QUALITY_TIERS,
   createCreep,
 } from "./models.js";
@@ -15,7 +16,13 @@ const slider = document.querySelector("#merge");
 const play = document.querySelector("#play");
 const walk = document.querySelector("#walk");
 const inspect = document.querySelector("#inspect");
-for (const type of GEM_TYPES) {
+for (const family of ["Silver", "Malachite"]) {
+  const option = document.createElement("option");
+  option.value = `${family} family`;
+  option.textContent = `${family} family`;
+  inspect.append(option);
+}
+for (const type of [...GEM_TYPES, ...SPECIAL_TOWERS]) {
   const option = document.createElement("option");
   option.value = type.name;
   option.textContent = type.name;
@@ -41,7 +48,7 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.domElement.setAttribute("role", "img");
 renderer.domElement.setAttribute(
   "aria-label",
-  "3D study: castle walls share continuous masonry across cell edges. Eight named gems crown masonry towers, each with its own shaft shape, and towers join the walls they stand in. A row shows the Diamond tower at the six quality tiers. Placeholder creeps with health bars walk a corridor at their VPK-derived scale; one walks past the tower rows, and every tower turns its gem head toward the nearest creep. Use the view, merge and variation controls to inspect.",
+  "3D study: connected castle walls, eight basic gem towers, Silver and Silver Knight, Malachite and Vivid Malachite. A row shows Diamond quality tiers. Towers aim at passing creeps. Inspect individual towers or compare a special family; use the view, merge and variation controls.",
 );
 stage.prepend(renderer.domElement);
 scene.add(new THREE.HemisphereLight("#f6f3e9", "#56616a", 2.5));
@@ -58,15 +65,15 @@ sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.bias = -0.0003;
 scene.add(sun);
 const floor = new THREE.Mesh(
-  new THREE.BoxGeometry(12, 0.12, 12),
+  new THREE.BoxGeometry(12, 0.12, 16),
   new THREE.MeshStandardMaterial({ color: "#c7cac9", roughness: 1 }),
 );
-floor.position.set(0, -0.07, 0);
+floor.position.set(0, -0.07, 1);
 floor.receiveShadow = true;
 scene.add(floor);
 const gridLines = [];
-for (let x = -6; x <= 6; x++) gridLines.push(x, 0, -6, x, 0, 6);
-for (let z = -6; z <= 6; z++) gridLines.push(-6, 0, z, 6, 0, z);
+for (let x = -6; x <= 6; x++) gridLines.push(x, 0, -7, x, 0, 9);
+for (let z = -7; z <= 9; z++) gridLines.push(-6, 0, z, 6, 0, z);
 const grid = new THREE.LineSegments(
   new THREE.BufferGeometry().setAttribute(
     "position",
@@ -147,7 +154,11 @@ function label(text, x, z, detail = "") {
   strong.textContent = text;
   element.append(strong, document.createTextNode(detail));
   labels.append(element);
-  anchors.push({ element, position: new THREE.Vector3(x, 0.01, z) });
+  anchors.push({
+    element,
+    title: text,
+    position: new THREE.Vector3(x, 0.01, z),
+  });
 }
 // Health bars are HUD overlays: never depth-tested, so towers cannot hide them.
 function healthBar(creep, fraction, hp) {
@@ -215,6 +226,13 @@ function build() {
     models.add(tower);
     label(type.name, x, 3.15, type.id);
   });
+  SPECIAL_TOWERS.forEach((type, i) => {
+    const x = -3.3 + i * 2.2;
+    const tower = createGemTower(type.id, { x: Math.round(x), z: 4, seed });
+    tower.position.set(x, 0, 4.7);
+    models.add(tower);
+    label(type.name, x, 5.25);
+  });
   // Creeps walk the corridor between walls; sizes follow VPK ModelScale.
   // HP values are illustrative; only bosses show the number, as in the user's reference.
   [
@@ -239,10 +257,10 @@ function build() {
   QUALITY_TIERS.forEach(({ tier, name }, i) => {
     const tower = createGemTower("D", { seed, quality: tier });
     const x = -3.25 + i * 1.3;
-    tower.position.set(x, 0, 5.1);
+    tower.position.set(x, 0, 7.0);
     tower.name = `${name} Diamond`;
     models.add(tower);
-    label(name, x, 5.6, String(tier));
+    label(name, x, 7.5, String(tier));
   });
   towers = models.children.filter((child) => child.userData.aimAt);
   creeps = models.children.filter((child) => child.userData.healthBarY);
@@ -276,22 +294,39 @@ function resize() {
   const selected = models.children.find(
     (child) => child.name === inspect.value && inspect.value,
   );
+  const family = SPECIAL_TOWERS.filter(
+    (type) => `${type.family} family` === inspect.value,
+  );
+  const familyModels = models.children.filter((child) =>
+    family.some((type) => type.name === child.name),
+  );
   const target = selected
     ? selected.position.clone().add(new THREE.Vector3(0, 0.55, 0))
-    : new THREE.Vector3();
+    : familyModels.length
+      ? familyModels
+          .reduce((sum, model) => sum.add(model.position), new THREE.Vector3())
+          .multiplyScalar(1 / familyModels.length)
+          .add(new THREE.Vector3(0, 0.55, 0))
+      : new THREE.Vector3(0, 0, 1);
   const viewAngle = angle - (top ? Math.PI / 4 : 0);
   const sine = Math.abs(Math.sin(viewAngle)),
     cosine = Math.abs(Math.cos(viewAngle));
   const half = selected
     ? Math.max(0.85, 0.65 / aspect)
-    : Math.max(
-        (6 * sine + 6 * cosine) * (top ? 1 : 1 / Math.sqrt(3)) + 0.85,
-        (6 * cosine + 6 * sine + 0.85) / aspect,
-      );
+    : familyModels.length
+      ? Math.max(1.2, 2.2 / aspect)
+      : Math.max(
+          (6 * sine + 8 * cosine) * (top ? 1 : 1 / Math.sqrt(3)) + 0.85,
+          (6 * cosine + 8 * sine + 0.85) / aspect,
+        );
   models.children.forEach((child) => {
     child.visible =
       !inspect.value ||
-      (inspect.value === "wall" ? !child.name : child === selected);
+      (inspect.value === "wall"
+        ? !child.name
+        : familyModels.length
+          ? familyModels.includes(child)
+          : child === selected);
   });
   if (!batch || batchedInspect !== inspect.value) {
     if (batch) {
@@ -306,7 +341,8 @@ function resize() {
     motionDirty = true;
   }
   anchors.forEach((anchor) => {
-    anchor.element.hidden = !!inspect.value;
+    anchor.element.hidden =
+      !!inspect.value && !family.some((type) => type.name === anchor.title);
   });
   camera.left = -half * aspect;
   camera.right = half * aspect;

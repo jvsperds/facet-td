@@ -193,6 +193,45 @@ export const GEM_TYPES = [
   },
 ];
 
+export const SPECIAL_TOWERS = [
+  {
+    id: "gemtd_baiyin",
+    name: "Silver",
+    family: "Silver",
+    quality: 4,
+    sides: 8,
+    color: "#cbd8e0",
+    upgraded: false,
+  },
+  {
+    id: "gemtd_baiyinqishi",
+    name: "Silver Knight",
+    family: "Silver",
+    quality: 6,
+    sides: 8,
+    color: "#cbd8e0",
+    upgraded: true,
+  },
+  {
+    id: "gemtd_kongqueshi",
+    name: "Malachite",
+    family: "Malachite",
+    quality: 4,
+    sides: 6,
+    color: "#329568",
+    upgraded: false,
+  },
+  {
+    id: "gemtd_xianyandekongqueshi",
+    name: "Vivid Malachite",
+    family: "Malachite",
+    quality: 6,
+    sides: 6,
+    color: "#329568",
+    upgraded: true,
+  },
+];
+
 const flat = (color) =>
   new THREE.MeshStandardMaterial({ color, roughness: 1, flatShading: true });
 // Dark masonry against the light board; all faces use the existing wall palette.
@@ -1484,6 +1523,233 @@ function buildAmethyst(add, place, head, quality, spec) {
   return [pivot];
 }
 
+/** Silver: paired gatehouse buttresses carrying a faceted kite shield. */
+function buildSilver(add, place, head, quality, spec) {
+  const { solid, block, gem, seat, grips } = towerTools(add, place, head, spec);
+  block(
+    [
+      [0.25, 0.2],
+      [0.25, 0.24],
+      [0.21, 0.27],
+    ],
+    1,
+    130,
+  );
+  block(
+    [
+      [0.095, 0.25],
+      [0.095, 0.6],
+      [0.16, 0.63],
+    ],
+    0,
+    136,
+  );
+  for (const side of [-1, 1])
+    solid(
+      [0.26, 0.48, 0.63].flatMap((y, level) => {
+        const w = [0.09, 0.065, 0.08][level];
+        return [-w, w].flatMap((x) =>
+          [-0.055, 0.055].map((z) => new THREE.Vector3(x, y, side * 0.13 + z)),
+        );
+      }),
+      0,
+      131,
+    );
+  block(
+    [
+      [0.21, 0.59],
+      [0.26, 0.64],
+      [0.24, 0.68],
+    ],
+    1,
+    132,
+  );
+  if (spec.upgraded) {
+    block(
+      [
+        [0.245, 0.3],
+        [0.245, 0.325],
+        [0.22, 0.34],
+      ],
+      1,
+      133,
+    );
+    for (const side of [-1, 1])
+      solid(
+        [
+          new THREE.Vector3(-0.09, 0.35, side * 0.16),
+          new THREE.Vector3(0.09, 0.35, side * 0.16),
+          new THREE.Vector3(-0.14, 0.54, side * 0.24),
+          new THREE.Vector3(0.14, 0.54, side * 0.24),
+          new THREE.Vector3(-0.1, 0.59, side * 0.2),
+          new THREE.Vector3(0.1, 0.59, side * 0.2),
+        ],
+        0,
+        134,
+      );
+  }
+  const { lean, pivot } = seat(0.69);
+  block(
+    [
+      [0.16, 0.67],
+      [0.18, 0.71],
+      [0.16, 0.735],
+    ],
+    2,
+    135,
+    lean,
+  );
+  const outline = [
+    [0, 1.045],
+    [-0.16, 0.995],
+    [-0.21, 0.9],
+    [-0.15, 0.81],
+    [0, 0.75],
+    [0.15, 0.81],
+    [0.21, 0.9],
+    [0.16, 0.995],
+  ];
+  gem(
+    [-0.045, 0.035]
+      .flatMap((x) => outline.map(([z, y]) => new THREE.Vector3(x, y, z)))
+      .concat(new THREE.Vector3(0.105, 0.91, 0)),
+    lean,
+  );
+  grips(
+    lean,
+    4,
+    [
+      [0.13, 0.17, 0.7, 0.025],
+      [0.19, 0.23, 0.86, 0.018],
+    ],
+    2,
+    Math.PI / 4,
+  );
+  if (spec.upgraded) {
+    for (const z of [-0.105, 0, 0.105])
+      gem(
+        [
+          new THREE.Vector3(-0.015, 1.0, z - 0.025),
+          new THREE.Vector3(0.045, 1.0, z - 0.025),
+          new THREE.Vector3(-0.015, 1.0, z + 0.025),
+          new THREE.Vector3(0.045, 1.0, z + 0.025),
+          new THREE.Vector3(0.015, z === 0 ? 1.105 : 1.065, z),
+        ],
+        lean,
+      );
+  }
+  return [pivot];
+}
+
+/** Malachite: three swept masonry roots and a low, banded rosette of broad crystal leaves. */
+function buildMalachite(add, place, head, quality, spec) {
+  const { ring, solid, block, gem, seat } = towerTools(add, place, head, spec);
+  block(
+    [
+      [0.25, 0.2],
+      [0.25, 0.24],
+      [0.21, 0.27],
+    ],
+    1,
+    140,
+  );
+  block(
+    [
+      [0.1, 0.25],
+      [0.1, 0.59],
+      [0.16, 0.65],
+    ],
+    0,
+    141,
+  );
+  for (let i = 0; i < 3; i++) {
+    const a = (i * 2 * Math.PI) / 3;
+    solid(
+      [
+        [0.2, 0.25, 0.065],
+        [0.17, 0.4, 0.05],
+        [0.08, 0.59, 0.035],
+      ].flatMap(([r, y, w]) =>
+        [r - 0.035, r + 0.035].flatMap((rad) =>
+          [-w, w].map(
+            (t) =>
+              new THREE.Vector3(
+                rad * Math.cos(a) - t * Math.sin(a),
+                y,
+                rad * Math.sin(a) + t * Math.cos(a),
+              ),
+          ),
+        ),
+      ),
+      0,
+      142 + i,
+    );
+  }
+  block(
+    [
+      [0.15, 0.6],
+      [0.27, 0.665],
+      [0.255, 0.7],
+    ],
+    1,
+    145,
+  );
+  if (spec.upgraded)
+    block(
+      [
+        [0.205, 0.49],
+        [0.205, 0.52],
+        [0.18, 0.535],
+      ],
+      1,
+      146,
+    );
+  const { lean, pivot } = seat(0.72);
+  block(
+    [
+      [0.22, 0.69],
+      [0.23, 0.73],
+      [0.2, 0.76],
+    ],
+    2,
+    147,
+    lean,
+  );
+  const leaves = spec.upgraded ? 5 : 3;
+  for (let i = 0; i < leaves; i++) {
+    const a = (i * 2 * Math.PI) / leaves;
+    const section = (r, y, w, d) =>
+      [r - d, r + d].flatMap((rad) =>
+        [-w, w].map(
+          (t) =>
+            new THREE.Vector3(
+              rad * Math.cos(a) - t * Math.sin(a),
+              y,
+              rad * Math.sin(a) + t * Math.cos(a),
+            ),
+        ),
+      );
+    gem(
+      [
+        ...section(0.08, 0.76, 0.025, 0.025),
+        ...section(0.19, 0.88, 0.105, 0.055),
+      ],
+      lean,
+      () => new THREE.Color("#226847").toArray(),
+    );
+    gem(
+      [
+        ...section(0.19, 0.884, 0.105, 0.055),
+        ...section(0.18, 0.96, 0.09, 0.04),
+        new THREE.Vector3(0.12 * Math.cos(a), 1.025, 0.12 * Math.sin(a)),
+      ],
+      lean,
+    );
+  }
+  gem([...ring(0.07, 0.77), ...ring(0.085, 0.85), ...ring(0.04, 0.91)], lean);
+  return [pivot];
+}
+
 /** Aiming tips the head this far toward its target, so the turn reads even on round gems. */
 const AIM_LEAN = 0.17;
 
@@ -1502,10 +1768,13 @@ export const QUALITY_TIERS = [
  */
 export function createGemTower(
   type,
-  { x = 0, z = 0, neighbours = {}, seed = 1, quality = 6 } = {},
+  { x = 0, z = 0, neighbours = {}, seed = 1, quality } = {},
 ) {
-  const spec = GEM_TYPES.find((g) => g.id === type);
+  const spec =
+    GEM_TYPES.find((g) => g.id === type) ??
+    SPECIAL_TOWERS.find((g) => g.id === type);
   if (!spec) throw new RangeError(`Unknown gem type: ${type}`);
+  if (quality === undefined) quality = spec.quality ?? 6;
   const tier = QUALITY_TIERS.find((q) => q.tier === quality);
   if (!tier) throw new RangeError(`Unknown quality tier: ${quality}`);
   const place = (mesh, parent = tower) => {
@@ -1538,14 +1807,19 @@ export function createGemTower(
   else if (type === "B")
     leaners.push(...buildSapphire(stoneMesh, place, head, quality, spec));
   else {
-    const build = {
-      Y: buildTopaz,
-      R: buildRuby,
-      G: buildEmerald,
-      E: buildOpal,
-      Q: buildAquamarine,
-      P: buildAmethyst,
-    }[type];
+    const build =
+      spec.family === "Silver"
+        ? buildSilver
+        : spec.family === "Malachite"
+          ? buildMalachite
+          : {
+              Y: buildTopaz,
+              R: buildRuby,
+              G: buildEmerald,
+              E: buildOpal,
+              Q: buildAquamarine,
+              P: buildAmethyst,
+            }[type];
     leaners.push(...build(stoneMesh, place, head, quality, spec));
   }
   tower.add(head);

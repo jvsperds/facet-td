@@ -6,6 +6,7 @@ import {
   createStone,
   createCreep,
   GEM_TYPES,
+  SPECIAL_TOWERS,
   QUALITY_TIERS,
 } from "./models.js";
 
@@ -73,7 +74,7 @@ function equivalent(source, batch) {
     ),
   );
 }
-for (const type of GEM_TYPES)
+for (const type of [...GEM_TYPES, ...SPECIAL_TOWERS])
   for (const { tier } of QUALITY_TIERS) {
     const source = new THREE.Group();
     const roots = [];
@@ -191,5 +192,5 @@ for (const t of [0, 0.5, 1]) {
 }
 joins.dispose();
 console.log(
-  "PASS: batches preserve all eight types at six tiers, aims, colours/normals, joins, flying shadows, visibility, resource ownership and selective updates",
+  "PASS: batches preserve basic and special towers at six tiers, aims, colours/normals, joins, flying shadows, visibility, resource ownership and selective updates",
 );

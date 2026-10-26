@@ -190,6 +190,8 @@ Keep each type's silhouette family when you redesign it. A redesign MAY change c
 
 **New towers (special and combined).** IDs and English names are in `data/baseline/npc/units.json` and `data/baseline/localization/english.json` on the `phase-1/foundation` branch. For example, `gemtd_baiyinqishi` is Silver Knight and `gemtd_furongshi` is Quartz.
 
+The first implemented special families are documented in [SPECIAL-TOWERS.md](SPECIAL-TOWERS.md): Silver/Silver Knight and Malachite/Vivid Malachite. Their separate `SPECIAL_TOWERS` catalogue uses canonical IDs and the existing `createGemTower` factory, fitted walls, grey masonry and aiming contract. Their base/upgrade scale presets are art presentation choices, not additional gameplay tiers.
+
 - A new tower MUST NOT reuse one of the eight silhouette families. It SHOULD carry one cue from each ingredient gem (for example a shaft family from one and a gem colour from another).
 - Special towers use the same bounds and budgets. If a design fails them, simplify it; do not raise the limits ([IMPLEMENTATION.md](../IMPLEMENTATION.md)).
 - The user approves a new silhouette before it is built in full. Show two close-up options when the direction is not clear.
