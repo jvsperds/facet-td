@@ -8,8 +8,9 @@ The user selected **chunky battlements with broad masonry blocks**, then clarifi
 - Ordinary walls reach **y 0.38**, with two staggered courses, recessed mortar, coping and chunky battlements. Wall footprints stay inside their cells and meet cardinal boundaries exactly at ±0.5.
 - Maze walls have no fixed inside: merlons sit on both exposed edges, leaving a clear centre walkway. Each edge strip occupies cross-wall offsets 0.10–0.18, with a 0.02 outward projection beyond the coping. Pier corner merlons remain on their outer perimeter.
 - Core piers are at most 0.44 × 0.44 cell; straight coping is 0.32 wide. Original tower foundations and plinths are restored; no replacement tower body is added.
-- Tower connections meet y 0.38 at the cell edge and slope toward a point **0.025 below the lowest head point in its resting or leaned pose**. The innermost battlement continues to the shaft.
-- Connections narrow toward slim shafts. Their inner vertices raycast against the original static tower meshes at each height and lateral position; a 0.002 overlap avoids cracks. Below the shaft, the cut ends inside the foundation. Mixed types and tiers share the same cell-edge profile while adapting independently at their shafts.
+- Tower connections meet y 0.38 at the cell edge. Fitted coping slopes into the shaft beneath the gem head; the stretched battlement extensions beside the shaft are removed.
+- Every merlon is **0.14 long × 0.08 wide × approximately 0.1512 high**, including junction and tower-approach blocks. Tower merlons retain their rigid shape and regular position; small masonry saddles fill the sloped coping beneath them. Foundation merlons hidden under tower plinths are removed.
+- Connection masonry narrows toward slim shafts; merlons do not stretch or taper. Its inner vertices raycast against the original static tower meshes at each height and lateral position; a 0.002 overlap avoids cracks. Below the shaft, the cut ends inside the foundation. Mixed types and tiers share the same cell-edge profile while adapting independently at their shafts.
 
 ## Connected pattern
 
@@ -36,7 +37,7 @@ All walls use the shared rough, opaque, vertex-coloured masonry material. Indivi
 | Corner            | 3             | 736       |
 | Four-way crossing | 5             | 1,080     |
 
-`walls.test.mjs` covers 768 reciprocal profile/colour comparisons across compatible masks, both axes, multiple seeds and positive/negative coordinates; 48 tower-to-wall boundary profiles; **192 shaft connections** across eight types, six tiers and four directions; original tower preservation; clearance below resting/leaned heads; exterior edge merlons and clear walkways; nonzero wall faces and the 1,080-triangle wall ceiling; and merge updates through the batch renderer. Tower tests also verify effective masonry colours against the shared wall palette. Colour connection and overview captures are refreshed; grayscale derives from the current overview. Prior rotation/top captures are historical.
+`walls.test.mjs` covers 768 reciprocal profile/colour comparisons across compatible masks, both axes, multiple seeds and positive/negative coordinates; 48 tower-to-wall boundary profiles; **192 shaft connections** across eight types, six tiers and four directions; original tower preservation; fitted coping beneath resting/leaned heads; uniform merlon dimensions across all wall masks and tower approaches; exterior edges and clear walkways; nonzero faces and the 1,080-triangle wall ceiling; and merge updates through the batch renderer. Tower tests also verify effective masonry colours against the shared wall palette. Colour connection and overview captures are refreshed; grayscale derives from the current overview. Prior rotation/top captures are historical.
 
 The user-requested height supersedes the low-wall visibility guarantee. Isolated-tower visibility tests still pass, but taller walls and approaches can cover small creeps; gameplay fade/outline treatment remains necessary and is not implemented in this model study.
 

@@ -135,7 +135,7 @@ for (const type of GEM_TYPES)
       const arm = joined.children[1].children[0];
       const vertices = arm.geometry.attributes.position;
       let cap = new Vector3(0, -Infinity, 0);
-      for (let i = 0; i < vertices.count; i++) {
+      for (let i = 0; i < arm.userData.merlons[0].start; i++) {
         const p = new Vector3().fromBufferAttribute(vertices, i);
         if (Math.abs(p[axis]) < 0.32 && p.y > cap.y) cap = p;
       }
@@ -149,8 +149,8 @@ for (const type of GEM_TYPES)
         );
       }
       assert.ok(
-        Math.abs(cap.y - (headBottom - 0.025)) < 1e-6,
-        `${type.name} tier ${quality} ${side}: wall reaches just below the gem head (${cap.y}/${headBottom - 0.025})`,
+        Math.abs(cap.y - ((headBottom - 0.025) * 0.122) / 0.196) < 1e-6,
+        `${type.name} tier ${quality} ${side}: fitted coping remains beneath the gem head`,
       );
       const origin = cap.clone();
       origin[axis] = sign * 0.5;
@@ -164,6 +164,18 @@ for (const type of GEM_TYPES)
         hit && Math.abs(sign * (hit.point[axis] - cap[axis]) - 0.002) < 1e-5,
         `${type.name} tier ${quality} ${side} joins the shaft surface`,
       );
+      for (const { start, count } of arm.userData.merlons) {
+        const bounds = new Box3();
+        for (let i = start; i < start + count; i++)
+          bounds.expandByPoint(new Vector3().fromBufferAttribute(vertices, i));
+        const size = bounds.getSize(new Vector3());
+        assert.ok(
+          Math.abs(size[axis] - 0.14) < 1e-6 &&
+            Math.abs(size[axis === "x" ? "z" : "x"] - 0.08) < 1e-6 &&
+            Math.abs(size.y - (0.078 * 0.38) / 0.196) < 1e-6,
+          "Tower approach merlons retain the same length, width and height as ordinary wall merlons",
+        );
+      }
     }
   }
 // Animation stays closed, nondegenerate and within the existing wall/creep limits.
@@ -207,6 +219,19 @@ for (let mask = 0; mask < 16; mask++) {
   wall.traverse((mesh) => {
     if (!mesh.isMesh) return;
     const p = mesh.geometry.attributes.position;
+    for (const { start, count } of mesh.userData.merlons) {
+      const block = new Box3();
+      for (let i = start; i < start + count; i++)
+        block.expandByPoint(new Vector3().fromBufferAttribute(p, i));
+      const size = block.getSize(new Vector3());
+      const footprint = [size.x, size.z].sort((a, b) => a - b);
+      assert.ok(
+        Math.abs(footprint[0] - 0.08) < 1e-6 &&
+          Math.abs(footprint[1] - 0.14) < 1e-6 &&
+          Math.abs(size.y - (0.078 * 0.38) / 0.196) < 1e-6,
+        "Every wall and junction merlon has uniform dimensions",
+      );
+    }
     triangles += p.count / 3;
     for (let i = 0; i < p.count; i += 3) {
       const a = new Vector3().fromBufferAttribute(p, i),

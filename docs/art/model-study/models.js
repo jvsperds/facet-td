@@ -317,13 +317,25 @@ export function createStone({
         }
     }
   };
+  const merlon = (parts, rect) => {
+    box(parts, rect, 0.118, 0.196, 3);
+    parts.at(-1).userData.merlon = true;
+  };
   const mesh = (parts) => {
+    const merlons = [];
+    let start = 0;
+    for (const part of parts) {
+      const count = part.attributes.position.count;
+      if (part.userData.merlon) merlons.push({ start, count });
+      start += count;
+    }
     const geometry = mergeGeometries(parts);
     parts.forEach((part) => part.dispose());
     const result = new THREE.Mesh(geometry, paletteMasonry);
     result.castShadow = true;
     result.receiveShadow = true;
     result.userData.sharedMaterial = true;
+    result.userData.merlons = merlons;
     return result;
   };
   const core = [];
@@ -347,7 +359,7 @@ export function createStone({
   if (axis)
     for (const along of [-0.125, 0.125])
       for (const side of [-1, 1])
-        box(
+        merlon(
           core,
           horizontal
             ? [
@@ -362,25 +374,16 @@ export function createStone({
                 along - 0.07,
                 along + 0.07,
               ],
-          0.118,
-          0.196,
-          3,
         );
-  else
+  else if (!towerBase)
     for (const sx of [-1, 1])
       for (const sz of [-1, 1])
-        box(
-          core,
-          [
-            sx < 0 ? -0.21 : 0.11,
-            sx < 0 ? -0.11 : 0.21,
-            sz < 0 ? -0.21 : 0.11,
-            sz < 0 ? -0.11 : 0.21,
-          ],
-          0.118,
-          0.196,
-          3,
-        );
+        merlon(core, [
+          sx < 0 ? -0.21 : 0.07,
+          sx < 0 ? -0.07 : 0.21,
+          sz < 0 ? -0.21 : 0.13,
+          sz < 0 ? -0.13 : 0.21,
+        ]);
   group.add(mesh(core));
   for (const [side, dx, dz] of [
     ["north", 0, -1],
@@ -400,17 +403,17 @@ export function createStone({
     box(parts, rect(0.22, 0.5, 0.16), 0.108, 0.122, 3);
     // Both maze-wall flanks are exterior: keep the centre walk clear and project merlons outward.
     for (const side of [-1, 1]) {
-      const merlon = rect(towerBase ? 0.2 : 0.305, 0.445, 0.18);
+      const footprint = rect(0.305, 0.445, 0.18);
       const acrossMin = side < 0 ? -0.18 : 0.1;
       const acrossMax = side < 0 ? -0.1 : 0.18;
       if (dx) {
-        merlon[2] = acrossMin;
-        merlon[3] = acrossMax;
+        footprint[2] = acrossMin;
+        footprint[3] = acrossMax;
       } else {
-        merlon[0] = acrossMin;
-        merlon[1] = acrossMax;
+        footprint[0] = acrossMin;
+        footprint[1] = acrossMax;
       }
-      box(parts, merlon, 0.118, 0.196, 3);
+      merlon(parts, footprint);
     }
     const arm = new THREE.Group();
     arm.add(mesh(parts));
@@ -1572,15 +1575,18 @@ export function createGemTower(
     const alongIndex = axis === "x" ? 0 : 2;
     const acrossIndex = axis === "x" ? 2 : 0;
     const sign = Math.sign(p.getComponent(0, alongIndex));
-    for (let i = 0; i < p.count; i++) {
+    for (let i = 0; i < mesh.userData.merlons[0].start; i++) {
       const along = Math.abs(p.getComponent(i, alongIndex));
-      const blend = THREE.MathUtils.clamp((0.5 - along) / 0.28, 0, 1);
+      const blend =
+        along <= 0.224001
+          ? 1
+          : THREE.MathUtils.clamp((0.5 - along) / 0.28, 0, 1);
       const y =
         (p.getY(i) * THREE.MathUtils.lerp(0.38, joinHeight, blend)) / 0.196;
       const across =
         p.getComponent(i, acrossIndex) * THREE.MathUtils.lerp(1, 0.25, blend);
       let fitted = along;
-      if (along <= 0.220001) {
+      if (along <= 0.224001) {
         const origin = new THREE.Vector3(x, y, z);
         origin[axis] += sign * 0.5;
         origin[axis === "x" ? "z" : "x"] += across;
@@ -1598,6 +1604,55 @@ export function createGemTower(
       p.setComponent(i, alongIndex, sign * fitted);
       p.setComponent(i, acrossIndex, across);
       p.setY(i, y);
+    }
+    mesh.geometry.computeVertexNormals();
+    mesh.geometry.computeBoundingBox();
+    mesh.geometry.computeBoundingSphere();
+    // Keep merlons rigid; a small masonry saddle fills the sloping coping beneath each block.
+    const supports = [];
+    mesh.geometry.setDrawRange(0, mesh.userData.merlons[0].start);
+    for (const { start, count } of mesh.userData.merlons) {
+      const bounds = new THREE.Box3();
+      for (let i = start; i < start + count; i++)
+        bounds.expandByPoint(new THREE.Vector3().fromBufferAttribute(p, i));
+      const feet = [];
+      for (const px of [bounds.min.x, bounds.max.x])
+        for (const pz of [bounds.min.z, bounds.max.z]) {
+          const origin = new THREE.Vector3(x + px, 2, z + pz);
+          const acrossAxis = axis === "x" ? "z" : "x";
+          origin[acrossAxis] =
+            (axis === "x" ? z : x) +
+            THREE.MathUtils.clamp(axis === "x" ? pz : px, -0.15, 0.15);
+          ray.set(origin, new THREE.Vector3(0, -1, 0));
+          const hit = ray.intersectObject(mesh, false)[0];
+          feet.push(
+            new THREE.Vector3(
+              px,
+              hit ? hit.point.y : (0.122 * 0.38) / 0.196,
+              pz,
+            ),
+          );
+        }
+      const base = Math.max(...feet.map((point) => point.y));
+      for (let i = start; i < start + count; i++)
+        p.setY(i, base + ((p.getY(i) - 0.118) * 0.38) / 0.196);
+      if (base - Math.min(...feet.map((point) => point.y)) > 1e-6)
+        supports.push(
+          paint(
+            new ConvexGeometry([
+              ...feet,
+              ...feet.map((point) => new THREE.Vector3(point.x, base, point.z)),
+            ]),
+            () => WALL_TONES[3],
+          ),
+        );
+    }
+    mesh.geometry.setDrawRange(0, Infinity);
+    if (supports.length) {
+      const old = mesh.geometry;
+      mesh.geometry = mergeGeometries([old, ...supports]);
+      old.dispose();
+      supports.forEach((part) => part.dispose());
     }
     mesh.geometry.computeVertexNormals();
     mesh.geometry.computeBoundingBox();
