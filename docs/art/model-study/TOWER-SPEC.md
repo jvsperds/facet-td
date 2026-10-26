@@ -33,15 +33,15 @@ This sheet tells an agent how to build, change and check a procedural gem-tower 
 
 ## 1. Read first
 
-| Source                                                                                | Use it for                                                                                                           |
-| ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| [models.js](models.js)                                                                | The code. `buildDiamond` is the pattern to copy. The seven lathe towers are version 1 and use the shared lathe path. |
-| [models.test.mjs](models.test.mjs)                                                    | Bounds, occlusion, aim and tier tests. The test is the authority for every number in this sheet.                     |
-| [README.md](README.md)                                                                | Current model descriptions and run commands.                                                                         |
-| [../DIRECTION.md](../DIRECTION.md)                                                    | Camera, palette, scale and type rules for the whole game.                                                            |
-| [../IMPLEMENTATION.md](../IMPLEMENTATION.md), section "Model scale and readable gems" | Occlusion rules and what the game renderer (P2) expects.                                                             |
-| [../references/user-arena-2.png](../references/user-arena-2.png)                      | The chunky, stylised look the user likes.                                                                            |
-| [overview.png](overview.png), [grayscale.png](grayscale.png)                          | The current models on the study board.                                                                               |
+| Source                                                                                | Use it for                                                                                                                                        |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [models.js](models.js)                                                                | The code. `buildDiamond` is the pattern to copy. Sapphire also has its own builder; the six remaining lathe towers use the shared version-1 path. |
+| [models.test.mjs](models.test.mjs)                                                    | Bounds, occlusion, aim and tier tests. The test is the authority for every number in this sheet.                                                  |
+| [README.md](README.md)                                                                | Current model descriptions and run commands.                                                                                                      |
+| [../DIRECTION.md](../DIRECTION.md)                                                    | Camera, palette, scale and type rules for the whole game.                                                                                         |
+| [../IMPLEMENTATION.md](../IMPLEMENTATION.md), section "Model scale and readable gems" | Occlusion rules and what the game renderer (P2) expects.                                                                                          |
+| [../references/user-arena-2.png](../references/user-arena-2.png)                      | The chunky, stylised look the user likes.                                                                                                         |
+| [overview.png](overview.png), [grayscale.png](grayscale.png)                          | The current models on the study board.                                                                                                            |
 
 Also read the repository `AGENTS.md` and `docs/PLAN.md` before you edit.
 
@@ -174,7 +174,7 @@ Keep each type's silhouette family when you redesign it. A redesign MAY change c
 | Code | Name       | Gem colour | Silhouette family (keep)                                  | Gem form                           | Symmetry | Status               |
 | ---- | ---------- | ---------- | --------------------------------------------------------- | ---------------------------------- | -------- | -------------------- |
 | D    | Diamond    | `#dceef2`  | Square coursed tower, battered foot, corbel, claw setting | Brilliant cut, point down, 8-fold  | 4 / 8    | Version 2, reference |
-| B    | Sapphire   | `#386bd6`  | Straight column with a wider capital                      | Hexagonal prism, pointed top       | 6        | Version 1            |
+| B    | Sapphire   | `#386bd6`  | Straight column with a wider capital                      | Hexagonal prism, pointed top       | 6        | Version 2            |
 | Y    | Topaz      | `#edb837`  | Waisted hourglass, three prongs                           | Pointed three-sided cut            | 3        | Version 1            |
 | R    | Ruby       | `#ce4059`  | Keep: straight shaft, wide battlemented crown             | Wide eight-sided cushion           | 8        | Version 1            |
 | G    | Emerald    | `#23956d`  | Tall slim spire, four prongs                              | Step-cut column with chamfered top | 4        | Version 1            |
@@ -411,7 +411,7 @@ Copy this into the task.
 
 ## 13. Known limits and open questions
 
-- **Version 1 lathe towers.** Seven towers still use the shared lathe path. Emerald's prongs sit inside its gem radius, so the gem passes through them at rest and when aimed. Emerald also has the smallest REQ-05 margin (0.015 aimed). Fix both in its redesign.
+- **Version 1 lathe towers.** Six towers still use the shared lathe path. Emerald's prongs sit inside its gem radius, so the gem passes through them at rest and when aimed. Emerald also has the smallest REQ-05 margin (0.015 aimed). Fix both in its redesign.
 - **Draw calls.** Diamond uses 28 meshes in its superstructure. On a full board, the game renderer should merge static meshes that share a material. Keep static masonry on shared materials so that merge stays possible.
 - **Probe coverage.** The occlusion test samples five camera angles and aims at each probed cell. It is not exhaustive for free rotation.
 - **Not specified here.** Turn easing, attack and impact effects, idle animation, level-of-detail models, special-tower recipes and their final look.
@@ -446,7 +446,7 @@ Measured on 26 October 2026, tier 6, rest pose, no wall neighbours.
 | Type | Top   | Head pivot y | Meshes (superstructure) | Triangles (superstructure) | REQ-05 margin at rest / aimed |
 | ---- | ----- | ------------ | ----------------------- | -------------------------- | ----------------------------- |
 | D    | 1.070 | 0.825        | 28                      | 590                        | 0.055 / 0.045                 |
-| B    | 1.124 | 0.780        | 3                       | 128                        | 0.093 / 0.077                 |
+| B    | 1.105 | 0.765        | 21                      | 518                        | 0.104 / 0.096                 |
 | Y    | 1.104 | 0.760        | 6                       | 122                        | 0.134 / 0.097                 |
 | R    | 1.004 | 0.740        | 11                      | 304                        | 0.149 / 0.143                 |
 | G    | 1.144 | 0.800        | 7                       | 152                        | 0.027 / 0.015                 |

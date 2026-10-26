@@ -138,6 +138,78 @@ assert.deepEqual(
   [true, true, true, true, false],
   "Diamond tiers gain detail",
 );
+// Sapphire adds inlays, a course, three grips and a collar band; huge only grows.
+const sapphireParts = QUALITY_TIERS.map(({ tier }) => {
+  const model = createGemTower("B", { quality: tier });
+  const tower = model.children.at(-1);
+  const head = tower.children.at(-1);
+  let meshes = 0;
+  let triangles = 0;
+  const materials = new Set();
+  const rest = [];
+  model.updateMatrixWorld(true);
+  tower.traverse((object) => {
+    if (!object.isMesh) return;
+    meshes++;
+    const p = object.geometry.attributes.position;
+    triangles += (object.geometry.index?.count ?? p.count) / 3;
+    materials.add(object.material);
+    rest.push(object.matrixWorld.clone());
+    assert.ok(object.castShadow && object.receiveShadow);
+    const vertex = (i) => new Vector3().fromBufferAttribute(p, i);
+    const index = object.geometry.index;
+    for (let i = 0; i < (index?.count ?? p.count); i += 3) {
+      const a = vertex(index ? index.getX(i) : i);
+      const b = vertex(index ? index.getX(i + 1) : i + 1);
+      const c = vertex(index ? index.getX(i + 2) : i + 2);
+      assert.ok(
+        b.sub(a).cross(c.sub(a)).lengthSq() > 1e-14,
+        "Sapphire solid faces",
+      );
+    }
+  });
+  assert.ok(meshes <= 32 && triangles <= 800 && materials.size <= 4);
+  for (const aim of aims) {
+    model.userData.aimAt(...aim);
+    model.updateMatrixWorld(true);
+    tower.traverse((object) => {
+      if (!object.isMesh) return;
+      const p = object.geometry.attributes.position;
+      for (let i = 0; i < p.count; i++) {
+        const v = new Vector3()
+          .fromBufferAttribute(p, i)
+          .applyMatrix4(object.matrixWorld);
+        assert.ok(
+          1.2376 -
+            (0.7071 * (Math.abs(v.x) + Math.abs(v.z))) / Math.SQRT2 -
+            v.y >=
+            0.01,
+          `Sapphire tier ${tier} creep-visibility margin`,
+        );
+      }
+    });
+  }
+  model.userData.aimAt();
+  model.updateMatrixWorld(true);
+  let i = 0;
+  tower.traverse((object) => {
+    if (object.isMesh)
+      assert.deepEqual(
+        object.matrixWorld,
+        rest[i++],
+        "Sapphire exact rest pose",
+      );
+  });
+  const gem = head.children[0].children.at(-1);
+  const size = new Box3().setFromObject(gem, true).getSize(new Vector3());
+  assert.ok(size.x >= 0.35 * (QUALITY_TIERS[tier - 1].width / 0.68));
+  return meshes;
+});
+assert.deepEqual(
+  sapphireParts.slice(1).map((parts, i) => parts > sapphireParts[i]),
+  [true, true, true, true, false],
+  "Sapphire tiers gain detail",
+);
 // The tower base is its cell's stone: same variation, and it joins neighbouring walls.
 const towerOnCell = createGemTower("R", {
   x: 3,
@@ -254,5 +326,5 @@ assert.ok(
   "Creep visibility budget",
 );
 console.log(
-  "PASS: 16 adjacency masks, merge bounds, deterministic variation, eight distinct towers at six tier bounds with aimed heads, head aim, Diamond tier detail, tower-wall joins, creep scale, occlusion budgets and invalid inputs",
+  "PASS: 16 adjacency masks, merge bounds, deterministic variation, eight distinct towers at six tier bounds with aimed heads, head aim, Diamond and Sapphire tier detail, Sapphire budgets and visibility margins, tower-wall joins, creep scale, occlusion budgets and invalid inputs",
 );

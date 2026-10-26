@@ -23,20 +23,22 @@ export const GEM_TYPES = [
     color: "#386bd6",
     sides: 6,
     profile: [
-      [0, 0],
-      [0.18, 0.05],
-      [0.18, 0.32],
-      [0, 0.43],
+      [0.125, 0.785],
+      [0.21, 0.835],
+      [0.21, 0.99],
+      [0, 1.105],
     ],
     tower: {
       shape: "column",
       profile: [
         [0, 0.2],
-        [0.16, 0.2],
-        [0.16, 0.66],
-        [0.21, 0.68],
-        [0.21, 0.78],
-        [0, 0.78],
+        [0.23, 0.2],
+        [0.155, 0.28],
+        [0.145, 0.64],
+        [0.235, 0.71],
+        [0.235, 0.745],
+        [0.215, 0.765],
+        [0, 0.765],
       ],
     },
   },
@@ -297,7 +299,7 @@ export function createStone({ x = 0, z = 0, neighbours = {}, seed = 1 } = {}) {
   return group;
 }
 
-// Diamond masonry takes per-face shades from vertex colours, so stacked courses read as cut blocks.
+// Masonry takes per-face shades from vertex colours, so stacked courses read as cut blocks.
 const carvedMaterials = ["#8b918c", "#a4a79d", "#4f565a"].map(
   (color) =>
     new THREE.MeshStandardMaterial({
@@ -494,6 +496,172 @@ function buildDiamond(
   return [lean];
 }
 
+// Shaft and cap palette colours share one material, keeping Sapphire within the four-material budget.
+const sapphireMasonry = carvedMaterials[0].clone();
+sapphireMasonry.color.set("#ffffff");
+
+/** Sapphire: a six-sided coursed column, wide capital and pointed prism in a dark setting. */
+function buildSapphire(add, place, head, quality, { color, sides, profile }) {
+  const ring = (r, y) =>
+    Array.from({ length: sides }, (_, i) => {
+      const a = (i * 2 * Math.PI) / sides;
+      return new THREE.Vector3(r * Math.cos(a), y, r * Math.sin(a));
+    });
+  const block = (rings, material, key, parent) =>
+    add(
+      paint(new ConvexGeometry(rings.flatMap(([r, y]) => ring(r, y))), (n) =>
+        stoneShade(key)(n).map((v, i) => v * material.color.toArray()[i]),
+      ),
+      sapphireMasonry,
+      parent,
+    );
+  block(
+    [
+      [0.23, 0.2],
+      [0.23, 0.23],
+      [0.155, 0.28],
+    ],
+    carvedMaterials[1],
+    30,
+  );
+  const courses = quality >= 3 ? 3 : 2;
+  for (let i = 0; i < courses; i++) {
+    const bottom = 0.28 + (0.37 * i) / courses;
+    const top = 0.28 + (0.37 * (i + 1)) / courses;
+    block(
+      [
+        [0.145, bottom],
+        [0.145, top - 0.014],
+        [0.133, top],
+      ],
+      carvedMaterials[0],
+      31 + i,
+    );
+  }
+  block(
+    [
+      [0.145, 0.64],
+      [0.235, 0.71],
+      [0.235, 0.745],
+      [0.215, 0.765],
+    ],
+    carvedMaterials[1],
+    35,
+  );
+  if (quality >= 5)
+    block(
+      [
+        [0.145, 0.36],
+        [0.175, 0.375],
+        [0.175, 0.405],
+        [0.145, 0.42],
+      ],
+      carvedMaterials[1],
+      36,
+    );
+
+  // The socket and grips tip with the prism; their feet overlap the capital at every yaw.
+  const pivot = 0.765;
+  const lean = new THREE.Group();
+  head.position.y = pivot;
+  head.add(lean);
+  block(
+    [
+      [0.15, 0.745],
+      [0.175, 0.79],
+      [0.175, 0.83],
+    ],
+    carvedMaterials[2],
+    37,
+    lean,
+  ).position.y = -pivot;
+  const grips = quality >= 4 ? 6 : 3;
+  for (let i = 0; i < grips; i++) {
+    const a = (i * 2 * Math.PI) / grips;
+    const section = (r0, r1, y, w) =>
+      [r0, r1].flatMap((r) =>
+        [-w, w].map(
+          (t) =>
+            new THREE.Vector3(
+              r * Math.cos(a) - t * Math.sin(a),
+              y,
+              r * Math.sin(a) + t * Math.cos(a),
+            ),
+        ),
+      );
+    add(
+      paint(
+        new ConvexGeometry([
+          ...section(0.12, 0.18, 0.775, 0.04),
+          ...section(0.21, 0.25, 0.885, 0.03),
+          ...section(0.21, 0.235, 0.925, 0.02),
+        ]),
+        stoneShade(40 + i),
+      ),
+      carvedMaterials[2],
+      lean,
+    ).position.y = -pivot;
+  }
+  const blue = new THREE.Color(color);
+  const deep = blue.clone().multiplyScalar(0.7);
+  const tone = (mix) =>
+    blue
+      .clone()
+      .lerp(mix < 0 ? new THREE.Color("#ffffff") : deep, Math.abs(mix))
+      .toArray();
+  const material = new THREE.MeshStandardMaterial({
+    roughness: 0.48,
+    metalness: 0,
+    flatShading: true,
+    vertexColors: true,
+  });
+  const gem = (points, facet) =>
+    new THREE.Mesh(paint(new ConvexGeometry(points), facet), material);
+  place(
+    gem(
+      profile.flatMap(([r, y]) =>
+        r ? ring(r, y) : [new THREE.Vector3(0, y, 0)],
+      ),
+      (n) => {
+        if (n.y > 0.05)
+          return tone(
+            Math.floor((Math.atan2(n.z, n.x) + 2 * Math.PI) / (Math.PI / 3)) & 1
+              ? 0.45
+              : -0.3,
+          );
+        return tone(n.y < -0.05 ? 0.7 : 0.3);
+      },
+    ),
+    lean,
+  ).position.y = -pivot;
+  if (quality >= 2)
+    for (let i = 0; i < sides; i++) {
+      const a = ((i + 0.5) * 2 * Math.PI) / sides;
+      const at = (dy, t, out) =>
+        new THREE.Vector3(
+          (0.145 * Math.cos(Math.PI / sides) + out) * Math.cos(a) -
+            t * Math.sin(a),
+          0.57 + dy,
+          (0.145 * Math.cos(Math.PI / sides) + out) * Math.sin(a) +
+            t * Math.cos(a),
+        );
+      place(
+        gem(
+          [0.004, -0.01]
+            .flatMap((out) => [
+              at(0.043, 0, out),
+              at(-0.043, 0, out),
+              at(0, 0.03, out),
+              at(0, -0.03, out),
+            ])
+            .concat(at(0, 0, 0.024)),
+          () => tone(-0.4),
+        ),
+      );
+    }
+  return [lean];
+}
+
 /** Aiming tips the head this far toward its target, so the turn reads even on round gems. */
 const AIM_LEAN = 0.17;
 
@@ -542,6 +710,8 @@ export function createGemTower(
   const leaners = [];
   if (type === "D")
     leaners.push(...buildDiamond(stoneMesh, place, head, quality, spec));
+  else if (type === "B")
+    leaners.push(...buildSapphire(stoneMesh, place, head, quality, spec));
   else {
     // The shaft shares its gem's facet count and owns the silhouette, so type reads without colour.
     const { profile: shaft, prongs = 0 } = spec.tower;
