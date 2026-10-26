@@ -344,7 +344,13 @@ const squareRing = (half, y) => {
  * Diamond: a coursed square tower; a stone corbel and dark claw setting hold a large brilliant-cut stone.
  * Each step up in quality adds one detail: face emblems (2), a third course (3), eight claws (4), a fourth course (5).
  */
-function buildDiamond(add, quality, { color, tower: { profile } }) {
+function buildDiamond(
+  add,
+  place,
+  head,
+  quality,
+  { color, tower: { profile } },
+) {
   const block = (rings, material, key) =>
     add(
       paint(
@@ -406,6 +412,11 @@ function buildDiamond(add, quality, { color, tower: { profile } }) {
       y,
       Math.sin(a) * r + Math.cos(a) * t,
     );
+  // Claws and stone turn and lean as one head, pivoting on the setting band.
+  const pivot = collar + 0.06;
+  const lean = new THREE.Group();
+  head.position.y = pivot;
+  head.add(lean);
   const claws = quality >= 4 ? 8 : 4;
   for (let i = 0; i < claws; i++) {
     const a = (i * 2 * Math.PI) / claws;
@@ -419,7 +430,8 @@ function buildDiamond(add, quality, { color, tower: { profile } }) {
       add(
         paint(new ConvexGeometry(points), stoneShade(20 + i)),
         carvedMaterials[2],
-      );
+        lean,
+      ).position.y = -pivot;
   }
   // Facet tones, not reflections: bright table, alternating crown facets, deeper pavilion.
   const ice = new THREE.Color(color);
@@ -449,21 +461,22 @@ function buildDiamond(add, quality, { color, tower: { profile } }) {
     Array.from({ length: 8 }, (_, k) =>
       radial(((k + turn) * Math.PI) / 4, r, y, 0),
     );
-  const gems = [
+  place(
     gem([
       new THREE.Vector3(0, 0.79, 0),
       ...ring(0.24, 0.965, 0),
       ...ring(0.24, 0.985, 0),
       ...ring(0.135, 1.07, 0.5),
     ]),
-  ];
+    lean,
+  ).position.y = -pivot;
   // A small faceted lozenge set into each face of the top course.
   if (quality >= 2) {
     const y = neck - course / 2 - 0.007;
     for (let i = 0; i < 4; i++) {
       const a = (i * Math.PI) / 2;
       const at = (dy, t, out) => radial(a, halfAt(y + dy) + out, y + dy, t);
-      gems.push(
+      place(
         gem(
           [0.004, -0.01]
             .flatMap((out) => [
@@ -478,8 +491,11 @@ function buildDiamond(add, quality, { color, tower: { profile } }) {
       );
     }
   }
-  return gems;
+  return [lean];
 }
+
+/** Aiming tips the head this far toward its target, so the turn reads even on round gems. */
+const AIM_LEAN = 0.17;
 
 export const QUALITY_TIERS = [
   { tier: 1, name: "Chipped", width: 0.38 },
@@ -502,24 +518,30 @@ export function createGemTower(
   if (!spec) throw new RangeError(`Unknown gem type: ${type}`);
   const tier = QUALITY_TIERS.find((q) => q.tier === quality);
   if (!tier) throw new RangeError(`Unknown quality tier: ${quality}`);
-  const stoneMesh = (geometry, material) => {
-    const mesh = new THREE.Mesh(geometry, material);
+  const place = (mesh, parent = tower) => {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
+    parent.add(mesh);
+    return mesh;
+  };
+  const stoneMesh = (geometry, material, parent) => {
+    const mesh = place(new THREE.Mesh(geometry, material), parent);
     mesh.userData.sharedMaterial = true;
-    tower.add(mesh);
     return mesh;
   };
   const model = createStone({ x, z, neighbours, seed });
   const tower = new THREE.Group();
+  // The head (prongs or claws, and gems) turns on the shaft axis toward the creep under attack.
+  const head = new THREE.Group();
   const plinth = stoneMesh(
     new THREE.CylinderGeometry(0.28, 0.31, 0.12, 8),
     model.children[0].material,
   );
   plinth.position.y = 0.14;
   plinth.rotation.y = Math.PI / 8;
-  const gems = [];
-  if (type === "D") gems.push(...buildDiamond(stoneMesh, quality, spec));
+  const leaners = [];
+  if (type === "D")
+    leaners.push(...buildDiamond(stoneMesh, place, head, quality, spec));
   else {
     // The shaft shares its gem's facet count and owns the silhouette, so type reads without colour.
     const { profile: shaft, prongs = 0 } = spec.tower;
@@ -532,15 +554,17 @@ export function createGemTower(
       masonryMaterials[0],
     );
     const [crownRadius, crown] = shaft.at(-2);
+    head.position.y = crown;
     for (let i = 0; i < prongs; i++) {
       const prong = stoneMesh(
         new THREE.CylinderGeometry(0.04, 0.05, 0.12, 4),
         masonryMaterials[1],
+        head,
       );
       const a = (i * 2 * Math.PI) / prongs;
       prong.position.set(
         Math.cos(a) * (crownRadius - 0.04),
-        crown + 0.05,
+        0.05,
         Math.sin(a) * (crownRadius - 0.04),
       );
     }
@@ -565,22 +589,31 @@ export function createGemTower(
       geometry.computeVertexNormals();
       const gem = new THREE.Mesh(geometry, material);
       gem.scale.set(0.85, 0.8, 0.85);
-      gem.position.set((i - (count - 1) / 2) * 0.145, crown, 0);
+      gem.position.set((i - (count - 1) / 2) * 0.145, 0, 0);
       gem.rotation.y = Math.PI / 4;
-      gems.push(gem);
+      leaners.push(place(gem, head)); // Each crystal leans on its own base, so clusters stay seated.
     }
   }
-  for (const gem of gems) {
-    gem.castShadow = true;
-    gem.receiveShadow = true;
-    tower.add(gem);
-  }
+  tower.add(head);
+  for (const part of leaners) part.rotation.order = "ZYX"; // Lean in the head's frame.
   const scale = tier.width / 0.68;
   tower.scale.setScalar(scale);
   tower.position.y = 0.08 * (1 - scale); // Keep the plinth seated on the stone.
   model.add(tower);
   model.name = spec.name;
   model.userData.quality = tier;
+  const local = new THREE.Vector3();
+  /** Turn the head toward a world-space board point (x, z); call with no arguments to rest it. */
+  model.userData.aimAt = (targetX, targetZ) => {
+    const aiming = targetX !== undefined;
+    head.rotation.y = 0;
+    if (aiming) {
+      tower.updateWorldMatrix(true, false);
+      tower.worldToLocal(local.set(targetX, 0, targetZ));
+      head.rotation.y = Math.atan2(-local.z, local.x);
+    }
+    for (const part of leaners) part.rotation.z = aiming ? -AIM_LEAN : 0;
+  };
   return model;
 }
 

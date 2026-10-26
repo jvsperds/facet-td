@@ -12,6 +12,7 @@ const labels = document.querySelector("#labels");
 const status = document.querySelector("#status");
 const slider = document.querySelector("#merge");
 const play = document.querySelector("#play");
+const walk = document.querySelector("#walk");
 const inspect = document.querySelector("#inspect");
 for (const type of GEM_TYPES) {
   const option = document.createElement("option");
@@ -39,7 +40,7 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.domElement.setAttribute("role", "img");
 renderer.domElement.setAttribute(
   "aria-label",
-  "3D study: faceted rock walls join across shared edges. Eight named gems crown masonry towers, each with its own shaft shape, and towers join the walls they stand in. A row shows the Diamond tower at the six quality tiers. Placeholder creeps with health bars walk a corridor at their VPK-derived scale. Use the view, merge and variation controls to inspect.",
+  "3D study: faceted rock walls join across shared edges. Eight named gems crown masonry towers, each with its own shaft shape, and towers join the walls they stand in. A row shows the Diamond tower at the six quality tiers. Placeholder creeps with health bars walk a corridor at their VPK-derived scale; one walks past the tower rows, and every tower turns its gem head toward the nearest creep. Use the view, merge and variation controls to inspect.",
 );
 stage.prepend(renderer.domElement);
 scene.add(new THREE.HemisphereLight("#f6f3e9", "#56616a", 2.5));
@@ -77,6 +78,12 @@ scene.add(grid);
 let models = new THREE.Group();
 let stones = [],
   anchors = [],
+  towers = [],
+  creeps = [],
+  target,
+  walking = !reducedMotion.matches,
+  walkClock = 6500, // Starts at x = 0.45, in a gap between towers.
+  lastTime = null,
   seed = 1,
   angle = Math.PI / 4,
   top = false,
@@ -147,6 +154,7 @@ function healthBar(creep, fraction, hp) {
   const { x, z } = creep.position;
   anchors.push({
     element,
+    creep,
     position: new THREE.Vector3(x, creep.userData.healthBarY, z),
   });
 }
@@ -212,6 +220,11 @@ function build() {
     label(title, x, -3, detail);
     healthBar(creep, hp, options.boss ? "1925" : "");
   });
+  // A creep walks the lane behind the tower rows so the heads can be seen tracking it.
+  target = createCreep({ modelScale: 1.6 });
+  target.position.set(0, 0, 1.8);
+  models.add(target);
+  healthBar(target, 0.6);
   // Quality is the only variable along this row.
   QUALITY_TIERS.forEach(({ tier, name }, i) => {
     const tower = createGemTower("D", { seed, quality: tier });
@@ -222,6 +235,8 @@ function build() {
     label(name, x, 5.6, String(tier));
   });
   scene.add(models);
+  towers = models.children.filter((child) => child.userData.aimAt);
+  creeps = models.children.filter((child) => child.userData.healthBarY);
   updateMerge(Number(slider.value));
   resize();
 }
@@ -324,7 +339,38 @@ play.onclick = () => {
 };
 build();
 new ResizeObserver(resize).observe(stage);
+// The game owns targeting; here each tower aims at its nearest creep.
+function aimTowers() {
+  const at = new THREE.Vector3();
+  for (const tower of towers) {
+    tower.getWorldPosition(at);
+    const nearest = creeps.reduce((best, creep) =>
+      creep.position.distanceTo(at) < best.position.distanceTo(at)
+        ? creep
+        : best,
+    );
+    tower.userData.aimAt(nearest.position.x, nearest.position.z);
+  }
+}
+function updateWalk() {
+  walk.setAttribute("aria-pressed", String(walking));
+  walk.textContent = walking ? "Pause target" : "Walk target";
+}
+walk.onclick = () => {
+  walking = !walking;
+  updateWalk();
+};
+updateWalk();
 renderer.setAnimationLoop((time) => {
+  if (walking && lastTime !== null) walkClock += time - lastTime;
+  lastTime = time;
+  // Walk back and forth between x = -5.4 and 5.4 at 0.9 cell per second.
+  const step = ((walkClock / 1000) * 0.9) % 21.6;
+  target.position.x = step < 10.8 ? step - 5.4 : 16.2 - step;
+  target.rotation.y = step < 10.8 ? 0 : Math.PI;
+  anchors.find((anchor) => anchor.creep === target).position.x =
+    target.position.x;
+  aimTowers();
   if (animationStart !== null) {
     if (reducedMotion.matches) {
       stop();

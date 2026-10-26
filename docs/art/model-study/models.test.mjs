@@ -64,24 +64,75 @@ assert.equal(
   8,
   "Each type has its own tower silhouette",
 );
+// Bounds hold at rest and with the head aimed at any of eight compass points.
+const aims = [
+  [],
+  ...Array.from({ length: 8 }, (_, i) => [
+    3 * Math.cos((i * Math.PI) / 4),
+    3 * Math.sin((i * Math.PI) / 4),
+  ]),
+];
 for (const type of GEM_TYPES)
   for (const { tier, width } of QUALITY_TIERS) {
     const scale = width / 0.68;
     const tower = createGemTower(type.id, { quality: tier });
-    tower.updateMatrixWorld(true);
-    const bounds = new Box3().setFromObject(tower.children.at(-1), true);
-    const label = `${type.name} tier ${tier}`;
-    const cap = 0.08 + 1.08 * scale; // Plinth stays seated at 0.08.
-    assert.ok(bounds.max.y <= cap + 1e-6, `${label} height cap`);
-    assert.ok(bounds.max.x - bounds.min.x <= width + 1e-6, `${label} width`);
-    assert.ok(bounds.max.z - bounds.min.z <= width + 1e-6, `${label} depth`);
-    assert.ok(bounds.max.y >= 0.5, `${label} rises well above its wall`);
+    for (const aim of aims) {
+      tower.userData.aimAt(...aim);
+      tower.updateMatrixWorld(true);
+      const bounds = new Box3().setFromObject(tower.children.at(-1), true);
+      const label = `${type.name} tier ${tier} aim ${aim}`;
+      const cap = 0.08 + 1.08 * scale; // Plinth stays seated at 0.08.
+      assert.ok(bounds.max.y <= cap + 1e-6, `${label} height cap`);
+      assert.ok(bounds.max.x - bounds.min.x <= width + 1e-6, `${label} width`);
+      assert.ok(bounds.max.z - bounds.min.z <= width + 1e-6, `${label} depth`);
+      assert.ok(bounds.max.y >= 0.5, `${label} rises well above its wall`);
+    }
   }
+// The head turns toward its target from any cell, and rests again without one.
+for (const type of GEM_TYPES) {
+  const tower = createGemTower(type.id, { x: 4, z: -2 });
+  const head = tower.children.at(-1).children.at(-1);
+  // Gem vertex centroid: on the shaft axis at rest, so only the lean moves it.
+  const centre = () => {
+    const sum = new Vector3();
+    let count = 0;
+    tower.updateMatrixWorld(true);
+    head.traverse((object) => {
+      if (!object.isMesh || object.userData.sharedMaterial) return;
+      const position = object.geometry.attributes.position;
+      for (let i = 0; i < position.count; i++, count++)
+        sum.add(
+          new Vector3()
+            .fromBufferAttribute(position, i)
+            .applyMatrix4(object.matrixWorld),
+        );
+    });
+    return sum.divideScalar(count);
+  };
+  const rest = centre();
+  for (const [dx, dz] of [
+    [3, 0],
+    [0, 3],
+    [-2, -2],
+  ]) {
+    tower.userData.aimAt(4 + dx, -2 + dz);
+    const shift = centre().sub(rest);
+    assert.ok(
+      shift.x * dx + shift.z * dz > 0.01 * Math.hypot(dx, dz),
+      `${type.name} gem leans toward its target`,
+    );
+  }
+  tower.userData.aimAt();
+  assert.ok(centre().distanceTo(rest) < 1e-9, `${type.name} head rests`);
+}
 // Diamond quality steps add detail: face emblems, a course, eight claws, a course; huge only grows.
-const diamondParts = QUALITY_TIERS.map(
-  ({ tier }) =>
-    createGemTower("D", { quality: tier }).children.at(-1).children.length,
-);
+const diamondParts = QUALITY_TIERS.map(({ tier }) => {
+  let meshes = 0;
+  createGemTower("D", { quality: tier })
+    .children.at(-1)
+    .traverse((object) => (meshes += object.isMesh ? 1 : 0));
+  return meshes;
+});
 assert.deepEqual(
   diamondParts.slice(1).map((parts, i) => parts > diamondParts[i]),
   [true, true, true, true, false],
@@ -134,6 +185,7 @@ for (const modelScale of [1, 1.6, 2.2, 3.5, 5, 6])
 assert.ok(creepSize(5) >= 1.5, "Bosses read at 1.5+ cells");
 
 // Occlusion probe: which neighbouring cell centres (creep height) does one tower hide in the isometric view?
+// Each cell is checked with the head at rest and aimed at that cell, its worst lean.
 const elevation = Math.atan(1 / Math.sqrt(2));
 const hidden = (tower, azimuth, y = 0.15) => {
   const toCamera = new Vector3(
@@ -150,8 +202,14 @@ const hidden = (tower, azimuth, y = 0.15) => {
         point.clone().addScaledVector(toCamera, 50),
         toCamera.clone().negate(),
       );
-      if (ray.intersectObject(tower, true).some((hit) => hit.distance < 49.99))
-        cells.push(`${x},${z}`);
+      const blocked = (...aim) => {
+        tower.userData.aimAt(...aim);
+        tower.updateMatrixWorld(true);
+        return ray
+          .intersectObject(tower, true)
+          .some((hit) => hit.distance < 49.99);
+      };
+      if (blocked() || blocked(x, z)) cells.push(`${x},${z}`);
     }
   return cells;
 };
@@ -161,7 +219,6 @@ const occlusion = QUALITY_TIERS.map(({ tier, name }) => {
     Math.max(
       ...GEM_TYPES.map((type) => {
         const tower = createGemTower(type.id, { quality: tier });
-        tower.updateMatrixWorld(true);
         return hidden(tower, Math.PI / 4 + (quarter * Math.PI) / 2).length;
       }),
     ),
@@ -170,7 +227,6 @@ const occlusion = QUALITY_TIERS.map(({ tier, name }) => {
     Math.max(
       ...GEM_TYPES.map((type) => {
         const tower = createGemTower(type.id, { quality: tier });
-        tower.updateMatrixWorld(true);
         return hidden(tower, Math.PI / 4 + (quarter * Math.PI) / 2, smallest)
           .length;
       }),
@@ -198,5 +254,5 @@ assert.ok(
   "Creep visibility budget",
 );
 console.log(
-  "PASS: 16 adjacency masks, merge bounds, deterministic variation, eight distinct towers at six tier bounds, Diamond tier detail, tower-wall joins, creep scale, occlusion budgets and invalid inputs",
+  "PASS: 16 adjacency masks, merge bounds, deterministic variation, eight distinct towers at six tier bounds with aimed heads, head aim, Diamond tier detail, tower-wall joins, creep scale, occlusion budgets and invalid inputs",
 );
