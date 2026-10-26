@@ -41,7 +41,7 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.domElement.setAttribute("role", "img");
 renderer.domElement.setAttribute(
   "aria-label",
-  "3D study: faceted rock walls join across shared edges. Eight named gems crown masonry towers, each with its own shaft shape, and towers join the walls they stand in. A row shows the Diamond tower at the six quality tiers. Placeholder creeps with health bars walk a corridor at their VPK-derived scale; one walks past the tower rows, and every tower turns its gem head toward the nearest creep. Use the view, merge and variation controls to inspect.",
+  "3D study: castle walls share continuous masonry across cell edges. Eight named gems crown masonry towers, each with its own shaft shape, and towers join the walls they stand in. A row shows the Diamond tower at the six quality tiers. Placeholder creeps with health bars walk a corridor at their VPK-derived scale; one walks past the tower rows, and every tower turns its gem head toward the nearest creep. Use the view, merge and variation controls to inspect.",
 );
 stage.prepend(renderer.domElement);
 scene.add(new THREE.HemisphereLight("#f6f3e9", "#56616a", 2.5));
@@ -266,7 +266,7 @@ function updateMerge(value) {
 function stop() {
   animationStart = null;
   play.setAttribute("aria-pressed", "false");
-  play.textContent = "Replay stone merge";
+  play.textContent = "Replay wall join";
 }
 function resize() {
   const width = stage.clientWidth,

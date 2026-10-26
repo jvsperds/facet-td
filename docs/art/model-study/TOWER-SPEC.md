@@ -74,14 +74,14 @@ Also read the repository `AGENTS.md` and `docs/PLAN.md` before you edit.
 
 **ART-05 Value structure.** From dark to light, the order MUST be: walls and settings, masonry, board, gem highlight. The gem MUST be the most saturated element. Check this in grayscale.
 
-| Role                            | Colour                                                  |
-| ------------------------------- | ------------------------------------------------------- |
-| Board cell                      | `#C7CAC9` (renders cream-grey under the warm key light) |
-| Wall rock (shared stone shades) | `#565B5E` `#5F6466` `#686C6C` `#717473` `#7A7C78`       |
-| Masonry, shaft                  | `#8B918C`                                               |
-| Masonry, caps, corbels, prongs  | `#A4A79D`                                               |
-| Setting accent (claws)          | `#4F565A`                                               |
-| Gems                            | The type colour in [section 6](#6-type-identity)        |
+| Role                           | Colour                                                  |
+| ------------------------------ | ------------------------------------------------------- |
+| Board cell                     | `#C7CAC9` (renders cream-grey under the warm key light) |
+| Wall masonry (shared shades)   | `#565B5E` `#5F6466` `#686C6C` `#717473` `#7A7C78`       |
+| Masonry, shaft                 | `#8B918C`                                               |
+| Masonry, caps, corbels, prongs | `#A4A79D`                                               |
+| Setting accent (claws)         | `#4F565A`                                               |
+| Gems                           | The type colour in [section 6](#6-type-identity)        |
 
 Do not add a new grey or a new gem colour without a Vault Decision from the lead.
 
@@ -111,13 +111,13 @@ The deep tone is the same hue, about 30% darker and slightly more saturated. Dia
 `createGemTower` returns this scene graph. Keep it.
 
 ```text
-model                      Group from createStone(x, z, neighbours, seed); position (x, 0, z)
+model                      Group from createStone({x, z, neighbours, seed, towerBase: true}); position (x, 0, z)
 │                          name = spec.name; userData: quality, setMerge, aimAt
-├── stone core, ridge arms createStone output; never edit for a tower
+├── masonry pier, wall arms createStone output; towerBase: true for a wider footing
 └── tower                  superstructure Group (children.at(-1) of model)
     │                      scale = tier width / 0.68; position.y = 0.08 × (1 − scale)
     ├── plinth             children[0]: CylinderGeometry(0.28, 0.31, 0.12, 8), y 0.14, rotation.y π/8,
-    │                      stone material of the cell
+    │                      shared masonry material, dark wall-palette vertex colours
     ├── shaft and static crown meshes
     ├── static inlays      optional; gem material
     └── head               children.at(-1): Group on the shaft axis at the seat height
@@ -134,7 +134,7 @@ model                      Group from createStone(x, z, neighbours, seed); posit
 | ID     | Requirement                                                                                                                                                                                                                                                                                                  | Checked by                                                    |
 | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
 | REQ-01 | Keep the API: `createGemTower(type, { x, z, neighbours, seed, quality })`. Unknown type or tier throws `RangeError`.                                                                                                                                                                                         | Test                                                          |
-| REQ-02 | Build the base with `createStone` and the same arguments. `tower.children[0]` is the plinth and uses `model.children[0].material`.                                                                                                                                                                           | Test                                                          |
+| REQ-02 | Build the base with `createStone` and the same cell arguments plus `towerBase: true`. `tower.children[0]` is the plinth and uses `model.children[0].material`.                                                                                                                                               | Test                                                          |
 | REQ-03 | Same inputs give identical geometry. Do not use `Math.random` or time. Use `noise()` and the seed for variation.                                                                                                                                                                                             | Test, review                                                  |
 | REQ-04 | Bounds per tier, at rest and with the head aimed at eight compass points: width and depth ≤ tier width; top ≤ height cap; top ≥ 0.5 ([table](#7-quality-tiers)).                                                                                                                                             | Test                                                          |
 | REQ-05 | Creep-visibility limit (tier-6 units). Every vertex of the superstructure satisfies `y ≤ 1.2376 − 0.7071 × (abs(x) + abs(z)) / √2`, with at least 0.01 margin at rest and when aimed. The smallest creep (0.2376 high) must stay visible over the tower from the cell diagonally behind.                     | Test (raycast), [margin script](#152-creep-visibility-margin) |
@@ -154,7 +154,7 @@ Every tower shares these rules, so the eight read as one set.
 
 | ID     | Rule                                                                                                                                                                                         |
 | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| UNI-01 | Same base: the cell's stone and the same plinth. Do not restyle them per type.                                                                                                               |
+| UNI-01 | Same masonry palette, connected wall arms and plinth geometry. Tower cells use a wide pier via `towerBase: true`. Do not restyle them per type.                                              |
 | UNI-02 | Author at tier 6 and scale uniformly. Never scale x, y and z separately.                                                                                                                     |
 | UNI-03 | The superstructure starts at the plinth top (y 0.20). The shaft foot SHOULD stay inside the plinth top radius (0.28) so the plinth ledge shows.                                              |
 | UNI-04 | The tier-6 top SHOULD be between 0.93 and 1.15. The head pivot (seat height) SHOULD be between 0.62 and 0.83. This keeps a common skyline.                                                   |
@@ -411,7 +411,7 @@ Copy this into the task.
 
 ## 13. Known limits and open questions
 
-- **Approved Diamond material count.** The existing Diamond uses five materials including the shared plinth. Its geometry is preserved in this pass; Sapphire uses four, and the six latest towers use three. The new builders meet the four-material requirement including the plinth.
+- **Approved Diamond material count.** The existing Diamond uses five materials including the shared plinth. Its geometry is preserved in this pass; With castle-wall footings on the shared masonry material, Sapphire uses three and the six latest towers use two. The new builders meet the four-material requirement including the plinth.
 - **Emerald grip regression.** The old prong intersection is fixed. Tests check grip vertices against the new gem hull, and the setting leans with the gem.
 - **Draw calls.** Diamond uses 28 meshes in its superstructure. On a full board, the game renderer should merge static meshes that share a material. Keep static masonry on shared materials so that merge stays possible.
 - **Probe coverage.** The occlusion test samples five camera angles and aims at each probed cell. It is not exhaustive for free rotation.

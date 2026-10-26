@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { ConvexGeometry } from "three/addons/geometries/ConvexGeometry.js";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
 export const GEM_TYPES = [
   {
@@ -194,14 +195,10 @@ export const GEM_TYPES = [
 
 const flat = (color) =>
   new THREE.MeshStandardMaterial({ color, roughness: 1, flatShading: true });
-// Dark rock against the light slate floor, so the maze reads at overview zoom.
-const stoneMaterials = [
-  "#565b5e",
-  "#5f6466",
-  "#686c6c",
-  "#717473",
-  "#7a7c78",
-].map(flat);
+// Dark masonry against the light board; all faces use the existing wall palette.
+const WALL_TONES = ["#565b5e", "#5f6466", "#686c6c", "#717473", "#7a7c78"].map(
+  (color) => new THREE.Color(color).toArray(),
+);
 const noise = (x, y, z, seed) => {
   let n =
     Math.imul(x + 173, 374761393) ^
@@ -211,98 +208,195 @@ const noise = (x, y, z, seed) => {
   n = Math.imul(n ^ (n >>> 13), 1274126177);
   return (n ^ (n >>> 16)) >>> 0;
 };
-// Every arm ends in this cross-section, so neighbouring cells meet without cracks.
-const RIDGE_SECTION = [
-  [-0.19, 0],
-  [0.19, 0],
-  [-0.1, 0.07],
-  [0.1, 0.07],
-  [0, 0.09],
-];
-
-/** Craggy rock; cardinal neighbours extend it into one continuous jagged ridge. */
-export function createStone({ x = 0, z = 0, neighbours = {}, seed = 1 } = {}) {
+/** Castle masonry; the legacy factory name and neighbour/merge API stay compatible. */
+export function createStone({
+  x = 0,
+  z = 0,
+  neighbours = {},
+  seed = 1,
+  towerBase = false,
+} = {}) {
   if (![x, z, seed].every(Number.isInteger))
     throw new TypeError("Stone coordinates and seed must be integers");
-  const rand = (i, k) => (noise(x, i, z, seed + k) % 1000) / 1000;
   const group = new THREE.Group();
-  const points = [];
-  for (let i = 0; i < 7; i++) {
-    const angle = (i * 2 * Math.PI) / 7 + rand(i, 2) * 0.4;
-    const radius = 0.2 + rand(i, 0) * 0.07;
-    const px = Math.cos(angle) * radius,
-      pz = Math.sin(angle) * radius;
-    points.push(
-      new THREE.Vector3(px, 0, pz),
-      new THREE.Vector3(px * 0.6, 0.08 + rand(i, 1) * 0.05, pz * 0.6),
-    );
-  }
-  points.push(
-    new THREE.Vector3(
-      (rand(0, 3) - 0.5) * 0.1,
-      0.17 + rand(0, 4) * 0.03,
-      (rand(1, 3) - 0.5) * 0.1,
-    ),
-  );
-  const material = stoneMaterials[noise(x, 0, z, seed) % stoneMaterials.length];
-  group.add(new THREE.Mesh(new ConvexGeometry(points), material));
   const arms = [];
-  [
+  const horizontal =
+    !towerBase &&
+    (neighbours.east || neighbours.west) &&
+    !neighbours.north &&
+    !neighbours.south;
+  const vertical =
+    !towerBase &&
+    (neighbours.north || neighbours.south) &&
+    !neighbours.east &&
+    !neighbours.west;
+  const axis = horizontal ? "x" : vertical ? "z" : undefined;
+  const internalX = (v) =>
+    horizontal &&
+    [0.2, 0.22].some((edge) => Math.abs(Math.abs(v) - edge) < 1e-8);
+  const internalZ = (v) =>
+    vertical && [0.2, 0.22].some((edge) => Math.abs(Math.abs(v) - edge) < 1e-8);
+  const flush = (x0, x1, z0, z1) => [
+    (x0 === -0.5 && neighbours.west) ||
+      (internalX(x0) && neighbours[x0 < 0 ? "west" : "east"]),
+    (x1 === 0.5 && neighbours.east) ||
+      (internalX(x1) && neighbours[x1 < 0 ? "west" : "east"]),
+    (z0 === -0.5 && neighbours.north) ||
+      (internalZ(z0) && neighbours[z0 < 0 ? "north" : "south"]),
+    (z1 === 0.5 && neighbours.south) ||
+      (internalZ(z1) && neighbours[z1 < 0 ? "north" : "south"]),
+  ];
+  const box = (parts, rect, y0, y1, tone, bevel = 0.004) => {
+    const [x0, x1, z0, z1] = rect;
+    const [west, east, north, south] = flush(...rect);
+    const ring = (loX, hiX, loZ, hiZ, y) =>
+      [
+        [loX, y, loZ],
+        [hiX, y, loZ],
+        [hiX, y, hiZ],
+        [loX, y, hiZ],
+      ].map((v) => new THREE.Vector3(...v));
+    const geometry = new ConvexGeometry([
+      ...ring(x0, x1, z0, z1, y0),
+      ...ring(x0, x1, z0, z1, y1 - bevel),
+      ...ring(
+        x0 + (west ? 0 : bevel),
+        x1 - (east ? 0 : bevel),
+        z0 + (north ? 0 : bevel),
+        z1 - (south ? 0 : bevel),
+        y1,
+      ),
+    ]);
+    parts.push(paint(geometry, () => WALL_TONES[tone]));
+  };
+  const bricks = (parts, rect, axis) => {
+    // A world-aligned bond continues through tile cuts: shared bricks keep their colour and cut face.
+    const [x0, x1, z0, z1] = rect;
+    for (let row = 0; row < 2; row++) {
+      const shift = row * 0.125,
+        pitch = 0.25,
+        gap = 0.005;
+      const fromX =
+        axis === "z"
+          ? Math.floor(x / pitch)
+          : Math.floor((x + x0 - shift) / pitch);
+      const toX =
+        axis === "z" ? fromX + 1 : Math.ceil((x + x1 - shift) / pitch);
+      const fromZ =
+        axis === "x"
+          ? Math.floor(z / pitch)
+          : Math.floor((z + z0 - shift) / pitch);
+      const toZ =
+        axis === "x" ? fromZ + 1 : Math.ceil((z + z1 - shift) / pitch);
+      for (let bx = fromX; bx < toX; bx++)
+        for (let bz = fromZ; bz < toZ; bz++) {
+          const loX =
+              axis === "z"
+                ? x0
+                : Math.max(x0, bx * pitch + shift - x + gap / 2),
+            hiX =
+              axis === "z"
+                ? x1
+                : Math.min(x1, (bx + 1) * pitch + shift - x - gap / 2);
+          const loZ =
+              axis === "x"
+                ? z0
+                : Math.max(z0, bz * pitch + shift - z + gap / 2),
+            hiZ =
+              axis === "x"
+                ? z1
+                : Math.min(z1, (bz + 1) * pitch + shift - z - gap / 2);
+          if (hiX - loX < 0.009 || hiZ - loZ < 0.009) continue;
+          box(
+            parts,
+            [loX, hiX, loZ, hiZ],
+            0.027 + row * 0.043,
+            0.063 + row * 0.043,
+            1 + (noise(bx, row, bz, seed) % 4),
+          );
+        }
+    }
+  };
+  const mesh = (parts) => {
+    const geometry = mergeGeometries(parts);
+    parts.forEach((part) => part.dispose());
+    const result = new THREE.Mesh(geometry, paletteMasonry);
+    result.castShadow = true;
+    result.receiveShadow = true;
+    result.userData.sharedMaterial = true;
+    return result;
+  };
+  const core = [];
+  const coreRect = (length, half) =>
+    horizontal
+      ? [-length, length, -half, half]
+      : vertical
+        ? [-half, half, -length, length]
+        : [-length, length, -length, length];
+  box(
+    core,
+    coreRect(0.22, 0.16),
+    0,
+    0.025,
+    0,
+    axis ? 0.004 : 0.005 + (noise(x, 0, z, seed) % 3) * 0.001,
+  );
+  box(core, coreRect(0.195, 0.135), 0.02, 0.11, 0, 0);
+  bricks(core, coreRect(0.2, 0.14), axis);
+  box(core, coreRect(0.22, 0.16), 0.108, 0.122, 3);
+  if (axis)
+    for (const along of [-0.125, 0.125])
+      box(
+        core,
+        horizontal
+          ? [along - 0.07, along + 0.07, -0.14, 0.14]
+          : [-0.14, 0.14, along - 0.07, along + 0.07],
+        0.118,
+        0.196,
+        3,
+      );
+  else
+    for (const sx of [-1, 1])
+      for (const sz of [-1, 1])
+        box(
+          core,
+          [
+            sx < 0 ? -0.21 : 0.11,
+            sx < 0 ? -0.11 : 0.21,
+            sz < 0 ? -0.21 : 0.11,
+            sz < 0 ? -0.11 : 0.21,
+          ],
+          0.118,
+          0.196,
+          3,
+        );
+  group.add(mesh(core));
+  for (const [side, dx, dz] of [
     ["north", 0, -1],
     ["east", 1, 0],
     ["south", 0, 1],
     ["west", -1, 0],
-  ].forEach(([side, dx, dz], s) => {
-    if (!neighbours[side]) return;
-    const toCell = (along, across, height) =>
-      new THREE.Vector3(
-        dx * along + dz * across,
-        height,
-        dz * along - dx * across,
-      );
+  ]) {
+    if (!neighbours[side]) continue;
+    const rect = (start, end, half) =>
+      dx
+        ? [dx > 0 ? start : -end, dx > 0 ? end : -start, -half, half]
+        : [-half, half, dz > 0 ? start : -end, dz > 0 ? end : -start];
+    const parts = [];
+    box(parts, rect(0.22, 0.5, 0.16), 0, 0.025, 0);
+    box(parts, rect(0.195, 0.5, 0.135), 0.02, 0.11, 0, 0);
+    bricks(parts, rect(0.2, 0.5, 0.14), dx ? "x" : "z");
+    box(parts, rect(0.22, 0.5, 0.16), 0.108, 0.122, 3);
+    box(parts, rect(0.305, 0.445, 0.14), 0.118, 0.196, 3);
     const arm = new THREE.Group();
-    const ridge = [];
-    for (const along of [0, 0.5])
-      for (const [across, height] of RIDGE_SECTION)
-        ridge.push(toCell(along, across, height));
-    arm.add(new THREE.Mesh(new ConvexGeometry(ridge), material));
-    // Big leaning crags set the jagged crest; they stay inside this cell.
-    for (const [k, along] of [0.13, 0.28, 0.41].entries()) {
-      const r = (j) => rand(10 + s * 4 + k, j);
-      const half = Math.min(0.08 + r(0) * 0.06, 0.5 - along);
-      const across = 0.13 + r(4) * 0.05;
-      arm.add(
-        new THREE.Mesh(
-          new ConvexGeometry([
-            toCell(along - half, -across, 0),
-            toCell(along - half, across, 0),
-            toCell(along + half, -across, 0),
-            toCell(along + half, across, 0),
-            toCell(along - half * 0.5, (r(5) - 0.5) * 0.12, 0.08),
-            toCell(
-              along + (r(1) - 0.5) * 0.1,
-              (r(2) - 0.5) * 0.1,
-              0.13 + r(3) * 0.07,
-            ),
-          ]),
-          material,
-        ),
-      );
-    }
+    arm.add(mesh(parts));
     group.add(arm);
     arms.push({ arm, dx });
-  });
-  group.traverse((object) => {
-    if (object.isMesh) {
-      object.castShadow = true;
-      object.receiveShadow = true;
-      object.userData.sharedMaterial = true;
-    }
-  });
+  }
   group.position.set(x, 0, z);
   group.userData.setMerge = (progress) => {
-    const t = THREE.MathUtils.clamp(progress, 0, 1);
-    const eased = t * t * (3 - 2 * t);
+    const t = THREE.MathUtils.clamp(progress, 0, 1),
+      eased = t * t * (3 - 2 * t);
     for (const { arm, dx } of arms)
       arm.scale.set(
         dx ? 0.45 + 0.55 * eased : 1,
@@ -1393,12 +1487,15 @@ export function createGemTower(
     mesh.userData.sharedMaterial = true;
     return mesh;
   };
-  const model = createStone({ x, z, neighbours, seed });
+  const model = createStone({ x, z, neighbours, seed, towerBase: true });
   const tower = new THREE.Group();
   // The head (prongs or claws, and gems) turns on the shaft axis toward the creep under attack.
   const head = new THREE.Group();
   const plinth = stoneMesh(
-    new THREE.CylinderGeometry(0.28, 0.31, 0.12, 8),
+    paint(
+      new THREE.CylinderGeometry(0.28, 0.31, 0.12, 8).toNonIndexed(),
+      (normal) => WALL_TONES[2].map((v, i) => v * stoneShade(11)(normal)[i]),
+    ),
     model.children[0].material,
   );
   plinth.position.y = 0.14;

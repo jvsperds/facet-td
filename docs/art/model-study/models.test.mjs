@@ -19,7 +19,11 @@ assert.deepEqual(
   geometry(7),
   "Stable shape for a fixed cell/seed",
 );
-assert.notDeepEqual(geometry(7), geometry(8), "Seeds change the boulder shape");
+assert.notDeepEqual(
+  geometry(7),
+  geometry(8),
+  "Seeds vary the masonry footing bevel",
+);
 assert.notDeepEqual(
   geometry(7),
   geometry(7, 1),
@@ -46,7 +50,7 @@ for (let mask = 0; mask < 16; mask++) {
   assert.equal(
     stone.children.length,
     1 + Object.values(neighbours).filter(Boolean).length,
-    "One boulder plus one ridge per neighbour",
+    "One masonry pier plus one wall arm per neighbour",
   );
   const bounds = new Box3().setFromObject(stone);
   if (neighbours.east)
@@ -251,10 +255,10 @@ const towerOnCell = createGemTower("R", {
 assert.deepEqual(
   Array.from(towerOnCell.children[0].geometry.attributes.position.array),
   Array.from(
-    createStone({ x: 3, z: 5, seed: 9 }).children[0].geometry.attributes
-      .position.array,
+    createStone({ x: 3, z: 5, seed: 9, towerBase: true }).children[0].geometry
+      .attributes.position.array,
   ),
-  "Tower base matches the stone variation of its cell",
+  "Tower base matches its masonry pier",
 );
 assert.equal(
   towerOnCell.children[0].material,
@@ -269,7 +273,7 @@ assert.ok(Math.abs(joined.min.z + 0.5) < 1e-6, "Tower base joins north wall");
 
 // Creeps: VPK ModelScale 1.0-2.2 for waves, 2.2-5.0 for bosses, 6.0 at most.
 assert.throws(() => createCreep({ modelScale: 0 }), RangeError);
-// Walls one cell either side of a corridor protrude up to 0.27 (rock) or 0.31 (huge tower plinth).
+// Walls one cell either side of a corridor protrude up to 0.22 (pier) or 0.31 (huge tower plinth).
 const corridor = 2 - 2 * 0.31;
 for (const modelScale of [1, 1.6, 2.2, 3.5, 5, 6])
   for (const flying of [false, true]) {
