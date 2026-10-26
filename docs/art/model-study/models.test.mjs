@@ -43,7 +43,7 @@ for (let mask = 0; mask < 16; mask++) {
   for (const progress of [0, 0.5, 1]) {
     stone.userData.setMerge(progress);
     const bounds = new Box3().setFromObject(stone);
-    assert.ok(bounds.min.y >= -1e-7 && bounds.max.y <= 0.200001);
+    assert.ok(bounds.min.y >= -1e-7 && bounds.max.y <= 0.380001);
     assert.ok(bounds.min.x >= -0.500001 && bounds.max.x <= 0.500001);
     assert.ok(bounds.min.z >= -0.500001 && bounds.max.z <= 0.500001);
   }
@@ -260,9 +260,10 @@ assert.deepEqual(
   ),
   "Tower base matches its masonry pier",
 );
-assert.ok(
-  new Box3().setFromObject(towerOnCell.children[0]).max.y > 0.196,
-  "Tower masonry body continues above the joining wall",
+assert.equal(
+  towerOnCell.children[0].material,
+  towerOnCell.children.at(-1).children[0].material,
+  "Plinth uses the base stone shade",
 );
 towerOnCell.position.set(0, 0, 0);
 towerOnCell.userData.setMerge(1);

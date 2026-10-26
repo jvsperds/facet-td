@@ -269,11 +269,11 @@ export function createStone({
     ]);
     parts.push(paint(geometry, () => WALL_TONES[tone]));
   };
-  const bricks = (parts, rect, axis, rows = 2) => {
+  const bricks = (parts, rect, axis) => {
     // A world-aligned bond continues through tile cuts: shared bricks keep their colour and cut face.
     const [x0, x1, z0, z1] = rect;
-    for (let row = 0; row < rows; row++) {
-      const shift = (row % 2) * 0.125,
+    for (let row = 0; row < 2; row++) {
+      const shift = row * 0.125,
         pitch = 0.25,
         gap = 0.005;
       const fromX =
@@ -341,17 +341,10 @@ export function createStone({
     0,
     axis ? 0.004 : 0.005 + (noise(x, 0, z, seed) % 3) * 0.001,
   );
-  // The tower body continues above the wall; wall arms enter its sides at the same course heights.
-  box(core, coreRect(0.195, 0.135), 0.02, towerBase ? 0.368 : 0.11, 0, 0);
-  bricks(core, coreRect(0.2, 0.14), axis, towerBase ? 8 : 2);
-  box(
-    core,
-    coreRect(0.22, 0.16),
-    towerBase ? 0.366 : 0.108,
-    towerBase ? 0.38 : 0.122,
-    3,
-  );
-  if (!towerBase && axis)
+  box(core, coreRect(0.195, 0.135), 0.02, 0.11, 0, 0);
+  bricks(core, coreRect(0.2, 0.14), axis);
+  box(core, coreRect(0.22, 0.16), 0.108, 0.122, 3);
+  if (axis)
     for (const along of [-0.125, 0.125])
       box(
         core,
@@ -362,7 +355,7 @@ export function createStone({
         0.196,
         3,
       );
-  else if (!towerBase)
+  else
     for (const sx of [-1, 1])
       for (const sz of [-1, 1])
         box(
@@ -394,7 +387,7 @@ export function createStone({
     box(parts, rect(0.195, 0.5, 0.135), 0.02, 0.11, 0, 0);
     bricks(parts, rect(0.2, 0.5, 0.14), dx ? "x" : "z");
     box(parts, rect(0.22, 0.5, 0.16), 0.108, 0.122, 3);
-    box(parts, rect(0.305, 0.445, 0.14), 0.118, 0.196, 3);
+    box(parts, rect(towerBase ? 0.2 : 0.305, 0.445, 0.14), 0.118, 0.196, 3);
     const arm = new THREE.Group();
     arm.add(mesh(parts));
     group.add(arm);
@@ -412,6 +405,11 @@ export function createStone({
       );
   };
   group.userData.setMerge(1);
+  if (!towerBase)
+    group.traverse((part) => {
+      if (!part.isMesh) return;
+      part.geometry.scale(1, 0.38 / 0.196, 1);
+    });
   return group;
 }
 
@@ -1498,6 +1496,15 @@ export function createGemTower(
   const tower = new THREE.Group();
   // The head (prongs or claws, and gems) turns on the shaft axis toward the creep under attack.
   const head = new THREE.Group();
+  const plinth = stoneMesh(
+    paint(
+      new THREE.CylinderGeometry(0.28, 0.31, 0.12, 8).toNonIndexed(),
+      (normal) => WALL_TONES[2].map((v, i) => v * stoneShade(11)(normal)[i]),
+    ),
+    model.children[0].material,
+  );
+  plinth.position.y = 0.14;
+  plinth.rotation.y = Math.PI / 8;
   const leaners = [];
   if (type === "D")
     leaners.push(...buildDiamond(stoneMesh, place, head, quality, spec));
@@ -1518,8 +1525,60 @@ export function createGemTower(
   for (const part of leaners) part.rotation.order = "ZYX"; // Lean in the head's frame.
   const scale = tier.width / 0.68;
   tower.scale.setScalar(scale);
-  tower.position.y = 0.08 * (1 - scale); // Keep the tier's shaft embedded in the shared masonry body.
+  tower.position.y = 0.08 * (1 - scale); // Keep the plinth seated on the stone.
   model.add(tower);
+  model.updateMatrixWorld(true);
+  const restBottom = new THREE.Box3().setFromObject(head).min.y;
+  for (const part of leaners) part.rotation.z = -AIM_LEAN;
+  model.updateMatrixWorld(true);
+  const headBottom = Math.min(
+    restBottom,
+    new THREE.Box3().setFromObject(head).min.y,
+  );
+  for (const part of leaners) part.rotation.z = 0;
+  model.updateMatrixWorld(true);
+  const joinHeight = headBottom - 0.025;
+  const staticParts = tower.children.filter((part) => part !== head);
+  const ray = new THREE.Raycaster();
+  // Fit each wall to the original shaft, narrowing the inner edge to avoid shoulders beside slim columns.
+  for (const arm of model.children.slice(1, -1)) {
+    const mesh = arm.children[0];
+    const p = mesh.geometry.attributes.position;
+    const axis = Math.abs(p.getX(0)) > Math.abs(p.getZ(0)) ? "x" : "z";
+    const alongIndex = axis === "x" ? 0 : 2;
+    const acrossIndex = axis === "x" ? 2 : 0;
+    const sign = Math.sign(p.getComponent(0, alongIndex));
+    for (let i = 0; i < p.count; i++) {
+      const along = Math.abs(p.getComponent(i, alongIndex));
+      const blend = THREE.MathUtils.clamp((0.5 - along) / 0.28, 0, 1);
+      const y =
+        (p.getY(i) * THREE.MathUtils.lerp(0.38, joinHeight, blend)) / 0.196;
+      const across =
+        p.getComponent(i, acrossIndex) * THREE.MathUtils.lerp(1, 0.25, blend);
+      let fitted = along;
+      if (along <= 0.220001) {
+        const origin = new THREE.Vector3(x, y, z);
+        origin[axis] += sign * 0.5;
+        origin[axis === "x" ? "z" : "x"] += across;
+        const direction = new THREE.Vector3();
+        direction[axis] = -sign;
+        ray.set(origin, direction);
+        const hit = ray.intersectObjects(staticParts, false)[0];
+        fitted = hit
+          ? Math.max(
+              0,
+              sign * (hit.point[axis] - (axis === "x" ? x : z)) - 0.002,
+            )
+          : 0;
+      }
+      p.setComponent(i, alongIndex, sign * fitted);
+      p.setComponent(i, acrossIndex, across);
+      p.setY(i, y);
+    }
+    mesh.geometry.computeVertexNormals();
+    mesh.geometry.computeBoundingBox();
+    mesh.geometry.computeBoundingSphere();
+  }
   model.name = spec.name;
   model.userData.quality = tier;
   const local = new THREE.Vector3();

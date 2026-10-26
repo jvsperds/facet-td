@@ -1,14 +1,14 @@
 # Connected castle-wall contract
 
-The user committed to castle walls and selected **chunky battlements with broad masonry blocks**. This supersedes the earlier jagged rock-ridge direction. The walls retain the dark palette and low visibility envelope while the tower shafts and gems stay unchanged.
+The user selected **chunky battlements with broad masonry blocks**, then clarified: preserve the original towers and procedurally fit taller walls to their shafts below the gem heads. This supersedes the earlier low-wall limit and the replacement square tower bodies.
 
 ## Forms and bounds
 
 - Straight and dead-end runs are narrow; corners, T-junctions, crossings and isolated cells form wider masonry piers.
-- Footing: y 0–0.025. Two staggered brick courses sit on recessed dark mortar. Coping: y 0.108–0.122. Battlements: y 0.118–0.196.
-- The 0.196 top remains below the 0.20 wall cap. Wall footprints stay inside their cells and meet cardinal boundaries exactly at ±0.5.
-- Core piers are at most 0.44 × 0.44 cell; straight coping is 0.32 wide. Tower cells have a solid masonry body reaching y 0.38, with eight staggered courses and coping at 0.366–0.38. Walls enter the sides of this body below its top; there is no separate plinth or wall battlement beneath the tower shaft.
-- The first wide-pier-at-every-cell proposal read like paving; narrow straight cores and taller crenellations within the same height cap supersede it.
+- Ordinary walls reach **y 0.38**, with two staggered courses, recessed mortar, coping and chunky battlements. Wall footprints stay inside their cells and meet cardinal boundaries exactly at ±0.5.
+- Core piers are at most 0.44 × 0.44 cell; straight coping is 0.32 wide. Original tower foundations and plinths are restored; no replacement tower body is added.
+- Tower connections meet y 0.38 at the cell edge and slope toward a point **0.025 below the lowest head point in its resting or leaned pose**. The innermost battlement continues to the shaft.
+- Connections narrow toward slim shafts. Their inner vertices raycast against the original static tower meshes at each height and lateral position; a 0.002 overlap avoids cracks. Below the shaft, the cut ends inside the foundation. Mixed types and tiers share the same cell-edge profile while adapting independently at their shafts.
 
 ## Connected pattern
 
@@ -18,11 +18,11 @@ Use one common world seed across connected cells. World `x`/`z` and seed must be
 
 ## API and tower transitions
 
-`createStone({x,z,neighbours,seed,towerBase})` retains its legacy name. The default builds a wall; `towerBase: true` builds the taller masonry tower body even on a straight run. `createGemTower` requests this automatically and uses identical wall arms at every quality tier. The first child remains the core mesh; each neighbour adds one arm Group; tower superstructure remains last. Each arm contains one merged mesh. The former plinth child of the superstructure is removed; its head remains last.
+`createStone({x,z,neighbours,seed,towerBase})` retains its legacy name. The default builds a raised wall; `towerBase: true` supplies the original low foundation and unshaped arms. `createGemTower` requests this automatically and fits those arms against the finished tower geometry. The first child remains the core mesh; each neighbour adds one arm Group containing one merged mesh; tower superstructure remains last. Its original plinth is restored as its first child, with its head last.
 
 `userData.setMerge(0…1)` still extends/raises the arms. Intermediate states are animated construction, while reciprocal seamless alignment is required at progress 1. Source objects and join roots remain compatible with `createModelBatch`.
 
-The tower body uses the shared wall material and brick bond. Its extra courses surround the foot of the existing shaft, so the wall connects to a continuous body instead of a platform below it. Settings, gems, tier progression and aiming remain unchanged. The earlier 288-case comparison predates this body revision; current bounds, aiming, visibility and batch checks pass for the revised geometry.
+Original tower plinths, shafts, settings, gems and aiming remain unchanged. Exact geometry, normal, colour and world-transform comparisons against commit `0539ac3` passed for **288** type/tier/seed/rest-or-aim cases, including plinths. Only the wall connections change shape; their courses slope with the approach.
 
 ## Geometry and validation
 
@@ -35,7 +35,9 @@ All walls use the shared rough, opaque, vertex-coloured masonry material. Indivi
 | Corner            | 3             | 696       |
 | Four-way crossing | 5             | 1,000     |
 
-`walls.test.mjs` covers 768 reciprocal profile/colour comparisons across every compatible mask pairing, both axes, multiple seeds and positive/negative coordinates; 48 tower-to-wall transitions across all types/tiers, with side raycasts at two wall courses and above the wall; nonzero face areas and the 1,000-triangle wall ceiling; and merge updates through the batch renderer. Existing bounds, occlusion and batch tests remain required. Earlier render review covered grayscale, top view, four quarter-turns and aimed joins; the latest body revision has a refreshed colour connection study.
+`walls.test.mjs` covers 768 reciprocal profile/colour comparisons across compatible masks, both axes, multiple seeds and positive/negative coordinates; 48 tower-to-wall boundary profiles; **192 shaft connections** across eight types, six tiers and four directions; original tower preservation; clearance below resting/leaned heads; nonzero wall faces and the 1,000-triangle wall ceiling; and merge updates through the batch renderer. Colour connection and overview captures are refreshed; grayscale derives from the current overview. Prior rotation/top captures are historical.
+
+The user-requested height supersedes the low-wall visibility guarantee. Isolated-tower visibility tests still pass, but taller walls and approaches can cover small creeps; gameplay fade/outline treatment remains necessary and is not implemented in this model study.
 
 ```powershell
 node docs/art/model-study/models.test.mjs
@@ -45,7 +47,7 @@ node docs/art/model-study/walls.test.mjs
 
 ## Performance smoke check
 
-These measurements predate the taller tower-body revision and must not be treated as its benchmark. The new bricks increase source geometry versus the old rocks. A single corrected 12-case optimization suite was rerun on the same Intel UHD 620 hardware at 1280 × 720 / DPR1 / PCF 2048. These integrated-renderer samples include one wall per four towers and 64 moving creep proxies:
+These historical measurements predate the raised, fitted wall connections and must not be treated as their benchmark. Fitting now adds raycasts during tower construction. The earlier corrected 12-case optimization suite ran on Intel UHD 620 hardware at 1280 × 720 / DPR1 / PCF 2048, with one wall per four towers and 64 moving creep proxies:
 
 | Towers | Source triangles, walls/creeps included | Main + shadow calls | Median synchronized work ms |
 | ------ | --------------------------------------- | ------------------- | --------------------------- |

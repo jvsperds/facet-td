@@ -79,14 +79,90 @@ for (const type of GEM_TYPES)
       section(tower, "x", 0.5),
       `${type.name} tier ${quality} wall transition`,
     );
-    for (const y of [0.045, 0.09, 0.23]) {
-      const hit = new Raycaster(
-        new Vector3(0.5, y, 0.04),
-        new Vector3(-1, 0, 0),
-      ).intersectObject(tower.children[0])[0];
+    const original = createGemTower(type.id, { quality, seed: 7 });
+    const structure = (model) => {
+      const parts = [];
+      model.children.at(-1).traverse((part) => {
+        if (part.isMesh)
+          parts.push([
+            ...part.geometry.attributes.position.array,
+            ...part.matrix.elements,
+          ]);
+      });
+      return parts;
+    };
+    assert.deepEqual(
+      structure(tower),
+      structure(original),
+      "Joining preserves the original tower structure",
+    );
+    for (const [side, axis, sign] of [
+      ["east", "x", 1],
+      ["west", "x", -1],
+      ["south", "z", 1],
+      ["north", "z", -1],
+    ]) {
+      const joined = createGemTower(type.id, {
+        quality,
+        neighbours: { [side]: true },
+      });
+      joined.updateMatrixWorld(true);
+      const shaft = joined.children.at(-1);
+      const head = shaft.children.at(-1);
+      const restBottom = new Box3().setFromObject(head).min.y;
+      joined.userData.aimAt(3, 2);
+      joined.updateMatrixWorld(true);
+      const headBottom = Math.min(
+        restBottom,
+        new Box3().setFromObject(head).min.y,
+      );
+      joined.userData.aimAt();
+      joined.updateMatrixWorld(true);
+      const adjacent = createStone({
+        x: axis === "x" ? sign : 0,
+        z: axis === "z" ? sign : 0,
+        neighbours: {
+          [{ east: "west", west: "east", north: "south", south: "north" }[
+            side
+          ]]: true,
+        },
+      });
+      assert.deepEqual(
+        section(joined, axis, sign * 0.5),
+        section(adjacent, axis, sign * 0.5),
+        "All cardinal tower boundaries match raised walls",
+      );
+      const arm = joined.children[1].children[0];
+      const vertices = arm.geometry.attributes.position;
+      let cap = new Vector3(0, -Infinity, 0);
+      for (let i = 0; i < vertices.count; i++) {
+        const p = new Vector3().fromBufferAttribute(vertices, i);
+        if (Math.abs(p[axis]) < 0.32 && p.y > cap.y) cap = p;
+      }
+      for (let i = 0; i < vertices.count; i += 3) {
+        const a = new Vector3().fromBufferAttribute(vertices, i),
+          b = new Vector3().fromBufferAttribute(vertices, i + 1),
+          c = new Vector3().fromBufferAttribute(vertices, i + 2);
+        assert.ok(
+          b.sub(a).cross(c.sub(a)).lengthSq() > 1e-15,
+          "Fitted wall faces remain nondegenerate",
+        );
+      }
       assert.ok(
-        hit && Math.abs(hit.point.x - 0.2) < 1e-6,
-        `${type.name} tier ${quality}: wall courses meet the body, which continues above them`,
+        Math.abs(cap.y - (headBottom - 0.025)) < 1e-6,
+        `${type.name} tier ${quality} ${side}: wall reaches just below the gem head (${cap.y}/${headBottom - 0.025})`,
+      );
+      const origin = cap.clone();
+      origin[axis] = sign * 0.5;
+      const direction = new Vector3();
+      direction[axis] = -sign;
+      const hit = new Raycaster(origin, direction).intersectObjects(
+        shaft.children.filter((p) => p !== head),
+        false,
+      )[0];
+      assert.ok(
+        hit && Math.abs(sign * (hit.point[axis] - cap[axis]) - 0.002) < 1e-5,
+        `${type.name} tier ${quality} ${side} joins the shaft surface`,
       );
     }
   }
@@ -129,5 +205,5 @@ for (let mask = 0; mask < 16; mask++) {
   batch.dispose();
 }
 console.log(
-  "PASS: 768 connected wall-pair profiles/colours, 48 tower transitions, all masks, face and triangle budgets, batched merge animation",
+  "PASS: 768 wall profiles/colours, 48 tower transitions, 192 fitted cardinal shaft contacts and head clearances, preserved towers, all masks, face/budget checks and batched merge animation",
 );
