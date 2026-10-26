@@ -39,7 +39,7 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.domElement.setAttribute("role", "img");
 renderer.domElement.setAttribute(
   "aria-label",
-  "3D study: faceted rock walls join across shared edges. Eight named gems crown masonry towers, each with its own shaft shape, and towers join the walls they stand in. A row shows the six quality tiers. Placeholder creeps with health bars walk a corridor at their VPK-derived scale. Use the view, merge and variation controls to inspect.",
+  "3D study: faceted rock walls join across shared edges. Eight named gems crown masonry towers, each with its own shaft shape, and towers join the walls they stand in. A row shows the Diamond tower at the six quality tiers. Placeholder creeps with health bars walk a corridor at their VPK-derived scale. Use the view, merge and variation controls to inspect.",
 );
 stage.prepend(renderer.domElement);
 scene.add(new THREE.HemisphereLight("#f6f3e9", "#56616a", 2.5));
@@ -214,10 +214,10 @@ function build() {
   });
   // Quality is the only variable along this row.
   QUALITY_TIERS.forEach(({ tier, name }, i) => {
-    const tower = createGemTower("R", { seed, quality: tier });
+    const tower = createGemTower("D", { seed, quality: tier });
     const x = -3.25 + i * 1.3;
     tower.position.set(x, 0, 5.1);
-    tower.name = `${name} Ruby`;
+    tower.name = `${name} Diamond`;
     models.add(tower);
     label(name, x, 5.6, String(tier));
   });

@@ -6,20 +6,14 @@ export const GEM_TYPES = [
     id: "D",
     name: "Diamond",
     color: "#dceef2",
-    sides: 4,
-    profile: [
-      [0, 0],
-      [0.24, 0.16],
-      [0.17, 0.31],
-      [0, 0.43],
-    ],
+    // Square masonry, not a lathe: [half-width, height] from footing to collar.
     tower: {
-      shape: "obelisk",
+      shape: "setting",
       profile: [
-        [0, 0.2],
-        [0.21, 0.2],
-        [0.09, 0.78],
-        [0, 0.78],
+        [0.225, 0.2],
+        [0.19, 0.245],
+        [0.118, 0.7],
+        [0.195, 0.765],
       ],
     },
   },
@@ -303,6 +297,190 @@ export function createStone({ x = 0, z = 0, neighbours = {}, seed = 1 } = {}) {
   return group;
 }
 
+// Diamond masonry takes per-face shades from vertex colours, so stacked courses read as cut blocks.
+const carvedMaterials = ["#8b918c", "#a4a79d", "#4f565a"].map(
+  (color) =>
+    new THREE.MeshStandardMaterial({
+      color,
+      roughness: 1,
+      flatShading: true,
+      vertexColors: true,
+    }),
+);
+const paint = (geometry, colorOf) => {
+  const normals = geometry.attributes.normal;
+  const colors = [];
+  for (let i = 0; i < normals.count; i++)
+    colors.push(
+      ...colorOf(new THREE.Vector3().fromBufferAttribute(normals, i)),
+    );
+  geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+  return geometry;
+};
+const stoneShade = (key) => (n) => {
+  const v =
+    0.93 +
+    (noise(Math.round(n.x * 8), Math.round(n.y * 8), Math.round(n.z * 8), key) %
+      11) /
+      100;
+  return [v, v, v];
+};
+// Square with bevelled corners in plan at height y.
+const squareRing = (half, y) => {
+  const c = half * 0.8;
+  return [
+    [half, c],
+    [c, half],
+    [-c, half],
+    [-half, c],
+    [-half, -c],
+    [-c, -half],
+    [c, -half],
+    [half, -c],
+  ].map(([px, pz]) => new THREE.Vector3(px, y, pz));
+};
+
+/**
+ * Diamond: a coursed square tower; a stone corbel and dark claw setting hold a large brilliant-cut stone.
+ * Each step up in quality adds one detail: face emblems (2), a third course (3), eight claws (4), a fourth course (5).
+ */
+function buildDiamond(add, quality, { color, tower: { profile } }) {
+  const block = (rings, material, key) =>
+    add(
+      paint(
+        new ConvexGeometry(rings.flatMap(([half, y]) => squareRing(half, y))),
+        stoneShade(key),
+      ),
+      material,
+    );
+  const [
+    [footHalf, ground],
+    [baseHalf, base],
+    [neckHalf, neck],
+    [collarHalf, collar],
+  ] = profile;
+  const halfAt = (y) =>
+    baseHalf + ((neckHalf - baseHalf) * (y - base)) / (neck - base);
+  // Stacked courses with bevelled tops; the first one splays into a battered foot.
+  const courses = 2 + Math.floor((quality - 1) / 2);
+  const course = (neck - ground) / courses;
+  for (let k = 0; k < courses; k++) {
+    const y0 = ground + course * k,
+      y1 = y0 + course;
+    block(
+      [
+        ...(k
+          ? [[halfAt(y0), y0]]
+          : [
+              [footHalf, ground],
+              [baseHalf, base],
+            ]),
+        [halfAt(y1 - 0.014), y1 - 0.014],
+        [halfAt(y1) - 0.012, y1],
+      ],
+      carvedMaterials[0],
+      2 + k,
+    );
+  }
+  block(
+    [
+      [neckHalf, neck],
+      [collarHalf, collar],
+      [collarHalf, collar + 0.02],
+    ],
+    carvedMaterials[1],
+    9,
+  );
+  block(
+    [
+      [collarHalf - 0.02, collar + 0.02],
+      [collarHalf - 0.02, collar + 0.05],
+      [collarHalf - 0.035, collar + 0.06],
+    ],
+    carvedMaterials[1],
+    10,
+  );
+  const radial = (a, r, y, t) =>
+    new THREE.Vector3(
+      Math.cos(a) * r - Math.sin(a) * t,
+      y,
+      Math.sin(a) * r + Math.cos(a) * t,
+    );
+  const claws = quality >= 4 ? 8 : 4;
+  for (let i = 0; i < claws; i++) {
+    const a = (i * 2 * Math.PI) / claws;
+    const section = (r0, r1, y, w) =>
+      [r0, r1].flatMap((r) => [-w, w].map((t) => radial(a, r, y, t)));
+    const grip = section(0.235, 0.275, 0.965, 0.032);
+    for (const points of [
+      [...section(0.13, 0.2, collar + 0.02, 0.05), ...grip],
+      [...grip, ...section(0.2, 0.23, 1.02, 0.018)],
+    ])
+      add(
+        paint(new ConvexGeometry(points), stoneShade(20 + i)),
+        carvedMaterials[2],
+      );
+  }
+  // Facet tones, not reflections: bright table, alternating crown facets, deeper pavilion.
+  const ice = new THREE.Color(color);
+  const tone = (mix) =>
+    ice
+      .clone()
+      .lerp(new THREE.Color(mix < 0 ? "#ffffff" : "#6fa3b8"), Math.abs(mix))
+      .toArray();
+  const facet = (n) => {
+    if (n.y > 0.99) return tone(-0.6);
+    if (n.y > 0.05)
+      return tone(
+        Math.round(Math.atan2(n.z, n.x) / (Math.PI / 8)) & 1 ? 0.45 : -0.3,
+      );
+    return tone(n.y > -0.05 ? 0.3 : 0.7);
+  };
+  const material = new THREE.MeshStandardMaterial({
+    roughness: 0.48,
+    metalness: 0,
+    flatShading: true,
+    vertexColors: true,
+  });
+  const gem = (points, colorOf = facet) =>
+    new THREE.Mesh(paint(new ConvexGeometry(points), colorOf), material);
+  // Brilliant cut, point down: table, 16 crown facets, girdle band, 8 pavilion facets.
+  const ring = (r, y, turn) =>
+    Array.from({ length: 8 }, (_, k) =>
+      radial(((k + turn) * Math.PI) / 4, r, y, 0),
+    );
+  const gems = [
+    gem([
+      new THREE.Vector3(0, 0.79, 0),
+      ...ring(0.24, 0.965, 0),
+      ...ring(0.24, 0.985, 0),
+      ...ring(0.135, 1.07, 0.5),
+    ]),
+  ];
+  // A small faceted lozenge set into each face of the top course.
+  if (quality >= 2) {
+    const y = neck - course / 2 - 0.007;
+    for (let i = 0; i < 4; i++) {
+      const a = (i * Math.PI) / 2;
+      const at = (dy, t, out) => radial(a, halfAt(y + dy) + out, y + dy, t);
+      gems.push(
+        gem(
+          [0.004, -0.01]
+            .flatMap((out) => [
+              at(0.045, 0, out),
+              at(-0.045, 0, out),
+              at(0, 0.032, out),
+              at(0, -0.032, out),
+            ])
+            .concat(at(0, 0, 0.026)),
+          () => tone(-0.4),
+        ),
+      );
+    }
+  }
+  return gems;
+}
+
 export const QUALITY_TIERS = [
   { tier: 1, name: "Chipped", width: 0.38 },
   { tier: 2, name: "Flawed", width: 0.44 },
@@ -340,52 +518,59 @@ export function createGemTower(
   );
   plinth.position.y = 0.14;
   plinth.rotation.y = Math.PI / 8;
-  // The shaft shares its gem's facet count and owns the silhouette, so type reads without colour.
-  const { profile: shaft, prongs = 0 } = spec.tower;
-  stoneMesh(
-    new THREE.LatheGeometry(
-      shaft.map(([r, h]) => new THREE.Vector2(r, h)),
-      spec.sides,
-      Math.PI / spec.sides,
-    ),
-    masonryMaterials[0],
-  );
-  const [crownRadius, crown] = shaft.at(-2);
-  for (let i = 0; i < prongs; i++) {
-    const prong = stoneMesh(
-      new THREE.CylinderGeometry(0.04, 0.05, 0.12, 4),
-      masonryMaterials[1],
+  const gems = [];
+  if (type === "D") gems.push(...buildDiamond(stoneMesh, quality, spec));
+  else {
+    // The shaft shares its gem's facet count and owns the silhouette, so type reads without colour.
+    const { profile: shaft, prongs = 0 } = spec.tower;
+    stoneMesh(
+      new THREE.LatheGeometry(
+        shaft.map(([r, h]) => new THREE.Vector2(r, h)),
+        spec.sides,
+        Math.PI / spec.sides,
+      ),
+      masonryMaterials[0],
     );
-    const a = (i * 2 * Math.PI) / prongs;
-    prong.position.set(
-      Math.cos(a) * (crownRadius - 0.04),
-      crown + 0.05,
-      Math.sin(a) * (crownRadius - 0.04),
-    );
+    const [crownRadius, crown] = shaft.at(-2);
+    for (let i = 0; i < prongs; i++) {
+      const prong = stoneMesh(
+        new THREE.CylinderGeometry(0.04, 0.05, 0.12, 4),
+        masonryMaterials[1],
+      );
+      const a = (i * 2 * Math.PI) / prongs;
+      prong.position.set(
+        Math.cos(a) * (crownRadius - 0.04),
+        crown + 0.05,
+        Math.sin(a) * (crownRadius - 0.04),
+      );
+    }
+    const material = new THREE.MeshStandardMaterial({
+      color: spec.color,
+      roughness: 0.48,
+      metalness: 0,
+      flatShading: true,
+    });
+    const count = spec.cluster || 1;
+    for (let i = 0; i < count; i++) {
+      const profile = spec.profile || [
+        [0, 0],
+        [0.105, 0.04],
+        [0.105, i === 1 ? 0.32 : 0.22],
+        [0, i === 1 ? 0.43 : 0.33],
+      ];
+      const geometry = new THREE.LatheGeometry(
+        profile.map(([r, h]) => new THREE.Vector2(r, h)),
+        spec.sides,
+      ).toNonIndexed();
+      geometry.computeVertexNormals();
+      const gem = new THREE.Mesh(geometry, material);
+      gem.scale.set(0.85, 0.8, 0.85);
+      gem.position.set((i - (count - 1) / 2) * 0.145, crown, 0);
+      gem.rotation.y = Math.PI / 4;
+      gems.push(gem);
+    }
   }
-  const material = new THREE.MeshStandardMaterial({
-    color: spec.color,
-    roughness: 0.48,
-    metalness: 0,
-    flatShading: true,
-  });
-  const count = spec.cluster || 1;
-  for (let i = 0; i < count; i++) {
-    const profile = spec.profile || [
-      [0, 0],
-      [0.105, 0.04],
-      [0.105, i === 1 ? 0.32 : 0.22],
-      [0, i === 1 ? 0.43 : 0.33],
-    ];
-    const geometry = new THREE.LatheGeometry(
-      profile.map(([r, h]) => new THREE.Vector2(r, h)),
-      spec.sides,
-    ).toNonIndexed();
-    geometry.computeVertexNormals();
-    const gem = new THREE.Mesh(geometry, material);
-    gem.scale.set(0.85, 0.8, 0.85);
-    gem.position.set((i - (count - 1) / 2) * 0.145, crown, 0);
-    gem.rotation.y = Math.PI / 4;
+  for (const gem of gems) {
     gem.castShadow = true;
     gem.receiveShadow = true;
     tower.add(gem);

@@ -77,6 +77,16 @@ for (const type of GEM_TYPES)
     assert.ok(bounds.max.z - bounds.min.z <= width + 1e-6, `${label} depth`);
     assert.ok(bounds.max.y >= 0.5, `${label} rises well above its wall`);
   }
+// Diamond quality steps add detail: face emblems, a course, eight claws, a course; huge only grows.
+const diamondParts = QUALITY_TIERS.map(
+  ({ tier }) =>
+    createGemTower("D", { quality: tier }).children.at(-1).children.length,
+);
+assert.deepEqual(
+  diamondParts.slice(1).map((parts, i) => parts > diamondParts[i]),
+  [true, true, true, true, false],
+  "Diamond tiers gain detail",
+);
 // The tower base is its cell's stone: same variation, and it joins neighbouring walls.
 const towerOnCell = createGemTower("R", {
   x: 3,
@@ -188,5 +198,5 @@ assert.ok(
   "Creep visibility budget",
 );
 console.log(
-  "PASS: 16 adjacency masks, merge bounds, deterministic variation, eight distinct towers at six tier bounds, tower-wall joins, creep scale, occlusion budgets and invalid inputs",
+  "PASS: 16 adjacency masks, merge bounds, deterministic variation, eight distinct towers at six tier bounds, Diamond tier detail, tower-wall joins, creep scale, occlusion budgets and invalid inputs",
 );
