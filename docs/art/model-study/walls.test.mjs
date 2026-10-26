@@ -168,6 +168,30 @@ for (const type of GEM_TYPES)
   }
 // Animation stays closed, nondegenerate and within the existing wall/creep limits.
 const straight = createStone({ neighbours: { east: true, west: true } });
+for (const axis of ["x", "z"]) {
+  const wall = createStone({
+    neighbours:
+      axis === "x" ? { east: true, west: true } : { north: true, south: true },
+  });
+  wall.updateMatrixWorld(true);
+  for (const along of [-0.375, -0.125, 0.125, 0.375])
+    for (const across of [-0.15, 0, 0.15]) {
+      const origin = new Vector3(
+        axis === "x" ? along : across,
+        1,
+        axis === "x" ? across : along,
+      );
+      const hit = new Raycaster(origin, new Vector3(0, -1, 0)).intersectObject(
+        wall,
+        true,
+      )[0];
+      assert.ok(hit);
+      assert.ok(
+        across === 0 ? hit.point.y < 0.25 : Math.abs(hit.point.y - 0.38) < 1e-6,
+        "Merlons occupy both exterior edges and leave the centre walkway clear",
+      );
+    }
+}
 const footing = createStone({
   neighbours: { east: true, west: true },
   towerBase: true,
@@ -194,7 +218,7 @@ for (let mask = 0; mask < 16; mask++) {
       );
     }
   });
-  assert.ok(triangles <= 1000, `Mask ${mask} wall budget: ${triangles}`);
+  assert.ok(triangles <= 1080, `Mask ${mask} wall budget: ${triangles}`);
   const batch = createModelBatch(wall, {
     dynamicRoots: wall.children.slice(1),
   });

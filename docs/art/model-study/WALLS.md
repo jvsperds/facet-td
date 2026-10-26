@@ -6,6 +6,7 @@ The user selected **chunky battlements with broad masonry blocks**, then clarifi
 
 - Straight and dead-end runs are narrow; corners, T-junctions, crossings and isolated cells form wider masonry piers.
 - Ordinary walls reach **y 0.38**, with two staggered courses, recessed mortar, coping and chunky battlements. Wall footprints stay inside their cells and meet cardinal boundaries exactly at ±0.5.
+- Maze walls have no fixed inside: merlons sit on both exposed edges, leaving a clear centre walkway. Each edge strip occupies cross-wall offsets 0.10–0.18, with a 0.02 outward projection beyond the coping. Pier corner merlons remain on their outer perimeter.
 - Core piers are at most 0.44 × 0.44 cell; straight coping is 0.32 wide. Original tower foundations and plinths are restored; no replacement tower body is added.
 - Tower connections meet y 0.38 at the cell edge and slope toward a point **0.025 below the lowest head point in its resting or leaned pose**. The innermost battlement continues to the shaft.
 - Connections narrow toward slim shafts. Their inner vertices raycast against the original static tower meshes at each height and lateral position; a 0.002 overlap avoids cracks. Below the shaft, the cut ends inside the foundation. Mixed types and tiers share the same cell-edge profile while adapting independently at their shafts.
@@ -22,7 +23,7 @@ Use one common world seed across connected cells. World `x`/`z` and seed must be
 
 `userData.setMerge(0…1)` still extends/raises the arms. Intermediate states are animated construction, while reciprocal seamless alignment is required at progress 1. Source objects and join roots remain compatible with `createModelBatch`.
 
-Original tower plinths, shafts, settings, gems and aiming remain unchanged. Exact geometry, normal, colour and world-transform comparisons against commit `0539ac3` passed for **288** type/tier/seed/rest-or-aim cases, including plinths. Only the wall connections change shape; their courses slope with the approach.
+Original tower plinths, shafts, settings, gems and aiming retain their shapes. Tower masonry now uses the wall palette: shaft `#686C6C`, caps `#717473`, stone settings `#5F6466`, with existing face shading. Gem colours remain unchanged. Exact tower geometry, normal, gem-colour and world-transform comparisons against commit `ec5e628` passed for **288** type/tier/seed/rest-or-aim cases. Wall courses slope with the approach.
 
 ## Geometry and validation
 
@@ -31,11 +32,11 @@ All walls use the shared rough, opaque, vertex-coloured masonry material. Indivi
 | Shape             | Source meshes | Triangles |
 | ----------------- | ------------- | --------- |
 | Isolated pier     | 1             | 392       |
-| Straight          | 3             | 496       |
-| Corner            | 3             | 696       |
-| Four-way crossing | 5             | 1,000     |
+| Straight          | 3             | 576       |
+| Corner            | 3             | 736       |
+| Four-way crossing | 5             | 1,080     |
 
-`walls.test.mjs` covers 768 reciprocal profile/colour comparisons across compatible masks, both axes, multiple seeds and positive/negative coordinates; 48 tower-to-wall boundary profiles; **192 shaft connections** across eight types, six tiers and four directions; original tower preservation; clearance below resting/leaned heads; nonzero wall faces and the 1,000-triangle wall ceiling; and merge updates through the batch renderer. Colour connection and overview captures are refreshed; grayscale derives from the current overview. Prior rotation/top captures are historical.
+`walls.test.mjs` covers 768 reciprocal profile/colour comparisons across compatible masks, both axes, multiple seeds and positive/negative coordinates; 48 tower-to-wall boundary profiles; **192 shaft connections** across eight types, six tiers and four directions; original tower preservation; clearance below resting/leaned heads; exterior edge merlons and clear walkways; nonzero wall faces and the 1,080-triangle wall ceiling; and merge updates through the batch renderer. Tower tests also verify effective masonry colours against the shared wall palette. Colour connection and overview captures are refreshed; grayscale derives from the current overview. Prior rotation/top captures are historical.
 
 The user-requested height supersedes the low-wall visibility guarantee. Isolated-tower visibility tests still pass, but taller walls and approaches can cover small creeps; gameplay fade/outline treatment remains necessary and is not implemented in this model study.
 

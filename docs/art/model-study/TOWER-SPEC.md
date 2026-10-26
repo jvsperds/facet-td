@@ -78,9 +78,9 @@ Also read the repository `AGENTS.md` and `docs/PLAN.md` before you edit.
 | ------------------------------ | ------------------------------------------------------- |
 | Board cell                     | `#C7CAC9` (renders cream-grey under the warm key light) |
 | Wall masonry (shared shades)   | `#565B5E` `#5F6466` `#686C6C` `#717473` `#7A7C78`       |
-| Masonry, shaft                 | `#8B918C`                                               |
-| Masonry, caps, corbels, prongs | `#A4A79D`                                               |
-| Setting accent (claws)         | `#4F565A`                                               |
+| Masonry, shaft                 | `#686C6C` (shared wall grey)                            |
+| Masonry, caps, corbels, prongs | `#717473` (shared wall grey)                            |
+| Setting accent (claws)         | `#5F6466` (shared wall grey)                            |
 | Gems                           | The type colour in [section 6](#6-type-identity)        |
 
 Do not add a new grey or a new gem colour without a Vault Decision from the lead.
@@ -159,7 +159,7 @@ Every tower shares these rules, so the eight read as one set.
 | UNI-03 | The superstructure starts at the plinth top (y 0.20). The shaft foot SHOULD stay inside the plinth top radius (0.28) so the plinth ledge shows.                                              |
 | UNI-04 | The tier-6 top SHOULD be between 0.93 and 1.15. The head pivot (seat height) SHOULD be between 0.62 and 0.83. This keeps a common skyline.                                                   |
 | UNI-05 | Gem or cluster width at tier 6 MUST be at least 0.27. New and redesigned towers SHOULD use 0.35–0.50 (Diamond 0.48). Gem height SHOULD be at least 0.20.                                     |
-| UNI-06 | Use only the palette in ART-05. Shaft `#8B918C`, caps and corbels `#A4A79D`, settings `#4F565A`, the type gem colour.                                                                        |
+| UNI-06 | Use only the palette in ART-05. Shaft `#686C6C`, caps and corbels `#717473`, settings `#5F6466`, the type gem colour.                                                                        |
 | UNI-07 | Gem material: `roughness: 0.48`, `metalness: 0`, `flatShading: true`. Use `vertexColors: true` with facet tones (ART-06) for cut gems.                                                       |
 | UNI-08 | Same head contract and one shared lean angle (`AIM_LEAN`, 0.17 rad).                                                                                                                         |
 | UNI-09 | Facet symmetry matches the gem: a lathe shaft uses the gem's `sides`. A square-plan tower uses four-fold symmetry with an eight-fold gem. Prong and claw counts divide the gem's side count. |

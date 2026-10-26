@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { Box3, Raycaster, Vector3 } from "three";
+import { Box3, Color, Raycaster, Vector3 } from "three";
 import {
   createStone,
   createGemTower,
@@ -80,6 +80,29 @@ for (const type of GEM_TYPES)
   for (const { tier, width } of QUALITY_TIERS) {
     const scale = width / 0.68;
     const tower = createGemTower(type.id, { quality: tier });
+    const greys = ["#5f6466", "#686c6c", "#717473"].map((hex) =>
+      new Color(hex).toArray(),
+    );
+    tower.children.at(-1).traverse((part) => {
+      if (!part.isMesh || !part.userData.sharedMaterial) return;
+      const colors = part.geometry.attributes.color;
+      for (let i = 0; i < colors.count; i++) {
+        const effective = [colors.getX(i), colors.getY(i), colors.getZ(i)].map(
+          (v, k) => v * part.material.color.toArray()[k],
+        );
+        assert.ok(
+          greys.some((tone) => {
+            const shade = effective[0] / tone[0];
+            return (
+              shade >= 0.92999 &&
+              shade <= 1.03001 &&
+              effective.every((v, k) => Math.abs(v - tone[k] * shade) < 1e-6)
+            );
+          }),
+          "Tower masonry uses the wall grey palette",
+        );
+      }
+    });
     for (const aim of aims) {
       tower.userData.aimAt(...aim);
       tower.updateMatrixWorld(true);

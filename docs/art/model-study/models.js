@@ -346,15 +346,26 @@ export function createStone({
   box(core, coreRect(0.22, 0.16), 0.108, 0.122, 3);
   if (axis)
     for (const along of [-0.125, 0.125])
-      box(
-        core,
-        horizontal
-          ? [along - 0.07, along + 0.07, -0.14, 0.14]
-          : [-0.14, 0.14, along - 0.07, along + 0.07],
-        0.118,
-        0.196,
-        3,
-      );
+      for (const side of [-1, 1])
+        box(
+          core,
+          horizontal
+            ? [
+                along - 0.07,
+                along + 0.07,
+                side < 0 ? -0.18 : 0.1,
+                side < 0 ? -0.1 : 0.18,
+              ]
+            : [
+                side < 0 ? -0.18 : 0.1,
+                side < 0 ? -0.1 : 0.18,
+                along - 0.07,
+                along + 0.07,
+              ],
+          0.118,
+          0.196,
+          3,
+        );
   else
     for (const sx of [-1, 1])
       for (const sz of [-1, 1])
@@ -387,7 +398,20 @@ export function createStone({
     box(parts, rect(0.195, 0.5, 0.135), 0.02, 0.11, 0, 0);
     bricks(parts, rect(0.2, 0.5, 0.14), dx ? "x" : "z");
     box(parts, rect(0.22, 0.5, 0.16), 0.108, 0.122, 3);
-    box(parts, rect(towerBase ? 0.2 : 0.305, 0.445, 0.14), 0.118, 0.196, 3);
+    // Both maze-wall flanks are exterior: keep the centre walk clear and project merlons outward.
+    for (const side of [-1, 1]) {
+      const merlon = rect(towerBase ? 0.2 : 0.305, 0.445, 0.18);
+      const acrossMin = side < 0 ? -0.18 : 0.1;
+      const acrossMax = side < 0 ? -0.1 : 0.18;
+      if (dx) {
+        merlon[2] = acrossMin;
+        merlon[3] = acrossMax;
+      } else {
+        merlon[0] = acrossMin;
+        merlon[1] = acrossMax;
+      }
+      box(parts, merlon, 0.118, 0.196, 3);
+    }
     const arm = new THREE.Group();
     arm.add(mesh(parts));
     group.add(arm);
@@ -414,10 +438,10 @@ export function createStone({
 }
 
 // Masonry takes per-face shades from vertex colours, so stacked courses read as cut blocks.
-const carvedMaterials = ["#8b918c", "#a4a79d", "#4f565a"].map(
-  (color) =>
+const carvedMaterials = [2, 3, 1].map(
+  (tone) =>
     new THREE.MeshStandardMaterial({
-      color,
+      color: new THREE.Color().fromArray(WALL_TONES[tone]),
       roughness: 1,
       flatShading: true,
       vertexColors: true,
