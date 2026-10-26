@@ -59,6 +59,8 @@ Each mesh owns its geometry. Stone materials are shared and marked with `userDat
 
 ## Run and validate
 
+The [performance study](performance/RESULTS.md) compares dense boards, instancing, shadows, resolution and a disposable triangle-reduction proxy. Its [benchmark page](performance/index.html) can be rerun in the same Vite server.
+
 Use the dependencies already installed for the foundation phase. On this art branch, install them from the foundation checkout if `node_modules` is absent; the art study adds no packages.
 
 From the repository root:
