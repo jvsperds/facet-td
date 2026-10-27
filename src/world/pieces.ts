@@ -4,9 +4,11 @@ import {
   createGemTower,
   createStone,
   GEM_TYPES,
+  SPECIAL_TOWERS,
 } from '../../docs/art/model-study/models.js';
+import { COMBINED_TOWERS } from '../../docs/art/model-study/combined-towers.js';
 import type { Cell } from '../sim/board';
-import { qualityOf, type Game } from '../sim/game';
+import { isBasicGem, qualityOf, type Game } from '../sim/game';
 import { toScene } from './view';
 
 // Everything on the board that the sim owns: stones, gem towers, creeps and combat effects.
@@ -37,6 +39,59 @@ const barMaterial = (color: string) => new THREE.SpriteMaterial({ color, depthTe
 const BAR_BACK = barMaterial(BAR.back);
 const BAR_FILL = barMaterial(BAR.fill);
 const BAR_LOW = barMaterial(BAR.low);
+const TOWER_SPECS = [...SPECIAL_TOWERS, ...COMBINED_TOWERS];
+const EXTRA_COLORS: Record<string, string> = {
+  gemtd_heiyaoshi: '#292c36',
+  gemtd_manao: '#dfa57b',
+  gemtd_xiameishi: '#eee0ab',
+  gemtd_ranshaozhishi: '#e78440',
+  gemtd_geluanshi: '#75aa95',
+  gemtd_zhenjiazhishi: '#e3e7f0',
+};
+const towerColor = (name: string) =>
+  isBasicGem(name)
+    ? GEM_TYPES.find((t) => t.id === name[6].toUpperCase())!.color
+    : (TOWER_SPECS.find((t) => t.id === name)?.color ?? EXTRA_COLORS[name] ?? '#9f87c8');
+
+/** Named secret stones and tablets not covered by the read-only art-study catalogue. */
+function extraTower(name: string, options: Parameters<typeof createStone>[0]) {
+  const base = createStone({ ...options, towerBase: true });
+  const head = new THREE.Group();
+  const tablet = name.includes('shiban');
+  if (tablet) base.children[0].scale.y = 0.12;
+  const metal = new THREE.MeshStandardMaterial({ color: towerColor(name), roughness: 0.65 });
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(0.62, tablet ? 0.08 : 0.16, 0.62),
+    new THREE.MeshStandardMaterial({ color: '#60646d', roughness: 1 }),
+  );
+  body.position.y = tablet ? 0.08 : 0.2;
+  head.add(body);
+  const core = new THREE.Mesh(
+    tablet ? new THREE.TorusGeometry(0.2, 0.035, 4, 8) : new THREE.OctahedronGeometry(0.26),
+    metal,
+  );
+  core.position.y = tablet ? 0.13 : 0.5;
+  if (tablet) core.rotation.x = -Math.PI / 2;
+  head.add(core);
+  if (name.endsWith('_yin') || name.endsWith('_jin')) {
+    const rim = new THREE.Mesh(
+      new THREE.TorusGeometry(0.29, 0.025, 4, name.endsWith('_jin') ? 12 : 8),
+      new THREE.MeshStandardMaterial({ color: name.endsWith('_jin') ? '#e8c86a' : '#d5e3eb' }),
+    );
+    rim.rotation.x = -Math.PI / 2;
+    rim.position.y = 0.14;
+    head.add(rim);
+  }
+  head.traverse((o) => {
+    if (o instanceof THREE.Mesh) {
+      o.castShadow = true;
+      o.receiveShadow = true;
+    }
+  });
+  base.add(head);
+  base.userData.aimAt = () => {};
+  return base;
+}
 
 function dispose(o: THREE.Object3D) {
   o.removeFromParent();
@@ -63,6 +118,17 @@ function fillCell(obj: THREE.Object3D, n: Record<string, boolean>, tower: boolea
 }
 
 export function createPieces(scene: THREE.Scene, game: Game) {
+  const hero = new THREE.Group();
+  const heroMaterial = new THREE.MeshStandardMaterial({ color: '#f4e3a4', roughness: 0.6 });
+  const body = new THREE.Mesh(new THREE.ConeGeometry(0.25, 0.7, 6), heroMaterial);
+  body.position.y = 0.5;
+  const crown = new THREE.Mesh(new THREE.OctahedronGeometry(0.17), heroMaterial);
+  crown.position.y = 1;
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.38, 0.035, 4, 16), heroMaterial);
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.05;
+  hero.add(body, crown, ring);
+  scene.add(hero);
   const cells = new Map<number, Piece>();
   const creeps = new Map<number, CreepView>();
   const effects: {
@@ -123,11 +189,15 @@ export function createPieces(scene: THREE.Scene, game: Game) {
       if (cells.has(k)) dispose(cells.get(k)!.obj);
       const { x: sx, z: sz } = toScene(cell);
       const options = { x: sx, z: sz, neighbours, seed: 1 };
+      const basic = name !== null && isBasicGem(name);
+      const known = name !== null && TOWER_SPECS.some((t) => t.id === name);
       const obj = name
-        ? createGemTower(name[6].toUpperCase(), {
-            ...options,
-            quality: qualityOf(name),
-          } as typeof options)
+        ? basic || known
+          ? createGemTower(basic ? name[6].toUpperCase() : name, {
+              ...options,
+              ...(basic ? { quality: qualityOf(name) } : {}),
+            } as typeof options)
+          : extraTower(name, options)
         : createStone(options);
       obj.position.set(sx, 0, sz);
       fillCell(obj, neighbours, !!name);
@@ -149,7 +219,7 @@ export function createPieces(scene: THREE.Scene, game: Game) {
     for (const c of game.creeps) {
       let v = creeps.get(c.id);
       if (!v) {
-        const scale = Number(game.unit(c.name)?.ModelScale ?? 1);
+        const scale = Number(game.unit(c.name)?.ModelScale ?? 1) * (c.elite ? 2 : 1);
         const obj = createCreep({ modelScale: scale, flying: c.fly, boss: c.boss });
         // Grow body and shadow in place; the body's flying altitude stays as the factory set it.
         for (const part of obj.children) part.scale.setScalar(CREEP_SCALE);
@@ -188,6 +258,9 @@ export function createPieces(scene: THREE.Scene, game: Game) {
     objects: () => [...cells.values()].map((p) => p.obj),
     /** Call after every sim tick. */
     afterStep() {
+      hero.visible = !!game.hero.selected;
+      const position = toScene(game.heroPosition);
+      hero.position.set(position.x, 0, position.z);
       syncCells();
       // Capture endpoints before removing dead creeps, so lethal shots still arrive and burst.
       const killed = new Set(game.events.filter((e) => e.type === 'kill').map((e) => e.id));
@@ -198,7 +271,7 @@ export function createPieces(scene: THREE.Scene, game: Game) {
           if (!gem) continue;
           const start = toScene(gem.cell);
           const end = toScene(e);
-          const color = GEM_TYPES.find((t) => t.id === gem.name[6].toUpperCase())!.color;
+          const color = towerColor(gem.name);
           if (effects.length === MAX_EFFECTS) effects.shift();
           effects.push({
             start: new THREE.Vector3(start.x, 1.2, start.z),

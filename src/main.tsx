@@ -97,6 +97,9 @@ setInterval(() => {
     g.draft.length,
     g.gems.length,
     g.stones.size,
+    g.gems.map((gem) => `${gem.name}:${gem.level ?? 0}`).join(),
+    JSON.stringify(g.hero),
+    g.hero.selected ? Math.floor(sim.tick / 30) : 0,
   ].join();
   if (stepped && shown !== lastShown) {
     lastShown = shown;

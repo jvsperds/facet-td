@@ -2,7 +2,26 @@ import type { GameData } from '../data';
 import { readTowerAbilities, type TowerAbility } from './abilities';
 import { Board, CELL_UNITS, type Cell } from './board';
 import { findPath } from './path';
+import {
+  combineOptions,
+  planCombine,
+  planDowngrade,
+  resolveKeepUpgrade,
+  type Plan,
+  type RecipeKind,
+} from './progression';
 import type { Rng } from './rng';
+import type { EffectBody } from './effects';
+import { planTabletCast, type TabletOperation } from './tablets';
+import { procCoefficient } from './probability';
+import {
+  readHeroCatalog,
+  listHeroActions,
+  planHeroAction,
+  adjustDraftOdds,
+  type HeroState,
+  type HeroPlan,
+} from './hero';
 
 // Gem TD's single-player loop, ported from addon_game_mode.lua (line numbers cite the VPK script):
 // build five random gems, keep one (the rest become stones), then a wave walks the maze to the castle.
@@ -29,6 +48,11 @@ export interface Gem {
   /** Ticks until the next attack, and the creep it is attacking. */
   cooldown: number;
   target: number | null;
+  disabledUntil?: number;
+  procReady?: Record<string, number>;
+  level?: number;
+  prd?: Record<string, number>;
+  buffs?: Record<string, { expires: number; values: Record<string, number> }>;
 }
 export interface Creep {
   id: number;
@@ -46,8 +70,25 @@ export interface Creep {
   boss: boolean;
   /** Castle HP lost if it arrives. */
   damage: number;
+  skills?: string[];
+  shield?: { charges: number; expires: number; ready: number };
+  blinkReady?: number;
+  hasteUntil?: number;
+  cleanse?: { damage: number; last: number };
+  elite?: boolean;
+  prd?: Record<string, number>;
   /** Named VPK modifiers: repeated hits refresh a tier; different tiers stack. */
-  modifiers?: Record<string, { expires: number; slow: number; armor: number }>;
+  modifiers?: Record<
+    string,
+    {
+      expires: number;
+      slow: number;
+      armor: number;
+      properties?: Record<string, number>;
+      states?: string[];
+      poison?: { damage: number; next: number; interval: number; source: number };
+    }
+  >;
 }
 export type GameEvent =
   | { type: 'attack'; from: number; to: number; damage: number; x: number; y: number }
@@ -68,6 +109,17 @@ export class Game {
   castleHp: number;
   gold = 0;
   xp = 0;
+  hero: HeroState = { selected: '', abilities: {}, cooldowns: {} };
+  heroPosition: Cell = { x: 19, y: 19 };
+  private heroRoute: Cell[] = [];
+  private pendingHero: { due: number; plan: Extract<HeroPlan, { ok: true }> } | null = null;
+  private prayers: {
+    color?: { color: number; chance: number };
+    quality?: { quality: string; chance: number };
+  } = {};
+  private perfected = false;
+  private swapTarget: number | null = null;
+  private castleBuffs: Record<string, { amount: number; expires: number }> = {};
   /** Gems kept in earlier rounds plus this round's draft. */
   gems: Gem[] = [];
   stones = new Map<number, Cell>();
@@ -82,12 +134,40 @@ export class Game {
   private spawnName = '';
   private nextSpawn = 0;
   private nextId = 1;
+  private tabletUpgradeIn = 0;
+  private time = 0;
+  private waveTicks = 0;
+  private waveDamage: Record<number, number> = {};
+  private delayed: {
+    due: number;
+    source: number;
+    sourceName: string;
+    target: number;
+    damage: number;
+    remaining: number;
+    radius: number;
+    visited: number[];
+  }[] = [];
+  private tabletCasts: {
+    due: number;
+    source: number;
+    sourceName: string;
+    operation: TabletOperation;
+  }[] = [];
+  private tabletFields: {
+    expires: number;
+    source: number;
+    sourceName: string;
+    operation: TabletOperation;
+    next: Record<number, number>;
+  }[] = [];
+  private tabletReady: Record<number, number> = {};
   private readonly units: Record<string, Unit>;
   private readonly lua: Record<string, { value: unknown }>;
   private readonly abilitiesByUnit: Record<string, TowerAbility[]>;
 
   constructor(
-    data: GameData,
+    readonly data: GameData,
     readonly board: Board,
     private readonly rng: Rng,
   ) {
@@ -111,6 +191,74 @@ export class Game {
     return this.abilitiesByUnit[name] ?? [];
   }
 
+  private skills(name: string) {
+    return Object.entries(this.units[name] ?? {})
+      .filter(([k, v]) => /^Ability\d+$/.test(k) && v)
+      .map(([, v]) => v);
+  }
+  private enemySkills(c: Creep) {
+    return c.skills ?? this.skills(c.name);
+  }
+  private immune(c: Creep) {
+    return this.enemySkills(c).includes('enemy_momian') || this.waveTicks > 181 * TICK_HZ;
+  }
+  private near(a: Cell, b: Cell, radius: number) {
+    return sq(a.x - b.x) + sq(a.y - b.y) <= sq(radius);
+  }
+  private allyFields(g: Gem) {
+    const seen = new Set<string>();
+    return this.gems.flatMap((source) =>
+      this.abilities(source.name).flatMap((a) => {
+        if (a.kind !== 'field' || !a.ally || !this.near(source.cell, g.cell, a.radius)) return [];
+        const key = a.multiple ? `${a.modifier}:${source.id}` : a.modifier;
+        if (seen.has(key)) return [];
+        seen.add(key);
+        return [a];
+      }),
+    );
+  }
+  private towerProperty(g: Gem, property: string) {
+    let bonus = this.allyFields(g).reduce((sum, a) => sum + (a.properties[property] ?? 0), 0);
+    for (const [name, b] of Object.entries(g.buffs ?? {}))
+      if (
+        b.expires > this.time &&
+        name === 'gemtd_hero_kuaisusheji' &&
+        property === 'MODIFIER_PROPERTY_ATTACKSPEED_BONUS_CONSTANT'
+      )
+        bonus += b.values.attack_speed ?? 0;
+    const howl = g.buffs?.modifier_howl_unit_datadriven;
+    if (
+      property === 'MODIFIER_PROPERTY_DAMAGEOUTGOING_PERCENTAGE' &&
+      howl &&
+      howl.expires > this.time
+    )
+      bonus += howl.values.damage;
+    const range = g.buffs?.gemtd_hero_miaozhun;
+    if (range && range.expires > this.time && property === 'MODIFIER_PROPERTY_ATTACK_RANGE_BONUS')
+      bonus += range.values.juli;
+    return bonus;
+  }
+  private towerState(g: Gem, state: string) {
+    return this.allyFields(g).some((a) => a.states.includes(state));
+  }
+  private visible(c: Creep) {
+    return (
+      !this.enemySkills(c).includes('riki_permanent_invisibility') ||
+      this.gems.some(
+        (g) =>
+          this.skills(g.name).includes('tower_true_sight') &&
+          this.near(g.cell, c, this.attackRange(g)),
+      )
+    );
+  }
+  attackRange(g: Gem) {
+    return (
+      (num(this.units[g.name], 'AttackRange') +
+        this.towerProperty(g, 'MODIFIER_PROPERTY_ATTACK_RANGE_BONUS')) /
+      CELL_UNITS
+    );
+  }
+
   /** Opal tiers stack; two emitters of the same modifier grant only one buff (VPK tooltips). */
   attackInterval(gem: Gem) {
     let bonus = 0;
@@ -126,26 +274,370 @@ export class Game {
       }
     // Dota's 100 base attack speed, capped at 700 since 7.20 (dota2.com/720).
     return (
-      (num(this.units[gem.name], 'AttackRate') * 100) / Math.min(700, Math.max(20, 100 + bonus))
+      (num(this.units[gem.name], 'AttackRate') * 100) /
+      Math.min(
+        700,
+        Math.max(
+          20,
+          100 + bonus + this.towerProperty(gem, 'MODIFIER_PROPERTY_ATTACKSPEED_BONUS_CONSTANT'),
+        ),
+      )
     );
   }
 
   creepStats(c: Creep) {
     let slow = 0;
     let armor = c.armor;
+    let percent = 0,
+      magicResist = num(this.units[c.name] ?? {}, 'MagicalResistance');
+    let stopped = false,
+      noHeal = false;
     for (const m of Object.values(c.modifiers ?? {})) {
       slow += m.slow;
       armor += m.armor;
+      percent += m.properties?.MODIFIER_PROPERTY_MOVESPEED_BONUS_PERCENTAGE ?? 0;
+      magicResist += m.properties?.MODIFIER_PROPERTY_MAGICAL_RESISTANCE_BONUS ?? 0;
+      stopped ||= (m.states ?? []).some(
+        (s) => s === 'MODIFIER_STATE_STUNNED' || s === 'MODIFIER_STATE_ROOTED',
+      );
+      noHeal ||= m.properties?.MODIFIER_PROPERTY_DISABLE_HEALING === 1;
     }
+    for (const source of this.creeps)
+      if (
+        this.enemySkills(source).includes('enemy_high_armor') &&
+        this.near(source, c, 500 / CELL_UNITS)
+      )
+        armor += 4;
+    for (const source of this.creeps)
+      if (this.enemySkills(source).includes('guai_xietong')) slow -= 150;
+    if ((c.hasteUntil ?? 0) > this.time) percent += 50;
+    if (this.waveTicks > 181 * TICK_HZ) percent += 100;
     // shortcut: assumes Dota's 100 movement-speed floor; verify against the original runtime before Classic certification.
-    const speed = slow
-      ? Math.max(100 / CELL_UNITS / TICK_HZ, c.speed + slow / CELL_UNITS / TICK_HZ)
-      : c.speed;
-    return { speed, armor };
+    const speed = stopped
+      ? 0
+      : slow || percent
+        ? Math.max(
+            100 / CELL_UNITS / TICK_HZ,
+            (c.speed + slow / CELL_UNITS / TICK_HZ) * (1 + percent / 100),
+          )
+        : c.speed;
+    return { speed, armor, magicResist, noHeal, stopped };
+  }
+
+  private applyEffect(c: Creep, source: Gem, effect: EffectBody, tick: number, aura = false) {
+    if (this.immune(c) && !effect.pierces) return;
+    c.modifiers ??= {};
+    const name = effect.multiple
+      ? `${effect.modifier}:${source.id}:${aura ? 'field' : tick}`
+      : effect.modifier;
+    const old = c.modifiers[name];
+    const interval = Math.max(1, Math.round(effect.interval * TICK_HZ));
+    c.modifiers[name] = {
+      expires:
+        tick + Math.round((aura ? Math.max(0.1, effect.duration) : effect.duration) * TICK_HZ),
+      slow: effect.properties.MODIFIER_PROPERTY_MOVESPEED_BONUS_CONSTANT ?? 0,
+      armor: effect.properties.MODIFIER_PROPERTY_PHYSICAL_ARMOR_BONUS ?? 0,
+      properties: effect.properties,
+      states: effect.states,
+      ...(effect.damage
+        ? {
+            poison: old?.poison ?? {
+              damage: effect.damage,
+              next: tick + interval,
+              interval,
+              source: source.id,
+            },
+          }
+        : {}),
+    };
+  }
+
+  private refreshFields(tick: number) {
+    for (const g of this.gems)
+      for (const a of this.abilities(g.name))
+        if (a.kind === 'field' && !a.ally)
+          for (const c of this.creeps)
+            if (
+              this.near(g.cell, c, a.radius) &&
+              !(a.excludeAncients && this.units[c.name]?.IsAncient === '1')
+            )
+              this.applyEffect(c, g, a, tick, true);
   }
 
   get heroLevel() {
     return XP_FOR_LEVEL.filter((xp) => this.xp >= xp).length;
+  }
+
+  heroActions() {
+    return listHeroActions(this.data, this.hero);
+  }
+  configureHero(selected: string, abilities: Record<string, number>): Check {
+    if (this.phase !== 'build' || this.draft.length > 0 || this.pendingHero)
+      return { ok: false, reason: 'Choose a hero between drafts.' };
+    const catalog = readHeroCatalog(this.data);
+    if (
+      !catalog.heroes[selected] ||
+      !abilities ||
+      typeof abilities !== 'object' ||
+      Array.isArray(abilities)
+    )
+      return { ok: false, reason: 'Invalid hero profile.' };
+    const defs = (
+      this.data.files['npc/abilities.json'] as {
+        DOTAAbilities: Record<string, { MaxLevel?: string }>;
+      }
+    ).DOTAAbilities;
+    const normalized: Record<string, number> = {};
+    for (const [key, level] of Object.entries(abilities)) {
+      const name = catalog.abilities[key] ?? key;
+      if (
+        !Object.values(catalog.abilities).includes(name) ||
+        !Number.isInteger(level) ||
+        level < 1 ||
+        level > Number(defs[name]?.MaxLevel ?? 1)
+      )
+        return { ok: false, reason: 'Invalid hero skill or level.' };
+      normalized[name] = level;
+    }
+    this.hero = { selected, abilities: normalized, cooldowns: { ...this.hero.cooldowns } };
+    return { ok: true };
+  }
+  moveHero(cell: Cell): Check {
+    if (
+      !this.board.inside(cell) ||
+      !Number.isInteger(cell.x) ||
+      !Number.isInteger(cell.y) ||
+      this.phase === 'lost' ||
+      this.phase === 'won'
+    )
+      return { ok: false, reason: 'Invalid destination.' };
+    if (this.pendingHero) return { ok: false, reason: 'The hero is casting.' };
+    const path = findPath(
+      { x: Math.round(this.heroPosition.x), y: Math.round(this.heroPosition.y) },
+      cell,
+      this.blocked,
+    );
+    if (!path) return { ok: false, reason: 'No route for the hero.' };
+    this.heroRoute = path.slice(1);
+    return { ok: true };
+  }
+  private heroContext(target?: number) {
+    const gem = this.gems.find((g) => g.id === target);
+    const stone = target !== undefined && target < 0 ? this.stones.get(-target) : undefined;
+    return {
+      gold: this.gold,
+      phase: this.phase,
+      buildReady: this.draft.length >= 5,
+      castleHp: this.castleHp,
+      castleMaxHp: this.luaValue<number>('gem_castle_hp_max'),
+      ...(gem
+        ? {
+            target: {
+              id: gem.id,
+              attackDamage: num(this.units[gem.name], 'AttackDamageMin'),
+              friendly: true,
+              slab: gem.name.includes('shiban'),
+              owned: true,
+            },
+          }
+        : stone
+          ? { target: { id: target!, attackDamage: 0, friendly: true, owned: true } }
+          : {}),
+    };
+  }
+  canHeroAction(action: string, target?: number, point?: Cell, tick = this.time): Check {
+    if (this.phase === 'lost' || this.phase === 'won' || this.pendingHero)
+      return { ok: false, reason: 'Hero action unavailable.' };
+    const plan = planHeroAction(
+      this.data,
+      this.hero,
+      action,
+      { ...this.heroContext(target), point },
+      tick,
+      1,
+    );
+    if (!plan.ok) return plan;
+    if (
+      point &&
+      (!this.board.inside(point) || !Number.isInteger(point.x) || !Number.isInteger(point.y))
+    )
+      return { ok: false, reason: 'Invalid target cell.' };
+    if (plan.effect.kind === 'stoneLine' || plan.effect.kind === 'beacon')
+      return { ok: false, reason: 'This board skill is still being ported.' };
+    const gem = this.gems.find((g) => g.id === target);
+    const position =
+      gem?.cell ?? (target !== undefined && target < 0 ? this.stones.get(-target) : point);
+    if (position && !this.near(position, this.heroPosition, 500 / CELL_UNITS))
+      return { ok: false, reason: 'Move the hero closer to this tower.' };
+    if (
+      plan.effect.kind === 'swapNearbyStone' &&
+      gem &&
+      !Array.from(this.stones.values()).some((s) => this.near(s, gem.cell, 192 / CELL_UNITS))
+    )
+      return { ok: false, reason: 'No normal stone is close to this tower.' };
+    return { ok: true };
+  }
+  castHero(action: string, target: number | undefined, tick: number, point?: Cell): Check {
+    const check = this.canHeroAction(action, target, point, tick);
+    if (!check.ok) return check;
+    let roll = 1;
+    if (action === 'gemtd_hero_huichun') {
+      const level = this.hero.abilities[action];
+      roll = this.rng.int(1, [10, 13, 15, 16][level - 1]);
+    }
+    const plan = planHeroAction(
+      this.data,
+      this.hero,
+      action,
+      { ...this.heroContext(target), point },
+      tick,
+      roll,
+    );
+    if (!plan.ok) return plan;
+    this.gold -= plan.cost;
+    this.hero.cooldowns[action] = plan.cooldownUntil;
+    this.pendingHero = { due: tick + 6, plan };
+    this.heroRoute = [];
+    return { ok: true };
+  }
+  private heroStep(tick: number) {
+    if (this.pendingHero && this.pendingHero.due <= tick) {
+      const { effect } = this.pendingHero.plan;
+      this.pendingHero = null;
+      if (effect.kind === 'heal')
+        this.castleHp = Math.min(
+          this.luaValue<number>('gem_castle_hp_max'),
+          this.castleHp + effect.amount,
+        );
+      else if (effect.kind === 'castleBuff')
+        this.castleBuffs[effect.buff] = { amount: effect.amount, expires: tick + effect.duration };
+      else if (effect.kind === 'prayer') {
+        if (effect.color !== undefined)
+          this.prayers.color = { color: effect.color, chance: effect.chance };
+        if (effect.quality !== undefined)
+          this.prayers.quality = { quality: effect.quality, chance: effect.chance };
+      } else if (effect.kind === 'rewindDraft') {
+        this.gems = this.gems.filter((g) => !this.draft.includes(g.id));
+        this.draft = [];
+        this.route = this.findRoute() ?? this.route;
+      } else if (effect.kind === 'towerBuff') {
+        const target = this.gems.find((g) => g.id === effect.target);
+        if (target) {
+          target.buffs ??= {};
+          target.buffs[effect.ability] = { expires: tick + effect.duration, values: effect.values };
+        }
+      } else if (effect.kind === 'swap') {
+        if (
+          this.swapTarget !== null &&
+          this.heroTargetCell(this.swapTarget) &&
+          this.heroTargetCell(effect.target)
+        ) {
+          const a = { ...this.heroTargetCell(this.swapTarget)! },
+            b = { ...this.heroTargetCell(effect.target)! };
+          if (this.swapTarget >= 0 || effect.target >= 0) {
+            this.moveHeroTarget(this.swapTarget, b);
+            this.moveHeroTarget(effect.target, a);
+          }
+          this.swapTarget = null;
+        } else this.swapTarget = effect.target;
+      } else if (effect.kind === 'swapNearbyStone') {
+        const target = this.gems.find((g) => g.id === effect.target);
+        const stone =
+          target &&
+          Array.from(this.stones.values()).find((s) =>
+            this.near(s, target.cell, effect.radius / CELL_UNITS),
+          );
+        if (target && stone) {
+          const previous = { ...target.cell };
+          this.stones.delete(key(stone));
+          target.cell = { ...stone };
+          this.stones.set(key(previous), previous);
+        }
+      } else if (effect.kind === 'whirlwind') {
+        const ring = [
+          [-1, 1],
+          [-1, 0],
+          [-1, -1],
+          [0, -1],
+          [1, -1],
+          [1, 0],
+          [1, 1],
+          [0, 1],
+        ];
+        const targets = ring
+          .map(([x, y]) => ({
+            x: Math.round(effect.point.x) + x,
+            y: Math.round(effect.point.y) + y,
+          }))
+          .flatMap((cell) => {
+            const gem = this.gemAt(cell);
+            return gem && !gem.name.includes('shiban')
+              ? [{ id: gem.id, cell }]
+              : this.stoneAt(cell)
+                ? [{ id: -key(cell), cell }]
+                : [];
+          });
+        for (const t of targets) if (t.id < 0) this.stones.delete(-t.id);
+        targets.forEach((t, i) => {
+          const cell = targets[(i + 1) % targets.length].cell;
+          if (t.id < 0) this.stones.set(key(cell), { ...cell });
+          else this.gems.find((g) => g.id === t.id)!.cell = { ...cell };
+        });
+      } else if (effect.kind === 'lastStand') {
+        const target = this.gems.find((g) => g.id === effect.target);
+        if (target) {
+          const defs = (
+            this.data.files['npc/abilities.json'] as {
+              DOTAAbilities: Record<string, { AbilityValues: { attack_plus: string } }>;
+            }
+          ).DOTAAbilities;
+          const values = defs[
+            `gemtd_hero_beishuiyizhan_unit${effect.level}`
+          ].AbilityValues.attack_plus
+            .split(/\s+/)
+            .map(Number);
+          const index = Math.min(
+            4,
+            Math.floor((this.luaValue<number>('gem_castle_hp_max') - this.castleHp) / 20),
+          );
+          target.buffs ??= {};
+          target.buffs.gemtd_hero_beishuiyizhan = {
+            expires: tick + 60 * TICK_HZ,
+            values: { damage: values[index] },
+          };
+        }
+      }
+    }
+    let distance = 500 / CELL_UNITS / TICK_HZ;
+    while (distance > 0 && this.heroRoute.length) {
+      const point = this.heroRoute[0],
+        dx = point.x - this.heroPosition.x,
+        dy = point.y - this.heroPosition.y,
+        d = Math.sqrt(dx * dx + dy * dy);
+      if (d <= distance) {
+        this.heroPosition = { ...point };
+        this.heroRoute.shift();
+        distance -= d;
+      } else {
+        this.heroPosition = {
+          x: this.heroPosition.x + (dx / d) * distance,
+          y: this.heroPosition.y + (dy / d) * distance,
+        };
+        distance = 0;
+      }
+    }
+  }
+  private heroTargetCell(id: number) {
+    return id < 0 ? this.stones.get(-id) : this.gems.find((g) => g.id === id)?.cell;
+  }
+  private moveHeroTarget(id: number, cell: Cell) {
+    if (id < 0) {
+      this.stones.delete(-id);
+      this.stones.set(key(cell), { ...cell });
+    } else {
+      const gem = this.gems.find((g) => g.id === id);
+      if (gem) gem.cell = { ...cell };
+    }
   }
   gemAt(c: Cell) {
     return this.gems.find((g) => g.cell.x === c.x && g.cell.y === c.y);
@@ -154,7 +646,8 @@ export class Game {
     return this.stones.has(key(c));
   }
   private blocked = (x: number, y: number) =>
-    this.stones.has(key({ x, y })) || !!this.gemAt({ x, y });
+    this.stones.has(key({ x, y })) ||
+    this.gems.some((g) => !g.name.includes('shiban') && g.cell.x === x && g.cell.y === y);
 
   /** Ground route through every waypoint (find_all_path, line 6873), or null when any leg is cut. */
   private findRoute(extra?: Cell): Cell[] | null {
@@ -174,6 +667,7 @@ export class Game {
   // ---- Build phase (gemtd_build_stone, line 4884) ----
 
   canBuild(c: Cell): Check {
+    if (this.pendingHero) return { ok: false, reason: 'The hero is casting.' };
     const no = (reason: string): Refusal => ({ ok: false, reason });
     if (this.phase !== 'build') return no('You can only build between waves.');
     if (this.draft.length >= DRAFT_SIZE)
@@ -198,8 +692,19 @@ export class Game {
       this.luaValue<Record<string, Record<string, string>>>('gem_gailv')[this.heroLevel] ?? {},
     ))
       if (roll > Number(per) && best <= Number(per)) [best, quality] = [Number(per), lv];
-    const types = Object.values(this.luaValue<Record<string, string>>('gem_tower_basic'));
-    const name = types[this.rng.int(1, types.length) - 1] + quality;
+    if (this.prayers.quality) {
+      if (!this.perfected) {
+        const prayerRoll = this.rng.int(1, 100);
+        quality = adjustDraftOdds({ color: 1, quality }, this.prayers.quality, prayerRoll).quality;
+        if (prayerRoll < this.prayers.quality.chance) this.perfected = true;
+      }
+    }
+    const types = this.luaValue<Record<string, string>>('gem_tower_basic');
+    let color = this.rng.int(1, Object.keys(types).length);
+    if (this.prayers.color)
+      color = adjustDraftOdds({ color, quality }, this.prayers.color, this.rng.int(1, 100)).color;
+    this.prayers = {};
+    const name = types[color] + quality;
     const gem: Gem = { id: this.nextId++, name, cell: { ...c }, cooldown: 0, target: null };
     this.gems.push(gem);
     this.draft.push(gem.id);
@@ -208,6 +713,7 @@ export class Game {
   }
 
   canRemove(c: Cell): Check {
+    if (this.pendingHero) return { ok: false, reason: 'The hero is casting.' };
     if (this.phase !== 'build' || this.draft.length >= DRAFT_SIZE)
       return { ok: false, reason: 'Stones can only be removed while placing gems.' };
     if (!this.stoneAt(c)) return { ok: false, reason: 'Only stones can be removed.' };
@@ -228,6 +734,7 @@ export class Game {
    * gems allow +1 and four allow +2 (line 5190).
    */
   keepResult(id: number, upgrade: 0 | 1 | 2): { ok: true; name: string } | Refusal {
+    if (this.pendingHero) return { ok: false, reason: 'The hero is casting.' };
     const gem = this.gems.find((g) => g.id === id);
     if (this.phase !== 'build' || !gem || !this.draft.includes(id))
       return { ok: false, reason: 'Only a gem placed this round can be kept.' };
@@ -241,14 +748,8 @@ export class Game {
         ok: false,
         reason: `Needs ${upgrade === 1 ? 'two' : 'four'} identical gems this round.`,
       };
-    const name = gem.name + '1'.repeat(upgrade);
-    // Two steps from perfect makes a special tower (gemtd_zhenjiazhishi, line 5816).
-    if (!this.units[name] || qualityOf(name) > 6)
-      return {
-        ok: false,
-        reason: 'This upgrade makes a special tower, which comes in a later phase.',
-      };
-    return { ok: true, name };
+    const plan = resolveKeepUpgrade(this.data, this, id, upgrade);
+    return plan.ok ? { ok: true, name: plan.result } : plan;
   }
 
   /** choose_stone (line 5601): keep one draft gem, turn the others into stones, start the wave. */
@@ -268,10 +769,93 @@ export class Game {
     return { ok: true };
   }
 
+  combineOptions(id: number) {
+    return combineOptions(this.data, this, id);
+  }
+
+  canCombine(id: number, kind: RecipeKind, result: string, cell?: Cell): Check {
+    if (this.pendingHero) return { ok: false, reason: 'The hero is casting.' };
+    const plan = planCombine(this.data, this, id, kind, result);
+    if (!plan.ok) return plan;
+    if (plan.placement === 'separate') {
+      if (!cell) return { ok: false, reason: 'Select an empty cell for the tablet.' };
+      const type = this.board.kind(cell);
+      if (
+        (type !== 'open' && type !== 'stone') ||
+        this.gemAt(cell) ||
+        this.stoneAt(cell) ||
+        !Number.isInteger(cell.x) ||
+        !Number.isInteger(cell.y)
+      )
+        return { ok: false, reason: 'Tablets need an empty buildable cell.' };
+      if (this.creeps.some((c) => sq(c.x - cell.x) + sq(c.y - cell.y) <= sq(192 / CELL_UNITS)))
+        return { ok: false, reason: 'An enemy is too close to the tablet placement.' };
+    }
+    return { ok: true };
+  }
+
+  combine(id: number, kind: RecipeKind, result: string, cell?: Cell): Check {
+    const check = this.canCombine(id, kind, result, cell);
+    if (!check.ok) return check;
+    const plan = planCombine(this.data, this, id, kind, result);
+    if (!plan.ok) return plan;
+    this.applyProgression(plan, id, cell);
+    return { ok: true };
+  }
+
+  canDowngrade(id: number): Check {
+    if (this.pendingHero) return { ok: false, reason: 'The hero is casting.' };
+    const p = planDowngrade(this.data, this, id, 1);
+    return p.ok ? { ok: true } : p;
+  }
+  downgrade(id: number): Check {
+    const check = this.canDowngrade(id);
+    if (!check.ok) return check;
+    const plan = planDowngrade(this.data, this, id, this.rng.int(1, 100));
+    if (!plan.ok) return plan;
+    this.applyProgression(plan, id);
+    return { ok: true };
+  }
+
+  private applyProgression(plan: Extract<Plan, { ok: true }>, id: number, cell?: Cell) {
+    const anchor = this.gems.find((g) => g.id === id)!;
+    const position = plan.placement === 'separate' ? cell! : anchor.cell;
+    const level = Math.min(
+      10,
+      this.gems
+        .filter((g) => plan.consume.includes(g.id))
+        .reduce((sum, g) => sum + (g.level ?? 0), 0),
+    );
+    for (const g of this.gems)
+      if (
+        plan.kind !== 'tablet-upgrade' &&
+        plan.consume.includes(g.id) &&
+        (g.id !== id || plan.placement === 'separate')
+      )
+        this.stones.set(key(g.cell), g.cell);
+    this.gems = this.gems.filter((g) => !plan.consume.includes(g.id));
+    this.gems.push({
+      id: plan.placement === 'separate' ? this.nextId++ : id,
+      name: plan.result,
+      cell: { ...position },
+      cooldown: 0,
+      target: null,
+      level,
+    });
+    if (plan.endDraft) this.draft = [];
+    this.route = this.findRoute() ?? this.route;
+    if (plan.endDraft) this.startWave();
+    if (plan.kind === 'tablet' || plan.kind === 'tablet-upgrade') this.tabletUpgradeIn = TICK_HZ;
+  }
+
   // ---- Wave (start_shuaguai, line 6261; spawning in OnThink, line 3346) ----
 
   private startWave() {
     this.phase = 'wave';
+    this.perfected = false;
+    this.waveTicks = 0;
+    this.waveDamage = {};
+    this.delayed = [];
     const guai = this.luaValue<Record<string, string>>('guai');
     let name = guai[this.level];
     if (guai[this.level + 100] && this.rng.int(1, 2) === 1) name = guai[this.level + 100];
@@ -286,7 +870,15 @@ export class Game {
     const u = this.units[name] ?? this.units[this.spawnName];
     const difficulty = this.luaValue<Record<string, number>>('gem_difficulty')[1];
     const speedFactor = this.luaValue<Record<string, number>>('gem_difficulty_speed')[1];
-    const hp = Math.max(1, Math.floor(num(u, 'StatusHealth') * difficulty));
+    const elite = !name.includes('boss') && !name.includes('tester') && this.rng.int(1, 400) === 1;
+    const hp = Math.max(
+      1,
+      Math.floor(
+        num(u, 'StatusHealth') *
+          difficulty *
+          (elite ? ((51 - Math.min(this.level, 50)) / 50) * 6 + 2 : 1),
+      ),
+    );
     const damage =
       this.level % 10 === 0
         ? 100
@@ -305,6 +897,13 @@ export class Game {
       fly: name.includes('fly'),
       boss: name.includes('boss'),
       damage,
+      elite,
+      skills: [
+        ...new Set([
+          ...this.skills(name),
+          ...(this.luaValue<Record<string, string[]>>('guai_ability')[this.level] ?? []),
+        ]),
+      ],
     });
     this.toSpawn--;
   }
@@ -330,17 +929,301 @@ export class Game {
     }
   }
 
+  private enemyThink(c: Creep, tick: number) {
+    if (c.step <= 1 || this.creepStats(c).stopped) return;
+    const skills = this.enemySkills(c);
+    if (
+      skills.includes('enemy_zheguang') &&
+      (!c.shield || c.shield.charges === 0 || c.shield.expires <= tick) &&
+      (!c.shield || c.shield.ready <= tick) &&
+      this.rng.int(1, 100) <= 20
+    )
+      c.shield = { charges: 7, expires: tick + 60 * TICK_HZ, ready: tick + 5 * TICK_HZ };
+    else if (
+      skills.includes('enemy_shanshuo') &&
+      (c.blinkReady ?? 0) <= tick &&
+      this.rng.int(1, 100) <= 10
+    ) {
+      const route = c.fly ? this.flyRoute : this.route;
+      const index = Math.min(route.length - 1, c.step + Math.ceil(route.length / 35));
+      c.x = route[index].x;
+      c.y = route[index].y;
+      c.step = index + 1;
+      c.blinkReady = tick + 12 * TICK_HZ;
+    } else if (
+      skills.includes('runrunrun') &&
+      (c.hasteUntil ?? 0) <= tick &&
+      this.rng.int(1, 100) <= 20
+    )
+      c.hasteUntil = tick + 20 * TICK_HZ;
+  }
+
+  private roll(
+    chance: number,
+    entity: { prd?: Record<string, number> },
+    key: string,
+    pseudo = false,
+  ) {
+    if (chance >= 100) return true;
+    if (chance <= 0) return false;
+    if (!pseudo) return this.rng.int(1, 100) <= chance;
+    entity.prd ??= {};
+    const failures = entity.prd[key] ?? 0;
+    const hit = this.rng.u32() / 4294967296 < Math.min(1, procCoefficient(chance) * (failures + 1));
+    entity.prd[key] = hit ? 0 : failures + 1;
+    return hit;
+  }
+
+  private scriptEffect(
+    g: Gem,
+    target: Creep,
+    raw: number,
+    fn: string,
+    args: Record<string, string>,
+    tick: number,
+  ) {
+    if (fn === 'jn_D3_00') {
+      if (!this.creeps.includes(target)) return;
+      this.delayed.push({
+        due: tick,
+        source: g.id,
+        sourceName: g.name,
+        target: target.id,
+        damage: Number(args.Damage),
+        remaining: Number(args.Count),
+        radius: Number(args.Radius) / CELL_UNITS,
+        visited: [],
+      });
+    } else if (fn === 'Shock') {
+      const targets = [
+        target,
+        ...this.creeps
+          .filter(
+            (c) =>
+              c !== target &&
+              !this.immune(c) &&
+              this.visible(c) &&
+              this.near(target, c, 1000 / CELL_UNITS),
+          )
+          .sort(
+            (a, b) =>
+              sq(b.x - target.x) + sq(b.y - target.y) - (sq(a.x - target.x) + sq(a.y - target.y)) ||
+              a.id - b.id,
+          ),
+      ].slice(0, 5);
+      for (const c of targets) this.hurt(c, 4000, 'magical', g.id);
+    } else if (fn === 'ranjin') {
+      if (this.rng.int(1, 100) < 15)
+        for (const c of [...this.creeps])
+          if (this.near(target, c, 400 / CELL_UNITS)) this.hurt(c, raw * 20, 'magical', g.id);
+    } else if (fn === 'gazeNew' || fn === 'shihua') {
+      g.procReady ??= {};
+      if ((g.procReady[fn] ?? 0) > tick) return;
+      g.procReady[fn] = tick + 5 * TICK_HZ;
+      const targets = [...this.creeps]
+        .sort(
+          (a, b) =>
+            sq(a.x - g.cell.x) + sq(a.y - g.cell.y) - (sq(b.x - g.cell.x) + sq(b.y - g.cell.y)) ||
+            a.id - b.id,
+        )
+        .slice(0, 5 + Math.floor((g.level ?? 0) / 2));
+      for (const c of targets)
+        this.applyEffect(
+          c,
+          g,
+          {
+            modifier: 'modifier_medusa_stone_gaze_stone',
+            duration: 2.5,
+            properties: {},
+            states: ['MODIFIER_STATE_STUNNED'],
+            damage: 0,
+            interval: 0,
+            multiple: false,
+            pierces: true,
+          },
+          tick,
+        );
+    }
+  }
+
+  private delayedEffects(tick: number) {
+    const due = this.delayed.filter((e) => e.due <= tick);
+    this.delayed = this.delayed.filter((e) => e.due > tick);
+    for (const e of due) {
+      const source = this.gems.find((g) => g.id === e.source && g.name === e.sourceName);
+      const c = this.creeps.find((c) => c.id === e.target);
+      if (!source || !c) continue;
+      this.hurt(c, e.damage, 'magical', source.id);
+      const visited = [...e.visited, c.id];
+      if (e.remaining <= 1) continue;
+      const next = this.creeps
+        .filter(
+          (n) =>
+            !visited.includes(n.id) &&
+            !this.immune(n) &&
+            this.visible(n) &&
+            this.near(c, n, e.radius),
+        )
+        .sort(
+          (a, b) => sq(a.x - c.x) + sq(a.y - c.y) - (sq(b.x - c.x) + sq(b.y - c.y)) || a.id - b.id,
+        )[0];
+      if (next)
+        this.delayed.push({
+          ...e,
+          due: tick + Math.round(0.2 * TICK_HZ),
+          target: next.id,
+          remaining: e.remaining - 1,
+          visited,
+        });
+    }
+  }
+
+  private tabletStep(tick: number) {
+    if (tick % 3 === 0)
+      for (const g of this.gems) {
+        const plan = planTabletCast(
+          this.data,
+          g.name,
+          { ...g.cell, cooldownUntil: this.tabletReady[g.id] },
+          this.creeps,
+          tick,
+        );
+        if (
+          !plan.ok ||
+          !plan.plans.some(
+            (op) =>
+              op.modifier === 'modifier_howl_unit_datadriven' ||
+              op.modifier?.startsWith('modifier_acid_spray') ||
+              op.modifier === 'modifier_torrent_slow_debuff_datadriven',
+          )
+        )
+          continue;
+        this.tabletReady[g.id] = plan.cooldownUntil;
+        for (const operation of plan.plans) {
+          if (operation.modifier === 'modifier_howl_unit_datadriven') {
+            for (const ally of this.gems)
+              if (
+                this.near(g.cell, ally.cell, operation.radius!) &&
+                this.units[ally.name]?.AttackCapabilities === 'DOTA_UNIT_CAP_RANGED_ATTACK'
+              ) {
+                ally.buffs ??= {};
+                ally.buffs[operation.modifier] = {
+                  expires: tick + operation.duration!,
+                  values: { damage: operation.damagePct! },
+                };
+              }
+          } else if (operation.modifier?.startsWith('modifier_acid_spray')) {
+            this.tabletFields.push({
+              expires: tick + operation.duration!,
+              source: g.id,
+              sourceName: g.name,
+              operation,
+              next: {},
+            });
+          } else if (operation.modifier === 'modifier_torrent_slow_debuff_datadriven') {
+            this.tabletCasts.push({
+              due: tick + operation.delay!,
+              source: g.id,
+              sourceName: g.name,
+              operation,
+            });
+          }
+        }
+      }
+    const casts = this.tabletCasts.filter((cast) => cast.due <= tick);
+    this.tabletCasts = this.tabletCasts.filter((cast) => cast.due > tick);
+    for (const cast of casts) {
+      const source = this.gems.find((g) => g.id === cast.source && g.name === cast.sourceName);
+      if (!source) continue;
+      const op = cast.operation;
+      for (const c of [...this.creeps])
+        if (this.near({ x: op.x!, y: op.y! }, c, op.radius!) && !this.immune(c)) {
+          this.hurt(c, op.damage!, 'magical', source.id);
+          this.applyEffect(
+            c,
+            source,
+            {
+              modifier: op.modifier!,
+              duration: op.duration! / TICK_HZ,
+              properties: { MODIFIER_PROPERTY_MOVESPEED_BONUS_PERCENTAGE: op.slowPct! },
+              states: [],
+              damage: 0,
+              interval: 0,
+              multiple: false,
+              pierces: false,
+            },
+            tick,
+          );
+          this.applyEffect(
+            c,
+            source,
+            {
+              modifier: 'modifier_torrent_stun',
+              duration: op.stun! / TICK_HZ,
+              properties: {},
+              states: ['MODIFIER_STATE_STUNNED'],
+              damage: 0,
+              interval: 0,
+              multiple: false,
+              pierces: false,
+            },
+            tick,
+          );
+        }
+    }
+    this.tabletFields = this.tabletFields.filter(
+      (field) =>
+        field.expires > tick &&
+        this.gems.some((g) => g.id === field.source && g.name === field.sourceName),
+    );
+    for (const field of this.tabletFields) {
+      const source = this.gems.find((g) => g.id === field.source)!;
+      const op = field.operation;
+      for (const c of this.creeps) {
+        const key = `${op.modifier}:${source.id}`;
+        if (this.near({ x: op.x!, y: op.y! }, c, op.radius!)) {
+          c.modifiers ??= {};
+          c.modifiers[key] = { expires: tick + 1, slow: 0, armor: op.armor! };
+          field.next[c.id] ??= tick + TICK_HZ;
+          if (field.next[c.id] <= tick) {
+            this.hurt(c, op.damage!, 'physical', source.id);
+            field.next[c.id] += TICK_HZ;
+          }
+        } else {
+          delete c.modifiers?.[key];
+          delete field.next[c.id];
+        }
+      }
+    }
+  }
+
   private attack(g: Gem, tick: number) {
     if (g.cooldown > 0) g.cooldown--;
     const u = this.units[g.name];
-    const range = num(u, 'AttackRange') / CELL_UNITS;
+    if (u.AttackCapabilities === 'DOTA_UNIT_CAP_NO_ATTACK' || num(u, 'AttackRate') <= 0) return;
+    if ((g.disabledUntil ?? 0) > tick) return;
+    const protectedTower = this.towerState(g, 'MODIFIER_STATE_MAGIC_IMMUNE');
+    if (
+      !protectedTower &&
+      this.creeps.some(
+        (c) =>
+          this.enemySkills(c).includes('guai_jiaoxieguanghuan') &&
+          this.near(g.cell, c, 150 / CELL_UNITS),
+      )
+    ) {
+      g.disabledUntil = tick + TICK_HZ;
+      return;
+    }
+    const range = this.attackRange(g);
     const dist2 = (c: Creep) => sq(c.x - g.cell.x) + sq(c.y - g.cell.y);
-    let target = this.creeps.find((c) => c.id === g.target && dist2(c) <= range * range);
+    let target = this.creeps.find(
+      (c) => c.id === g.target && dist2(c) <= range * range && this.visible(c),
+    );
     if (!target) {
       let best = Infinity;
       for (const c of this.creeps) {
         const d = dist2(c);
-        if (d <= range * range && d < best) [best, target] = [d, c];
+        if (d <= range * range && d < best && this.visible(c)) [best, target] = [d, c];
       }
     }
     g.target = target?.id ?? null;
@@ -349,73 +1232,263 @@ export class Game {
       return;
     }
     if (g.cooldown > 0) return;
-    // Pre-7.20 Dota armour: damage x (1 - 0.06a / (1 + 0.06|a|)).
-    const a = this.creepStats(target).armor;
-    const raw = this.rng.int(num(u, 'AttackDamageMin'), num(u, 'AttackDamageMax'));
-    const damage = raw * (1 - (0.06 * a) / (1 + 0.06 * Math.abs(a)));
-    target.hp -= damage;
+    const bonus = this.abilities(g.name).reduce(
+      (n, a) => n + (a.kind === 'damage' ? a.amount : 0),
+      0,
+    );
+    const lastStand = g.buffs?.gemtd_hero_beishuiyizhan;
+    let raw =
+      this.rng.int(num(u, 'AttackDamageMin'), num(u, 'AttackDamageMax')) * (1 + bonus / 100) +
+      (lastStand && lastStand.expires > tick ? lastStand.values.damage : 0);
+    raw *=
+      1 +
+      (this.towerProperty(g, 'MODIFIER_PROPERTY_DAMAGEOUTGOING_PERCENTAGE') +
+        Math.min(100, (g.level ?? 0) * 10)) /
+        100;
+    for (const a of this.abilities(g.name))
+      if (a.kind === 'critical' && this.roll(a.chance, g, a.name, a.pseudo)) raw *= a.multiplier;
+    const crit = g.buffs?.gemtd_hero_baoji;
+    if (crit && crit.expires > tick && this.roll(10, g, 'hero_crit', true))
+      raw *= crit.values.baoji / 100;
+    if (
+      !protectedTower &&
+      this.enemySkills(target).includes('enemy_bukeqinfan') &&
+      this.roll(50, target, 'untouchable', true)
+    )
+      g.disabledUntil = tick + TICK_HZ;
+    const additional = this.abilities(g.name).find((a) => a.kind === 'split');
+    const splitTargets =
+      additional?.kind === 'split'
+        ? this.creeps
+            .filter((c) => c !== target && dist2(c) <= range * range && this.visible(c))
+            .sort((a, b) => dist2(a) - dist2(b) || a.id - b.id)
+            .slice(0, additional.count)
+        : [];
+    const landed = this.hurt(target, raw, 'physical', g.id, true);
+    const link = g.buffs?.gemtd_hero_lianjie;
+    if (landed && link && link.expires > tick) {
+      const farthest = this.creeps
+        .filter((c) => c !== target && !this.immune(c))
+        .sort(
+          (a, b) =>
+            sq(b.x - target.x) + sq(b.y - target.y) - sq(a.x - target.x) - sq(a.y - target.y) ||
+            a.id - b.id,
+        )[0];
+      if (farthest) {
+        const distance =
+          Math.sqrt(sq(farthest.x - g.cell.x) + sq(farthest.y - g.cell.y)) * CELL_UNITS;
+        this.hurt(
+          farthest,
+          ((raw * link.values.damage_per) / 100) * (1 + Math.floor(distance / 400) * 0.1),
+          'pure',
+          g.id,
+        );
+      }
+    }
     // Carry fractional tick debt so fast towers keep their average rate at 30 Hz.
     g.cooldown += Math.max(1, this.attackInterval(g) * TICK_HZ);
-    this.events.push({
-      type: 'attack',
-      from: g.id,
-      to: target.id,
-      damage,
-      x: target.x,
-      y: target.y,
-    });
-    if (target.hp <= 0) this.kill(target);
-    else
+    for (const c of splitTargets)
+      this.hurt(
+        c,
+        ((num(u, 'AttackDamageMin') + num(u, 'AttackDamageMax')) / 2) * (1 + bonus / 100),
+        'physical',
+        g.id,
+      );
+    for (const a of this.abilities(g.name))
+      if (a.kind === 'splash') {
+        if (!landed) continue;
+        for (const c of [...this.creeps])
+          if (sq(c.x - target.x) + sq(c.y - target.y) <= sq(a.radius))
+            this.hurt(c, raw * a.amount, 'pure', g.id);
+      }
+    for (const a of this.abilities(g.name)) {
+      if (!landed) break;
+      if (a.kind === 'script' && this.roll(a.chance, g, a.name))
+        this.scriptEffect(g, target, raw, a.fn, a.args, tick);
+      if (a.kind === 'hit-effect' && this.roll(a.chance, g, a.name)) {
+        if (a.self) {
+          if (a.states.includes('MODIFIER_STATE_DISARMED') && !protectedTower)
+            g.disabledUntil = tick + Math.round(a.duration * TICK_HZ);
+        } else
+          for (const c of this.creeps)
+            if (c === target || (a.radius > 0 && this.near(target, c, a.radius)))
+              this.applyEffect(c, g, a, tick);
+      }
+    }
+    if (landed && this.creeps.includes(target))
       for (const effect of this.abilities(g.name)) {
-        if (effect.kind !== 'slow' && effect.kind !== 'armor') continue;
+        if (effect.kind !== 'slow' && effect.kind !== 'armor' && effect.kind !== 'poison') continue;
+        if (this.immune(target) && effect.kind !== 'armor') continue;
         target.modifiers ??= {};
-        target.modifiers[effect.modifier] = {
+        const key =
+          effect.kind === 'poison' ? `${effect.modifier}:${g.id}:${tick}` : effect.modifier;
+        target.modifiers[key] = {
           expires: tick + Math.round(effect.duration * TICK_HZ),
           slow: effect.kind === 'slow' ? effect.amount : 0,
           armor: effect.kind === 'armor' ? effect.amount : 0,
+          ...(effect.kind === 'poison'
+            ? {
+                poison: {
+                  damage: effect.amount,
+                  next: tick + Math.round(effect.interval * TICK_HZ),
+                  interval: Math.round(effect.interval * TICK_HZ),
+                  source: g.id,
+                },
+              }
+            : {}),
         };
       }
   }
 
+  private hurt(
+    c: Creep,
+    raw: number,
+    type: 'physical' | 'magical' | 'pure',
+    source: number,
+    attack = false,
+  ): boolean {
+    if (!this.creeps.includes(c)) return false;
+    const attacker = this.gems.find((g) => g.id === source);
+    const skills = this.enemySkills(c);
+    if (
+      attack &&
+      skills.includes('guai_shanbi') &&
+      !(attacker && this.towerState(attacker, 'MODIFIER_STATE_CANNOT_MISS')) &&
+      this.roll(50, c, 'evasion', true)
+    )
+      return false;
+    if (type === 'magical' && this.immune(c)) return true;
+    if (c.shield && c.shield.charges > 0 && c.shield.expires > this.time) {
+      c.shield.charges--;
+      return true;
+    }
+    const stats = this.creepStats(c);
+    const armor = stats.armor;
+    const factor =
+      type === 'physical'
+        ? 1 - (0.06 * armor) / (1 + 0.06 * Math.abs(armor))
+        : type === 'magical'
+          ? 1 - stats.magicResist / 100
+          : 1;
+    let damage = Math.max(0, raw * factor);
+    if (type === 'physical' && skills.includes('enemy_wumian')) damage *= 0.25;
+    if (type === 'physical' && c.modifiers?.modifier_medusa_stone_gaze_stone) damage *= 2;
+    if (type === 'physical' && skills.includes('mars_bulwark') && attacker) {
+      const route = c.fly ? this.flyRoute : this.route,
+        next = route[Math.min(c.step, route.length - 1)];
+      const dx = next.x - c.x,
+        dy = next.y - c.y,
+        ax = attacker.cell.x - c.x,
+        ay = attacker.cell.y - c.y;
+      const length = Math.sqrt((dx * dx + dy * dy) * (ax * ax + ay * ay));
+      const facing = length ? (dx * ax + dy * ay) / length : -1;
+      if (facing >= 0.7071067811865476) damage *= 0.3;
+      else if (facing >= 0) damage *= 0.7;
+    }
+    c.hp -= damage;
+    this.events.push({ type: 'attack', from: source, to: c.id, damage, x: c.x, y: c.y });
+    this.waveDamage[source] = (this.waveDamage[source] ?? 0) + damage;
+    if (skills.includes('tidehunter_blubber')) {
+      if (!c.cleanse || this.time - c.cleanse.last > 10 * TICK_HZ)
+        c.cleanse = { damage: 0, last: this.time };
+      c.cleanse.damage += damage;
+      c.cleanse.last = this.time;
+      if (c.cleanse.damage >= 80000) {
+        delete c.modifiers;
+        c.cleanse.damage = 0;
+      }
+    }
+    if (c.hp <= 0) this.kill(c, source);
+    return true;
+  }
+
   /** OnEntityKilled (line 6480): XP and gold by level band. */
-  private kill(c: Creep) {
+  private kill(c: Creep, source?: number) {
     const l = this.level;
     let reward =
       l % 10 === 0 && l <= 50 ? 300 : l > 10 && l < 50 ? 5 * (Math.floor(l / 10) + 1) : 5;
+    if (c.elite) reward *= 10;
     this.xp += reward;
     if (reward >= 100) reward /= 2;
+    const killer = this.gems.find((g) => g.id === source);
+    if (killer) {
+      const fields = this.allyFields(killer);
+      if (fields.some((a) => a.modifier === 'modifier_tower_tanlan') && this.rng.int(1, 100) <= 5)
+        reward *= 10;
+      if (
+        fields.some((a) => a.modifier === 'modifier_tower_huichun_aura') &&
+        this.rng.int(1, 100) <= 3
+      )
+        this.castleHp = Math.min(
+          this.luaValue<number>('gem_castle_hp_max'),
+          this.castleHp + c.damage,
+        );
+    }
     this.gold += Math.floor(reward);
     this.creeps = this.creeps.filter((x) => x !== c);
     this.events.push({ type: 'kill', id: c.id, gold: Math.floor(reward) });
   }
 
   step(tick: number) {
+    this.time = tick;
     this.events = [];
+    this.heroStep(tick);
+    if (this.tabletUpgradeIn > 0 && --this.tabletUpgradeIn === 0) {
+      for (const g of [...this.gems]) {
+        const upgrade = this.combineOptions(g.id).find((p) => p.kind === 'tablet-upgrade');
+        if (upgrade) this.applyProgression(upgrade, g.id);
+      }
+    }
     if (this.phase !== 'wave') return;
+    this.waveTicks++;
     if (this.toSpawn > 0 && tick >= this.nextSpawn) {
       this.spawn();
       this.nextSpawn = tick + SPAWN_TICKS;
     }
-    for (const c of this.creeps) {
-      for (const [name, m] of Object.entries(c.modifiers ?? {}))
+    this.tabletStep(tick);
+    this.refreshFields(tick);
+    this.delayedEffects(tick);
+    for (const c of [...this.creeps]) {
+      for (const [name, m] of Object.entries(c.modifiers ?? {})) {
+        if (m.poison && m.poison.next <= tick && m.poison.next <= m.expires) {
+          this.hurt(c, m.poison.damage, 'magical', m.poison.source);
+          m.poison.next += m.poison.interval;
+        }
         if (m.expires <= tick) delete c.modifiers![name];
+      }
       if (c.modifiers && !Object.keys(c.modifiers).length) delete c.modifiers;
-      this.move(c);
+      if (this.creeps.includes(c)) {
+        if (this.enemySkills(c).includes('enemy_recharge') && !this.creepStats(c).noHeal)
+          c.hp = Math.min(c.maxHp, c.hp + (c.maxHp * 0.003) / TICK_HZ);
+        if (tick % 3 === 0) this.enemyThink(c, tick);
+        this.move(c);
+      }
     }
     for (const g of this.gems) this.attack(g, tick);
     if (tick % SPAWN_TICKS === 0) {
       const castle = this.flyRoute[this.flyRoute.length - 1];
       for (const c of [...this.creeps]) {
         if (sq(c.x - castle.x) + sq(c.y - castle.y) > sq(CASTLE_RADIUS)) continue;
-        this.castleHp -= c.damage;
+        let damage = c.boss ? Math.ceil((100 * c.hp) / c.maxHp) : c.damage;
+        const evasion = this.castleBuffs.evasion,
+          guard = this.castleBuffs.guard;
+        if (evasion?.expires > tick && this.rng.int(0, 100) < evasion.amount) damage = 0;
+        if (guard?.expires > tick) damage = Math.max(0, damage - guard.amount);
+        this.castleHp -= damage;
         this.creeps = this.creeps.filter((x) => x !== c);
-        this.events.push({ type: 'leak', id: c.id, damage: c.damage });
+        this.events.push({ type: 'leak', id: c.id, damage });
       }
     }
     if (this.castleHp <= 0) {
       this.castleHp = 0;
       this.phase = 'lost';
     } else if (this.toSpawn <= 0 && this.creeps.length === 0) {
+      const mvp = this.gems
+        .filter((g) => (g.level ?? 0) < 10)
+        .sort(
+          (a, b) => (this.waveDamage[b.id] ?? 0) - (this.waveDamage[a.id] ?? 0) || a.id - b.id,
+        )[0];
+      if (mvp && (this.waveDamage[mvp.id] ?? 0) > 0) mvp.level = (mvp.level ?? 0) + 1;
       // EndRoundIfNoEnemyAlive (line 13441)
       for (const g of this.gems) [g.cooldown, g.target] = [0, null];
       if (this.level >= LAST_LEVEL) this.phase = 'won';
@@ -443,6 +1516,22 @@ export class Game {
       toSpawn,
       nextSpawn,
       nextId,
+      tabletUpgradeIn: this.tabletUpgradeIn,
+      tabletReady: this.tabletReady,
+      tabletCasts: this.tabletCasts,
+      tabletFields: this.tabletFields,
+      time: this.time,
+      waveTicks: this.waveTicks,
+      waveDamage: this.waveDamage,
+      delayed: this.delayed,
+      hero: this.hero,
+      heroPosition: this.heroPosition,
+      heroRoute: this.heroRoute,
+      pendingHero: this.pendingHero,
+      prayers: this.prayers,
+      perfected: this.perfected,
+      swapTarget: this.swapTarget,
+      castleBuffs: this.castleBuffs,
     };
   }
 }

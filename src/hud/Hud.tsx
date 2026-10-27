@@ -3,8 +3,10 @@ import type { ComponentChildren } from 'preact';
 import type { Audio } from '../audio';
 import type { Feedback } from './feedback';
 import type { Cell } from '../sim/board';
-import { DRAFT_SIZE, LAST_LEVEL, qualityOf, type Check, type Game } from '../sim/game';
+import { DRAFT_SIZE, LAST_LEVEL, isBasicGem, qualityOf, type Check, type Game } from '../sim/game';
+import type { RecipeKind } from '../sim/progression';
 import type { Cmd, Sim } from '../sim/sim';
+import { HeroPanel } from './HeroPanel';
 import { announcement, rotateMode, selected, view, type CameraActions } from '../input/camera';
 
 // DOM overlay: status bar, top-left round summary, lower-left selection info with actions,
@@ -43,7 +45,8 @@ function displayName(sim: Sim, unit: string) {
   const text = (tokens[unit] ?? unit).split('/')[0];
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
-const code = (name: string) => `${name[6].toUpperCase()}${qualityOf(name)}`;
+const code = (name: string) =>
+  isBasicGem(name) ? `${name[6].toUpperCase()}${qualityOf(name)}` : '★';
 const same = (a: Cell, b: Cell) => a.x === b.x && a.y === b.y;
 
 export function Hud({
@@ -61,6 +64,7 @@ export function Hud({
   const tick = ticked.value;
   const game = sim.game;
   const flyout = useSignal(false);
+  const heroOpen = useSignal(false);
   const v = view.value;
   const level = game.heroLevel;
   return (
@@ -101,12 +105,14 @@ export function Hud({
 
       <RoundSummary sim={sim} tick={tick} feedback={feedback} />
       <SelectionPanel sim={sim} send={send} tick={tick} />
+      {heroOpen.value && <HeroPanel sim={sim} send={send} close={() => (heroOpen.value = false)} />}
 
       <div
         class="tools"
         data-exclude
         onKeyDown={(e) => e.key === 'Escape' && (flyout.value = false)}
       >
+        <button onClick={() => (heroOpen.value = true)}>Hero</button>
         {flyout.value && (
           <div class="panel flyout" id="camera-flyout" role="group" aria-label="Camera">
             <button onClick={() => actions.turn(-90)}>Turn left</button>
@@ -235,6 +241,7 @@ function RoundSummary({ sim, feedback }: { sim: Sim; tick: number; feedback: Fee
 
 function SelectionPanel({ sim, send }: { sim: Sim; send: (cmd: Cmd) => void; tick: number }) {
   const game = sim.game;
+  const pending = useSignal<{ id: number; kind: RecipeKind; result: string } | null>(null);
   const cell = selected.value;
   if (!cell)
     return (
@@ -254,13 +261,19 @@ function SelectionPanel({ sim, send }: { sim: Sim; send: (cmd: Cmd) => void; tic
   if (gem) {
     const u = game.unit(gem.name);
     title = displayName(sim, gem.name);
-    detail = `${QUALITY[qualityOf(gem.name)]} · damage ${u.AttackDamageMin}–${u.AttackDamageMax} · every ${game.attackInterval(gem).toFixed(2)}s · range ${(Number(u.AttackRange) / 128).toFixed(1)} cells`;
+    detail = `${isBasicGem(gem.name) ? QUALITY[qualityOf(gem.name)] : 'Combined'} · damage ${u.AttackDamageMin ?? 0}–${u.AttackDamageMax ?? 0} · every ${game.attackInterval(gem).toFixed(2)}s · range ${(Number(u.AttackRange ?? 0) / 128).toFixed(1)} cells`;
     for (const a of game.abilities(gem.name)) {
       if (a.kind === 'slow') detail += ` · On hit: ${a.amount} movement speed for ${a.duration}s`;
       else if (a.kind === 'armor') detail += ` · On hit: ${a.amount} armor for ${a.duration}s`;
       else if (a.kind === 'speed') detail += ` · +${a.amount} attack speed`;
       else if (a.kind === 'aura')
         detail += ` · Aura: +${a.amount} attack speed within ${a.radius.toFixed(2)} cells`;
+      else if (a.kind === 'damage') detail += ` · +${a.amount}% base attack damage`;
+      else if (a.kind === 'split') detail += ` · ${a.count} additional targets`;
+      else if (a.kind === 'splash')
+        detail += ` · ${a.amount * 100}% pure splash within ${a.radius.toFixed(2)} cells`;
+      else if (a.kind === 'poison')
+        detail += ` · Stacking poison: ${a.amount} magic damage every ${a.interval}s for ${a.duration}s`;
     }
     if (game.draft.includes(gem.id))
       for (const up of [0, 1, 2] as const) {
@@ -269,6 +282,12 @@ function SelectionPanel({ sim, send }: { sim: Sim; send: (cmd: Cmd) => void; tic
           buttons.push([up ? `Keep +${up}` : 'Keep', r, { type: 'keep', id: gem.id, upgrade: up }]);
         if (up && r.ok) detail += ` · Keep +${up} makes ${displayName(sim, r.name).toLowerCase()}`;
       }
+    if (game.draft.includes(gem.id) && qualityOf(gem.name) > 1)
+      buttons.push([
+        'Downgrade and keep',
+        game.canDowngrade(gem.id),
+        { type: 'downgrade', id: gem.id },
+      ]);
   } else if (game.stoneAt(cell)) {
     title = 'Stone';
     detail = 'Blocks the creep route. A gem can be built over it.';
@@ -290,6 +309,46 @@ function SelectionPanel({ sim, send }: { sim: Sim; send: (cmd: Cmd) => void; tic
         Cell {cell.x}, {cell.y}
       </p>
       {detail && <p>{detail}</p>}
+      {pending.value && (
+        <div class="actions">
+          <p>Select an empty cell for {displayName(sim, pending.value.result)}.</p>
+          <button
+            disabled={
+              !game.canCombine(pending.value.id, pending.value.kind, pending.value.result, cell).ok
+            }
+            onClick={() => {
+              const p = pending.value!;
+              send({ type: 'combine', ...p, cell });
+              pending.value = null;
+            }}
+          >
+            Place tablet here
+          </button>
+          <button onClick={() => (pending.value = null)}>Cancel tablet placement</button>
+        </div>
+      )}
+      {gem && (
+        <div class="actions">
+          {game.combineOptions(gem.id).map((p) => (
+            <button
+              onClick={() => {
+                if (p.placement === 'separate') {
+                  pending.value = { id: gem.id, kind: p.kind as RecipeKind, result: p.result };
+                  announcement.value = 'Select an empty cell to place the tablet.';
+                } else
+                  send({
+                    type: 'combine',
+                    id: gem.id,
+                    kind: p.kind as RecipeKind,
+                    result: p.result,
+                  });
+              }}
+            >
+              Combine: {displayName(sim, p.result)}
+            </button>
+          ))}
+        </div>
+      )}
       {buttons.length > 0 && (
         <div class="actions">
           {buttons.map(([label, check, cmd]) => (

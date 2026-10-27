@@ -59,7 +59,7 @@ test.each([1, 2, 3, 4, 5, 6])(
       kind: 'speed',
       amount: quality === 6 ? 500 : 200,
     });
-    expect(g.abilities(`gemtd_e${suffix}`)[0]).toMatchObject({
+    expect(g.abilities(`gemtd_e${suffix}`).find((a) => a.kind === 'aura')).toMatchObject({
       kind: 'aura',
       amount: 10 + quality * 10,
       radius: 664 / CELL_UNITS,
@@ -165,4 +165,48 @@ test('modifiers enter the determinism hash and identical ability battles replay 
   const before = a.stateHash();
   a.game.creeps[0].modifiers!.modifier_tower_slow1_debuff.expires++;
   expect(a.stateHash()).not.toBe(before);
+});
+
+test('Emerald poison stacks per hit, ticks for its full duration and retains kill ownership', () => {
+  const sim = battle('gemtd_g1');
+  const g = sim.game,
+    c = g.creeps[0];
+  c.speed = 0;
+  c.armor = 0;
+  sim.step();
+  g.gems[0].cooldown = 0;
+  sim.step();
+  expect(Object.keys(c.modifiers!)).toHaveLength(2);
+  g.gems = [];
+  while (sim.tick <= 301) sim.step();
+  expect(c.hp).toBe(10000 - 4 - 40);
+  expect(c.modifiers).toBeUndefined();
+});
+
+test('Ruby adds pure splash to the primary and nearby targets; Topaz attacks only three additional targets', () => {
+  const ruby = battle('gemtd_r1'),
+    g = ruby.game;
+  g.creeps[0].speed = 0;
+  for (let i = 1; i <= 4; i++) g.creeps.push({ ...g.creeps[0], id: 100 + i, x: 10 + i });
+  ruby.step();
+  expect(10000 - g.creeps[0].hp).toBeCloseTo(4 * 0.625 + 4 * 0.3);
+  expect(10000 - g.creeps[1].hp).toBeCloseTo(4 * 0.3);
+  expect(g.creeps[3].hp).toBe(10000);
+  const topaz = battle('gemtd_y1');
+  topaz.game.creeps[0].speed = 0;
+  for (let i = 1; i <= 5; i++)
+    topaz.game.creeps.push({ ...topaz.game.creeps[0], id: 100 + i, x: 10 + i / 2 });
+  topaz.step();
+  expect(topaz.game.events.filter((e) => e.type === 'attack')).toHaveLength(4);
+  expect(topaz.game.creeps[4].hp).toBe(10000);
+});
+
+test('higher-quality Diamond base damage bonus comes from the VPK modifier', () => {
+  const sim = battle('gemtd_d1111');
+  sim.game.creeps[0].speed = 0;
+  sim.game.creeps[0].armor = 0;
+  sim.step();
+  const unit = sim.game.unit('gemtd_d1111');
+  const hit = sim.game.events.find((e) => e.type === 'attack')!;
+  if (hit.type === 'attack') expect(hit.damage).toBe(Number(unit.AttackDamageMin) * 1.2);
 });
