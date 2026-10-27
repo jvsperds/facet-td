@@ -162,6 +162,8 @@ export function planDowngrade(
   state: ProgressionState,
   id: number,
   roll: number,
+  /** Storm hammer (gemtd_downgrade_stone_fengbaozhichui, line 6020): always exactly one level. */
+  fixed = false,
 ): Plan {
   if (!draftReady(state, id)) return fail('A complete draft and selected draft gem are required.');
   const gem = state.gems.find((g) => g.id === id)!;
@@ -169,8 +171,9 @@ export function planDowngrade(
   if (!match || !Number.isInteger(roll) || roll < 1 || roll > 100)
     return fail('Invalid gem or downgrade roll.');
   const tier = match[1].length;
-  const removed =
-    tier === 2
+  const removed = fixed
+    ? 1
+    : tier === 2
       ? 1
       : tier === 3
         ? roll > 66

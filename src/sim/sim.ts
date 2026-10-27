@@ -17,7 +17,7 @@ export type Cmd =
   | { type: 'build'; cell: Cell }
   | { type: 'remove'; cell: Cell }
   | { type: 'keep'; id: number; upgrade: 0 | 1 | 2 }
-  | { type: 'downgrade'; id: number }
+  | { type: 'downgrade'; id: number; hammer?: boolean }
   | { type: 'combine'; id: number; kind: RecipeKind; result: string; cell?: Cell };
 export type LogEntry = { tick: number; player: number; cmd: Cmd };
 
@@ -81,7 +81,7 @@ export class Sim {
       case 'keep':
         return void this.game.keep(c.id, c.upgrade);
       case 'downgrade':
-        return void this.game.downgrade(c.id);
+        return void (c.hammer ? this.game.hammer(c.id) : this.game.downgrade(c.id));
       case 'combine':
         return void this.game.combine(c.id, c.kind, c.result, c.cell);
     }

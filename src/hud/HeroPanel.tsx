@@ -60,28 +60,31 @@ export function HeroPanel({
             >
               Move to selected cell
             </button>
-            {game.heroActions().map((a) => {
-              const check = game.canHeroAction(a.name, target, point, sim.tick);
-              const remaining = Math.max(
-                0,
-                Math.ceil(((game.hero.cooldowns[a.name] ?? 0) - sim.tick) / 30),
-              );
-              return (
-                <button
-                  key={a.name}
-                  disabled={!check.ok}
-                  title={check.ok ? '' : check.reason}
-                  onClick={() => {
-                    send({ type: 'hero-cast', action: a.name, target, point });
-                    close();
-                  }}
-                >
-                  {name(a.name)} Lv {a.level}
-                  {remaining ? ` (${remaining}s)` : ''}
-                  {!check.ok && !remaining ? ` · ${check.reason}` : ''}
-                </button>
-              );
-            })}
+            {game
+              .heroActions()
+              .filter((a) => a.supported)
+              .map((a) => {
+                const check = game.canHeroAction(a.name, target, point, sim.tick);
+                const remaining = Math.max(
+                  0,
+                  Math.ceil(((game.hero.cooldowns[a.name] ?? 0) - sim.tick) / 30),
+                );
+                return (
+                  <button
+                    key={a.name}
+                    disabled={!check.ok}
+                    title={check.ok ? '' : check.reason}
+                    onClick={() => {
+                      send({ type: 'hero-cast', action: a.name, target, point });
+                      close();
+                    }}
+                  >
+                    {name(a.name)} Lv {a.level}
+                    {remaining ? ` (${remaining}s)` : ''}
+                    {!check.ok && !remaining ? ` · ${check.reason}` : ''}
+                  </button>
+                );
+              })}
           </div>
         </section>
       )}

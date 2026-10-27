@@ -901,6 +901,25 @@ export class Game {
     const p = planDowngrade(this.data, this, id, 1);
     return p.ok ? { ok: true } : p;
   }
+  canHammer(id: number): Check {
+    if (!this.hero.abilities.gemtd_hero_fengbaozhichui)
+      return { ok: false, reason: 'Needs the Fixed Hammer hero skill.' };
+    if (this.pendingHero) return { ok: false, reason: 'The hero is casting.' };
+    const p = planDowngrade(this.data, this, id, 1, true);
+    return p.ok ? { ok: true } : p;
+  }
+  /**
+   * Fixed Hammer: downgrade one level and keep. The hero skill lists 250/150/100/75 gold, but the
+   * downgrade ability that charges it has no cost value, so the original's CostGold never charges.
+   */
+  hammer(id: number): Check {
+    const check = this.canHammer(id);
+    if (!check.ok) return check;
+    const plan = planDowngrade(this.data, this, id, 1, true);
+    if (!plan.ok) return plan;
+    this.applyProgression(plan, id);
+    return { ok: true };
+  }
   downgrade(id: number): Check {
     const check = this.canDowngrade(id);
     if (!check.ok) return check;

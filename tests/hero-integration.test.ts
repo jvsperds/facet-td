@@ -195,3 +195,21 @@ test('beacon reroutes ground creeps through its cell, blocks building there and 
   expect(g.beacon).toBeNull();
   expect(g.route).not.toContainEqual(point);
 });
+
+test('fixed hammer downgrades a draft gem exactly one level, keeps it and costs no gold', () => {
+  const sim = setup(),
+    g = sim.game;
+  expect(g.configureHero('h101', { a304: 2 }).ok).toBe(true);
+  for (let x = 12; g.draft.length < 5; x += 2) g.build({ x, y: 12 });
+  // Force a known flawed gem so the result is predictable: flawed (11) -> chipped (1).
+  const gem = g.gems.find((x) => x.id === g.draft[0])!;
+  gem.name = gem.name.replace(/1+$/, '11');
+  const before = g.gold;
+  sim.send(0, { type: 'downgrade', id: gem.id, hammer: true });
+  sim.step();
+  expect(g.phase).toBe('wave');
+  expect(g.gold).toBe(before);
+  expect(g.gems.find((x) => x.id === gem.id)!.name).toMatch(/[a-z]1$/);
+  expect(g.stones.size).toBeGreaterThan(0);
+  expect(g.canHammer(gem.id).ok).toBe(false);
+});

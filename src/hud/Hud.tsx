@@ -292,6 +292,12 @@ function SelectionPanel({ sim, send }: { sim: Sim; send: (cmd: Cmd) => void; tic
         game.canDowngrade(gem.id),
         { type: 'downgrade', id: gem.id },
       ]);
+    if (game.draft.includes(gem.id) && game.hero.abilities.gemtd_hero_fengbaozhichui)
+      buttons.push([
+        'Hammer: −1 level and keep',
+        game.canHammer(gem.id),
+        { type: 'downgrade', id: gem.id, hammer: true },
+      ]);
   } else if (game.stoneAt(cell)) {
     title = 'Stone';
     detail = 'Blocks the creep route. A gem can be built over it.';
