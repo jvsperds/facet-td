@@ -7,7 +7,10 @@ import {
   createStone,
   createCreep,
   GEM_TYPES,
+  SPECIAL_TOWERS,
 } from "../models.js";
+import { COMBINED_TOWERS } from "../combined-towers.js";
+import { createTowerParticles } from "../ambient-particles.js";
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(1280, 720);
@@ -21,8 +24,18 @@ const gl = renderer.getContext();
 const debug = gl.getExtension("WEBGL_debug_renderer_info");
 const status = document.querySelector("#status");
 const run = document.querySelector("#run");
-const templates = GEM_TYPES.map(({ id }) =>
-  createGemTower(id, { quality: 6, seed: 3 }),
+const parameters = new URLSearchParams(location.search);
+const connected = parameters.get("connections") === "1";
+const catalog =
+  parameters.get("catalog") === "basic"
+    ? GEM_TYPES
+    : [...GEM_TYPES, ...SPECIAL_TOWERS, ...COMBINED_TOWERS];
+const templates = catalog.map(({ id, quality = 6 }) =>
+  createGemTower(id, {
+    quality,
+    seed: 3,
+    neighbours: connected ? { east: true, west: true } : {},
+  }),
 );
 const wall = createStone({ seed: 3, neighbours: { east: true, west: true } });
 const creep = createCreep({ modelScale: 1 });
@@ -55,6 +68,8 @@ const benchmark = {
     pixelRatio: 1,
     shadowMap: 2048,
     threeRevision: THREE.REVISION,
+    towerCatalog: catalog.map(({ id }) => id),
+    towerConnections: connected ? "east-west fitted arms" : "none",
     timing:
       "Yielded timers with gl.finish; rendering workload cost, not presented FPS",
     time: new Date().toISOString(),
@@ -115,7 +130,7 @@ async function measure(count, variant) {
   }
   const reduced = variant.includes("simplified");
   const instanced = variant.includes("instanced");
-  const optimized = variant === "optimized";
+  const optimized = variant.startsWith("optimized");
   let optimizedBatch;
   const movingRoots = [
     ...towers.map((tower) => tower.children.at(-1).children.at(-1)),
@@ -213,6 +228,10 @@ async function measure(count, variant) {
     optimizedBatch = createModelBatch(source, { dynamicRoots: movingRoots });
     scene.add(optimizedBatch.group);
   }
+  const particles = variant.includes("particles")
+    ? createTowerParticles(towers)
+    : null;
+  if (particles) scene.add(particles.points);
   renderer.shadowMap.enabled = !variant.includes("no-shadows");
   renderer.setSize(
     variant.includes("half-resolution") ? 640 : 1280,
@@ -222,7 +241,8 @@ async function measure(count, variant) {
   const frameTimes = [],
     submitTimes = [],
     completionTimes = [],
-    updateTimes = [];
+    updateTimes = [],
+    particleTimes = [];
   let previous;
   for (let frame = 0; frame < 38; frame++) {
     const timestamp = await nextFrame();
@@ -245,6 +265,8 @@ async function measure(count, variant) {
       }
     }
     optimizedBatch?.update(movingRoots);
+    const particleStart = performance.now();
+    particles?.update(t);
     const updateEnd = performance.now();
     const renderStart = performance.now();
     renderer.render(scene, camera);
@@ -255,6 +277,7 @@ async function measure(count, variant) {
     if (frame >= 8) {
       frameTimes.push(timestamp - previous);
       updateTimes.push(updateEnd - updateStart);
+      particleTimes.push(updateEnd - particleStart);
       submitTimes.push(submitted - renderStart);
       completionTimes.push(finished - updateStart);
     }
@@ -274,12 +297,30 @@ async function measure(count, variant) {
     completedP95Ms: round(percentile(completionTimes, 0.95)),
     submitMedianMs: round(percentile(submitTimes, 0.5)),
     updateMedianMs: round(percentile(updateTimes, 0.5)),
+    particleUpdateMedianMs: round(percentile(particleTimes, 0.5)),
+    particles: particles?.points.geometry.drawRange.count ?? 0,
+    renderedPoints: renderer.info.render.points,
     drawCalls: renderer.info.render.calls,
     renderedTriangles: renderer.info.render.triangles,
     originalTriangles: sourceTriangles.original,
     actualTriangles: sourceTriangles.actual,
     geometries: renderer.info.memory.geometries,
   };
+  if (
+    ![
+      frameTimes,
+      updateTimes,
+      submitTimes,
+      completionTimes,
+      particleTimes,
+    ].every((samples) => samples.every(Number.isFinite))
+  )
+    throw new Error("Non-finite benchmark timing");
+  if (
+    particles &&
+    (result.particles !== count * 8 || result.renderedPoints !== count * 8)
+  )
+    throw new Error("Particle benchmark did not render every emitter");
   if (
     !Number.isFinite(result.completedMedianMs) ||
     result.frames !== 30 ||
@@ -294,6 +335,7 @@ async function measure(count, variant) {
     );
   floor.geometry.dispose();
   optimizedBatch?.dispose();
+  particles?.dispose();
   floor.material.dispose();
   sun.shadow.map?.dispose();
   for (const batch of batches.values()) batch.object.dispose();
@@ -307,11 +349,15 @@ async function runCases(cases) {
   benchmark.state = "running";
   run.disabled = true;
   document.querySelector("#optimize").disabled = true;
+  document.querySelector("#ambient").disabled = true;
   benchmark.results = [];
   try {
-    for (const [count, variant] of cases) {
+    for (const [count, variant, repetition = 1] of cases) {
       status.textContent = `Running ${count} towers / ${variant}…\n${JSON.stringify(benchmark.results, null, 2)}`;
-      benchmark.results.push(await measure(count, variant));
+      benchmark.results.push({
+        ...(await measure(count, variant)),
+        repetition,
+      });
     }
     benchmark.state = "complete";
     status.textContent = JSON.stringify(
@@ -326,6 +372,7 @@ async function runCases(cases) {
   } finally {
     run.disabled = false;
     document.querySelector("#optimize").disabled = false;
+    document.querySelector("#ambient").disabled = false;
   }
 }
 benchmark.runSuite = () =>
@@ -351,7 +398,21 @@ benchmark.runOptimization = () =>
       [count, "optimized"],
     ]),
   );
+benchmark.runAmbient = () =>
+  runCases(
+    [1, 2, 3].flatMap((repetition) =>
+      [64, 256, 512, 1024].flatMap((count) =>
+        (repetition % 2
+          ? ["optimized", "optimized-particles"]
+          : ["optimized-particles", "optimized"]
+        ).map((variant) => [count, variant, repetition]),
+      ),
+    ),
+  );
 document
   .querySelector("#optimize")
   .addEventListener("click", benchmark.runOptimization);
 run.addEventListener("click", benchmark.runSuite);
+document
+  .querySelector("#ambient")
+  .addEventListener("click", benchmark.runAmbient);

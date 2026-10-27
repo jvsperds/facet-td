@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { ConvexGeometry } from "three/addons/geometries/ConvexGeometry.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { COMBINED_TOWERS, buildCombinedTower } from "./combined-towers.js";
 
 export const GEM_TYPES = [
   {
@@ -1772,7 +1773,8 @@ export function createGemTower(
 ) {
   const spec =
     GEM_TYPES.find((g) => g.id === type) ??
-    SPECIAL_TOWERS.find((g) => g.id === type);
+    SPECIAL_TOWERS.find((g) => g.id === type) ??
+    COMBINED_TOWERS.find((g) => g.id === type);
   if (!spec) throw new RangeError(`Unknown gem type: ${type}`);
   if (quality === undefined) quality = spec.quality ?? 6;
   const tier = QUALITY_TIERS.find((q) => q.tier === quality);
@@ -1788,7 +1790,13 @@ export function createGemTower(
     mesh.userData.sharedMaterial = true;
     return mesh;
   };
-  const model = createStone({ x, z, neighbours, seed, towerBase: true });
+  const model = createStone({
+    x,
+    z,
+    neighbours,
+    seed,
+    towerBase: true,
+  });
   const tower = new THREE.Group();
   // The head (prongs or claws, and gems) turns on the shaft axis toward the creep under attack.
   const head = new THREE.Group();
@@ -1802,7 +1810,11 @@ export function createGemTower(
   plinth.position.y = 0.14;
   plinth.rotation.y = Math.PI / 8;
   const leaners = [];
-  if (type === "D")
+  if (spec.extended)
+    leaners.push(
+      ...buildCombinedTower(towerTools(stoneMesh, place, head, spec), spec),
+    );
+  else if (type === "D")
     leaners.push(...buildDiamond(stoneMesh, place, head, quality, spec));
   else if (type === "B")
     leaners.push(...buildSapphire(stoneMesh, place, head, quality, spec));
@@ -1823,6 +1835,46 @@ export function createGemTower(
     leaners.push(...build(stoneMesh, place, head, quality, spec));
   }
   tower.add(head);
+  if (spec.extended) {
+    // Sink only the tall effect crowns into their seats so aimed heads preserve creep clearance.
+    head.position.y -= spec.headDrop;
+    head.scale.x = head.scale.z = spec.headWidthScale;
+    // Keep each motion group separate, but bake compatible solid parts into one mesh per material.
+    tower.traverse((parent) => {
+      const batches = new Map();
+      for (const part of parent.children) {
+        if (!part.isMesh) continue;
+        const key = `${part.material.uuid}:${part.castShadow}:${part.receiveShadow}:${part.renderOrder}`;
+        if (!batches.has(key)) batches.set(key, []);
+        batches.get(key).push(part);
+      }
+      for (const parts of batches.values()) {
+        if (parts.length < 2) continue;
+        const baked = parts.map((part) => {
+          part.updateMatrix();
+          const geometry = part.geometry.clone().applyMatrix4(part.matrix);
+          geometry.deleteAttribute("uv");
+          return geometry;
+        });
+        const merged = new THREE.Mesh(
+          mergeGeometries(baked),
+          parts[0].material,
+        );
+        merged.castShadow = parts[0].castShadow;
+        merged.receiveShadow = parts[0].receiveShadow;
+        merged.renderOrder = parts[0].renderOrder;
+        merged.userData.sharedMaterial = !!parts[0].userData.sharedMaterial;
+        for (const part of parts) {
+          parent.remove(part);
+          part.geometry.dispose();
+        }
+        baked.forEach((geometry) => geometry.dispose());
+        parent.add(merged);
+      }
+    });
+    tower.remove(head);
+    tower.add(head);
+  }
   for (const part of leaners) part.rotation.order = "ZYX"; // Lean in the head's frame.
   const scale = tier.width / 0.68;
   tower.scale.setScalar(scale);
@@ -1857,7 +1909,7 @@ export function createGemTower(
           : THREE.MathUtils.clamp((0.5 - along) / 0.28, 0, 1);
       const y =
         (p.getY(i) * THREE.MathUtils.lerp(0.38, joinHeight, blend)) / 0.196;
-      const across =
+      let across =
         p.getComponent(i, acrossIndex) * THREE.MathUtils.lerp(1, 0.25, blend);
       let fitted = along;
       if (along <= 0.224001) {
@@ -1867,7 +1919,26 @@ export function createGemTower(
         const direction = new THREE.Vector3();
         direction[axis] = -sign;
         ray.set(origin, direction);
-        const hit = ray.intersectObjects(staticParts, false)[0];
+        let hit = ray.intersectObjects(staticParts, false)[0];
+        // Open-pier bodies need the wall's inner corners to reach a pier rather than end in its opening.
+        if (!hit && spec.extended && y >= 0.08) {
+          const acrossAxis = axis === "x" ? "z" : "x";
+          for (let step = 1; step <= 32 && !hit; step++)
+            for (const side of [
+              Math.sign(across) || 1,
+              -(Math.sign(across) || 1),
+            ]) {
+              const candidate = across + (side * step * tier.width) / 64;
+              if (Math.abs(candidate) > tier.width / 2) continue;
+              origin[acrossAxis] = (axis === "x" ? z : x) + candidate;
+              ray.set(origin, direction);
+              hit = ray.intersectObjects(staticParts, false)[0];
+              if (hit) {
+                across = candidate;
+                break;
+              }
+            }
+        }
         fitted = hit
           ? Math.max(
               0,
@@ -1933,6 +2004,8 @@ export function createGemTower(
     mesh.geometry.computeBoundingSphere();
   }
   model.name = spec.name;
+  model.userData.towerType = spec.id;
+  if (spec.extended) model.userData.extended = true;
   model.userData.quality = tier;
   const local = new THREE.Vector3();
   /** Turn the head toward a world-space board point (x, z); call with no arguments to rest it. */

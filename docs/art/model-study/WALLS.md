@@ -63,3 +63,7 @@ These historical measurements predate the raised, fitted wall connections and mu
 ## Review artifacts
 
 [Castle-wall connection study](castle-walls.png) shows straight, corner, T/crossing and mixed-tier tower joins. The standalone preview and overview/grayscale captures show the current factory output. Scratch captures include top, gray, rotations and aimed joins.
+
+## Final combined-tower integration
+
+All 46 designs use the same join path. For open-pier bodies, the fitter searches laterally within the footprint when the centre ray has no surface. Only wall vertices move; the original structure and reciprocal outer wall profile remain unchanged. All 276 type/quality transitions and 1,104 cardinal fits pass, with nondegenerate faces and uniform merlons. [Connected performance](performance/CONNECTED.md) supersedes historical smoke timings for this catalogue.

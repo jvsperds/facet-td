@@ -8,6 +8,8 @@ import {
   createCreep,
 } from "./models.js";
 import { createModelBatch } from "./model-batch.js";
+import { COMBINED_TOWERS, COMBINED_FAMILIES } from "./combined-towers.js";
+import { createTowerParticles } from "./ambient-particles.js";
 
 const stage = document.querySelector("#stage");
 const labels = document.querySelector("#labels");
@@ -16,19 +18,32 @@ const slider = document.querySelector("#merge");
 const play = document.querySelector("#play");
 const walk = document.querySelector("#walk");
 const inspect = document.querySelector("#inspect");
-for (const family of ["Silver", "Malachite"]) {
+const identity = document.querySelector("#identity");
+const galleryOption = document.createElement("option");
+galleryOption.value = "Combined tower gallery";
+galleryOption.textContent = "Combined tower gallery · 34 models";
+inspect.append(galleryOption);
+for (const family of ["Silver", "Malachite", ...COMBINED_FAMILIES]) {
   const option = document.createElement("option");
   option.value = `${family} family`;
   option.textContent = `${family} family`;
   inspect.append(option);
 }
-for (const type of [...GEM_TYPES, ...SPECIAL_TOWERS]) {
+for (const type of [...GEM_TYPES, ...SPECIAL_TOWERS, ...COMBINED_TOWERS]) {
   const option = document.createElement("option");
   option.value = type.name;
   option.textContent = type.name;
   inspect.append(option);
 }
+const connectedOption = document.createElement("option");
+connectedOption.value = "Connected wall gallery";
+connectedOption.textContent = "Connected wall gallery · 38 towers";
+inspect.append(connectedOption);
+inspect.value = "Connected wall gallery";
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+const particlesButton = document.querySelector("#particles");
+let particles,
+  particlesEnabled = !reducedMotion.matches;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color("#656d74");
 const camera = new THREE.OrthographicCamera();
@@ -48,7 +63,7 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.domElement.setAttribute("role", "img");
 renderer.domElement.setAttribute(
   "aria-label",
-  "3D study: connected castle walls, eight basic gem towers, Silver and Silver Knight, Malachite and Vivid Malachite. A row shows Diamond quality tiers. Towers aim at passing creeps. Inspect individual towers or compare a special family; use the view, merge and variation controls.",
+  "Tower study with all 46 designs, connected wall gallery, family comparisons and individual close-ups. The eight basic towers and quality examples remain available in Full study. Towers can aim at the passing target. Use Inspect and view controls to review.",
 );
 stage.prepend(renderer.domElement);
 scene.add(new THREE.HemisphereLight("#f6f3e9", "#56616a", 2.5));
@@ -65,7 +80,7 @@ sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.bias = -0.0003;
 scene.add(sun);
 const floor = new THREE.Mesh(
-  new THREE.BoxGeometry(12, 0.12, 16),
+  new THREE.BoxGeometry(18, 0.12, 18),
   new THREE.MeshStandardMaterial({ color: "#c7cac9", roughness: 1 }),
 );
 floor.position.set(0, -0.07, 1);
@@ -84,6 +99,7 @@ const grid = new THREE.LineSegments(
 grid.position.y = -0.005;
 scene.add(grid);
 let models = new THREE.Group();
+let homePositions = new Map();
 let batch, batchedInspect;
 let heads = [],
   joinRoots = [],
@@ -176,6 +192,10 @@ function healthBar(creep, fraction, hp) {
   });
 }
 function build() {
+  if (particles) {
+    scene.remove(particles.points);
+    particles.dispose();
+  }
   if (batch) {
     scene.remove(batch.group);
     batch.dispose();
@@ -233,6 +253,48 @@ function build() {
     models.add(tower);
     label(type.name, x, 5.25);
   });
+  COMBINED_TOWERS.forEach((type, i) => {
+    const u = ((i % 7) - 3) * 1.4,
+      depth = (Math.floor(i / 7) - 2) * 2;
+    const tower = createGemTower(type.id, { seed });
+    tower.position.set((u + depth) / Math.SQRT2, 0, (depth - u) / Math.SQRT2);
+    models.add(tower);
+    label(type.name, tower.position.x, tower.position.z + 0.55);
+    anchors.at(-1).element.dataset.extended = "true";
+  });
+  const connections = new THREE.Group();
+  connections.name = "Connected wall gallery";
+  connections.userData.connections = true;
+  const connectedTypes = [...SPECIAL_TOWERS, ...COMBINED_TOWERS];
+  connectedTypes.forEach((type, i) => {
+    const column = i % 7,
+      row = Math.floor(i / 7),
+      x = (column - 3) * 2,
+      z = row * 2 - 5,
+      east = column < 6 && i < connectedTypes.length - 1,
+      west = column > 0;
+    const tower = createGemTower(type.id, {
+      x,
+      z,
+      seed,
+      neighbours: { east, west },
+    });
+    connections.add(tower);
+    stones.push(tower);
+    label(type.name, x + 0.25, z + 0.5);
+    anchors.at(-1).element.dataset.connections = "true";
+    if (east) {
+      const wall = createStone({
+        x: x + 1,
+        z,
+        seed,
+        neighbours: { east: true, west: true },
+      });
+      connections.add(wall);
+      stones.push(wall);
+    }
+  });
+  models.add(connections);
   // Creeps walk the corridor between walls; sizes follow VPK ModelScale.
   // HP values are illustrative; only bosses show the number, as in the user's reference.
   [
@@ -262,7 +324,20 @@ function build() {
     models.add(tower);
     label(name, x, 7.5, String(tier));
   });
-  towers = models.children.filter((child) => child.userData.aimAt);
+  homePositions = new Map(
+    models.children
+      .filter((child) => child.name)
+      .map((child) => [child, child.position.clone()]),
+  );
+  towers = [];
+  models.traverse((child) => {
+    if (child.userData.aimAt) towers.push(child);
+  });
+  particles = createTowerParticles(towers, {
+    pixelRatio: renderer.getPixelRatio(),
+  });
+  particles.points.visible = particlesEnabled;
+  scene.add(particles.points);
   creeps = models.children.filter((child) => child.userData.healthBarY);
   heads = towers.map((tower) => tower.children.at(-1).children.at(-1));
   joinRoots = stones.flatMap((stone) =>
@@ -291,42 +366,99 @@ function resize() {
     height = stage.clientHeight;
   renderer.setSize(width, height);
   const aspect = width / height;
+  const connectedPass = inspect.value === "Connected wall gallery";
   const selected = models.children.find(
-    (child) => child.name === inspect.value && inspect.value,
+    (child) =>
+      !child.userData.connections &&
+      child.name === inspect.value &&
+      inspect.value,
   );
-  const family = SPECIAL_TOWERS.filter(
+  const galleryPass = inspect.value === "Combined tower gallery";
+  const family = [...SPECIAL_TOWERS, ...COMBINED_TOWERS].filter(
     (type) => `${type.family} family` === inspect.value,
   );
   const familyModels = models.children.filter((child) =>
     family.some((type) => type.name === child.name),
   );
+  for (const [model, home] of homePositions) model.position.copy(home);
+  if (familyModels.length)
+    familyModels.forEach((model, i) =>
+      model.position.set((i - (familyModels.length - 1) / 2) * 1.65, 0, 0),
+    );
+  const labelAngle = angle - (top ? Math.PI / 4 : 0);
+  for (const anchor of anchors) {
+    if (anchor.element.dataset.connections) continue;
+    const model = models.children.find(
+      (child) => child.name && child.name === anchor.title,
+    );
+    if (model)
+      anchor.position.set(
+        model.position.x +
+          (model.userData.extended ? 0.45 * Math.sin(labelAngle) : 0),
+        0.01,
+        model.position.z +
+          (model.userData.extended ? 0.45 * Math.cos(labelAngle) : 0.55),
+      );
+  }
+  const frameModels = connectedPass
+    ? models.children
+        .find((child) => child.userData.connections)
+        .children.filter((child) => child.userData.aimAt)
+    : galleryPass
+      ? models.children.filter((child) => child.userData.extended)
+      : familyModels;
   const target = selected
     ? selected.position.clone().add(new THREE.Vector3(0, 0.55, 0))
-    : familyModels.length
-      ? familyModels
+    : frameModels.length
+      ? frameModels
           .reduce((sum, model) => sum.add(model.position), new THREE.Vector3())
-          .multiplyScalar(1 / familyModels.length)
+          .multiplyScalar(1 / frameModels.length)
           .add(new THREE.Vector3(0, 0.55, 0))
       : new THREE.Vector3(0, 0, 1);
-  const viewAngle = angle - (top ? Math.PI / 4 : 0);
+  const viewAngle = labelAngle;
   const sine = Math.abs(Math.sin(viewAngle)),
     cosine = Math.abs(Math.cos(viewAngle));
+  const framedHalf = frameModels.length
+    ? Math.max(
+        0.9,
+        ...frameModels.map((model) => {
+          const p = model.position.clone().sub(target);
+          const across = p.x * Math.cos(viewAngle) - p.z * Math.sin(viewAngle);
+          const depth = p.x * Math.sin(viewAngle) + p.z * Math.cos(viewAngle);
+          const bottom = top
+            ? -depth
+            : p.y * Math.sqrt(2 / 3) - depth / Math.sqrt(3);
+          const upper = bottom + (top ? 0 : 1.15 * Math.sqrt(2 / 3));
+          return Math.max(
+            (Math.abs(across) + 0.5) / aspect,
+            Math.abs(bottom) + 0.45,
+            Math.abs(upper) + 0.3,
+          );
+        }),
+      )
+    : 0;
   const half = selected
     ? Math.max(0.85, 0.65 / aspect)
-    : familyModels.length
-      ? Math.max(1.2, 2.2 / aspect)
+    : frameModels.length
+      ? framedHalf
       : Math.max(
           (6 * sine + 8 * cosine) * (top ? 1 : 1 / Math.sqrt(3)) + 0.85,
           (6 * cosine + 8 * sine + 0.85) / aspect,
         );
   models.children.forEach((child) => {
-    child.visible =
-      !inspect.value ||
-      (inspect.value === "wall"
-        ? !child.name
-        : familyModels.length
-          ? familyModels.includes(child)
-          : child === selected);
+    if (child.userData.connections) {
+      child.visible = connectedPass;
+      return;
+    }
+    child.visible = !inspect.value
+      ? !child.userData.extended
+      : galleryPass
+        ? !!child.userData.extended
+        : inspect.value === "wall"
+          ? !child.name
+          : familyModels.length
+            ? familyModels.includes(child)
+            : child === selected;
   });
   if (!batch || batchedInspect !== inspect.value) {
     if (batch) {
@@ -341,9 +473,51 @@ function resize() {
     motionDirty = true;
   }
   anchors.forEach((anchor) => {
-    anchor.element.hidden =
-      !!inspect.value && !family.some((type) => type.name === anchor.title);
+    const galleryLabel = !!anchor.element.dataset.extended;
+    if (connectedPass || anchor.element.dataset.connections) {
+      anchor.element.hidden =
+        !connectedPass || !anchor.element.dataset.connections;
+      return;
+    }
+    anchor.element.hidden = !inspect.value
+      ? galleryLabel
+      : galleryPass
+        ? !galleryLabel
+        : !family.some((type) => type.name === anchor.title);
   });
+  const showingCombined =
+    galleryPass ||
+    connectedPass ||
+    family.some((type) => type.extended) ||
+    !!selected?.userData.extended;
+  identity.hidden = !showingCombined;
+  identity.replaceChildren();
+  const identities = selected?.userData.extended
+    ? COMBINED_TOWERS.filter((type) => type.name === selected.name)
+    : family.filter((type) => type.extended);
+  if (showingCombined && !identities.length) {
+    const note = document.createElement("p");
+    note.textContent =
+      "Choose a family or individual tower in Inspect to compare its source ability with the design cues.";
+    identity.append(note);
+  }
+  for (const type of identities) {
+    const article = document.createElement("article"),
+      heading = document.createElement("h3"),
+      effect = document.createElement("strong"),
+      description = document.createElement("p"),
+      design = document.createElement("p");
+    heading.textContent = type.name;
+    effect.textContent = type.effect;
+    description.textContent = `Source: ${type.sourceDescription}`;
+    design.textContent = `Design: ${type.design}`;
+    article.append(heading, effect, description, design);
+    identity.append(article);
+  }
+  play.disabled = false;
+  slider.disabled = false;
+  const merge = Number(slider.value);
+  status.textContent = `${merge === 1 ? "Connected" : merge === 0 ? "Separate" : "Merging"} · variation ${seed}`;
   camera.left = -half * aspect;
   camera.right = half * aspect;
   camera.top = half;
@@ -428,6 +602,20 @@ walk.onclick = () => {
   updateWalk();
 };
 updateWalk();
+function updateParticlesButton() {
+  particlesButton.setAttribute("aria-pressed", String(particlesEnabled));
+}
+particlesButton.onclick = () => {
+  particlesEnabled = !particlesEnabled;
+  particles.points.visible = particlesEnabled;
+  updateParticlesButton();
+};
+reducedMotion.addEventListener("change", () => {
+  particlesEnabled = !reducedMotion.matches;
+  particles.points.visible = particlesEnabled;
+  updateParticlesButton();
+});
+updateParticlesButton();
 renderer.setAnimationLoop((time) => {
   if (walking && lastTime !== null) walkClock += time - lastTime;
   lastTime = time;
@@ -452,6 +640,8 @@ renderer.setAnimationLoop((time) => {
       if (progress === 1) stop();
     }
   }
+  if (particlesEnabled)
+    particles.update(reducedMotion.matches ? 0 : time / 1000);
   renderer.render(scene, camera);
   for (const anchor of anchors) {
     const p = anchor.position.clone().project(camera);

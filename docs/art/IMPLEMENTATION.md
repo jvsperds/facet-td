@@ -1,7 +1,7 @@
 # P1.5 implementation handoff
 
 P1.5 working direction · 25 October 2026 · Audience: P2–P4 implementers.
-The user supplied [this UI reference](references/user-ui.png), then selected a cave-like theme with grey UI tones. Keep its board-first layout, lower-right icon toolstrip, lower-left selection info and top-left five-gem summary. Detailed cave-background styling remains deferred. Values below are design choices, not measured gameplay facts.
+The user supplied [this UI reference](references/user-ui.png), then selected a cave-like theme with grey UI tones. Keep its board-first layout, lower-right icon toolstrip, lower-left selection info and top-left five-gem summary. A procedural environment blockout is available; final cave-background styling remains open. Values below are design choices, not measured gameplay facts.
 
 ## Camera and material
 
@@ -15,7 +15,7 @@ Flat-shaded, opaque low-poly meshes use one warm directional light and a neutral
 
 ## Entrance, goal and what the gems protect
 
-The user requires physical continuity between the board and environment. Add a cave tunnel at the logical northwest spawn side and a defended destination connected to the logical southeast exit. Embed the arena in continuous stone floor; do not isolate it on a floating slab surrounded by a chasm. The only castle approach begins at E; checkpoint 2 has no castle branch. Preserve this exact attachment under every rotation and in top view; [camera-studies/geometry.json](camera-studies/geometry.json) and its reference SVGs pin the visual relationship. The [five camera mockups](camera-studies/README.md) supersede the ambiguous approach in the earlier connected-cave image. Approaches are cosmetic extensions attached to the original spawn/goal anchors, not new board cells or simulation waypoints. Keep them visible in both camera modes and when rotating; simplify/fade decorative rock that would obscure the anchor.
+The user requires physical continuity between the board and environment. Add a cave tunnel at the logical northwest spawn side and a defended destination connected to the logical southeast exit. Place the arena on the lower floor of a sunken cave chamber. Embed both openings in the cave walls, facing inward with fixed world orientation. Use continuous floor from cave to S and E to castle, without bridges, raised causeways or chasms. Keep those approaches clear of other 3D elements. Camera orbit changes the view, never the architecture. The only castle approach begins at E; checkpoint 2 has no castle branch. Preserve this exact attachment under every rotation and in top view; [camera-studies/geometry.json](camera-studies/geometry.json) and its reference SVGs pin the visual relationship. The [five camera mockups](camera-studies/README.md) supersede the ambiguous approach in the earlier connected-cave image. Approaches are cosmetic extensions attached to the original spawn/goal anchors, not new board cells or simulation waypoints. Keep the endpoints readable in both camera modes and when rotating; cut away foreground walls and doorway roofs as needed. The [interactive blockout](environment/README.md) and [model brief](environment/MODEL_BRIEF.md) supersede bridge and doorway-orientation details in earlier mockups. Start with procedural meshes; imported modular GLB assets can follow once proportions are settled.
 
 The original object is `gemtd_castle`, created at path7 in `addon_game_mode.lua:2031`. The goal handler near path7 subtracts each arriving creep's damage from `_G.gem_castle_hp` at line 3798. This is arrival damage, not a new sustained combat phase. The route uses path1 as start, path2–path6 as five checkpoints, and path7 as castle/exit. Five numbered checkpoints plus the goal produce six destinations after the start. Keep this rule and order in Classic.
 
@@ -23,18 +23,17 @@ The [connected-cave mockup](style-studies/d-connected-hybrid.png) proposes a for
 
 ## Palette and type
 
-| Role | Value | Use |
-| --- | --- | --- |
-| World / board | `#656D74` / `#C7CAC9`, `#BCC2C2` | Provisional cave-grey backdrop / alternating slate cells |
-| HUD / raised | `#25282C` / `#393E43` | Opaque charcoal panels / icon buttons |
-| HUD ink / secondary | `#F4F3EF` / `#BDC3C7` | Labels and tabular values |
-| Boundary | `#8A939B` | Visible control boundary against dark panels |
-| Action / on action | `#D4D8DC` / `#202429` | Pale grey primary or active control, dark readable text |
-| Selected cell | `#3C454C` with pale outer edge | Distinct cell rim on grey terrain; full name in info panel |
-| Focus | `#164FAD` on terrain; `#FFFFFF` on HUD | Dashed outer ring independent of selection |
-| Danger | `#FFB3AF` on dark HUD | Destructive action with explicit text |
-| Gem pigments | Existing eight-type palette | Colour remains meaningful for gems; no green HUD tint |
-
+| Role                | Value                                  | Use                                                        |
+| ------------------- | -------------------------------------- | ---------------------------------------------------------- |
+| World / board       | `#656D74` / `#C7CAC9`, `#BCC2C2`       | Provisional cave-grey backdrop / alternating slate cells   |
+| HUD / raised        | `#25282C` / `#393E43`                  | Opaque charcoal panels / icon buttons                      |
+| HUD ink / secondary | `#F4F3EF` / `#BDC3C7`                  | Labels and tabular values                                  |
+| Boundary            | `#8A939B`                              | Visible control boundary against dark panels               |
+| Action / on action  | `#D4D8DC` / `#202429`                  | Pale grey primary or active control, dark readable text    |
+| Selected cell       | `#3C454C` with pale outer edge         | Distinct cell rim on grey terrain; full name in info panel |
+| Focus               | `#164FAD` on terrain; `#FFFFFF` on HUD | Dashed outer ring independent of selection                 |
+| Danger              | `#FFB3AF` on dark HUD                  | Destructive action with explicit text                      |
+| Gem pigments        | Existing eight-type palette            | Colour remains meaningful for gems; no green HUD tint      |
 
 Use local `Segoe UI, Arial, sans-serif`, 16 px body, 14 px secondary labels, 24 px panel headings. Use tabular numerals. Controls are at least 48 × 48 CSS px with 8 px gaps. System fonts keep the offline build self-contained. Saturated gem pigments are visual identifiers; contrast comes from a dark edge and shape.
 
@@ -74,3 +73,9 @@ Every value comes from simulation events, not from the renderer. The sim must re
 ## Implementation gate
 
 P2 checks isometric and top-down projection, four cardinal rotations and an intermediate free angle in both modes, cell picking and camera fit at 1440×900, 768×1024, 390×844, 320×568 and 844×390. Check Fixed and Rotate modes, locking at a non-default angle, reset, drag/pick separation, and gesture-free rotation controls. Repeatedly toggle views at fit and zoomed-in scales, with a selected corner cell, keyboard cursor and open inspector; selection, rotation, pan anchor and relative zoom must not drift, no gem or wave may change, and pointer picks must match the shown grid. Verify the toggle is keyboard/touch accessible and reduced motion switches immediately. P3 checks that each of five slots selects the same gem as the board, empty/stale/removed slots cannot act, selection updates the info panel, both selection paths announce consistently, and round transitions replace old slot IDs. It also checks legal/illegal actions, long translated labels, keyboard/assistive paths, visible focus and contrast. P4 checks crowded cells, effects and low graphics. Use actual VPK map geometry, rules, costs and labels. The studies use the verified current GemTD board geometry from [board-reference.json](board-reference.json); [BOARD.md](BOARD.md) records its coordinates and differences from original VPK anchors. P2 must use the original world anchors for Classic, not substitute the screenshot-derived grid. HUD values remain illustrative; no new draft tray, stat value or Classic mechanic is defined.
+
+## Final catalogue adoption
+
+Phase 1.5 includes eight basic and all 38 canonical combined designs. See [finalization](model-study/FINALIZATION.md), [effect identities](model-study/EFFECT-IDENTITIES.md) and the rebuilt offline model study. The canonical combined list is split between `SPECIAL_TOWERS` (Silver/Malachite) and `COMBINED_TOWERS` (34 additional IDs); all use `createGemTower(id, options)` and support fitted neighbours. Compatible parts are packed within their static or moving parent without reducing facets. Preserve the head-last hierarchy and register head groups plus animated wall arms as non-overlapping batch dynamic roots. The new models retain at least 0.01 cell of isolated aimed creep-top clearance, but connected walls still need the runtime occluder treatment above.
+
+`createTowerParticles(towers, {pixelRatio})` returns `{points, update(seconds), dispose()}`. Add `points` directly to an identity scene separately from the mesh batch; call `update` only when enabled. It follows canonical `userData.towerType`, current world position and visible ancestors. Disable by setting `points.visible = false` and skipping updates; use a frozen clock or leave disabled for reduced motion. Dispose before source replacement. Eight motes per tower add one draw call and no shadow/light pass. The [final connected benchmark](model-study/performance/CONNECTED.md) records host-contended timings; P2/P3 must establish actual gameplay performance.

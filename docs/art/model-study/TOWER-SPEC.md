@@ -31,6 +31,10 @@ This sheet tells an agent how to build, change and check a procedural gem-tower 
 14. [Glossary](#14-glossary)
 15. [Appendix: numbers and scripts](#15-appendix-numbers-and-scripts)
 
+The 26 October finalization includes all 38 canonical combined towers. The same bounds and budgets apply; [combined-towers.test.mjs](combined-towers.test.mjs) and [COMBINED-TOWERS.md](COMBINED-TOWERS.md) supplement the basic tower measurements. Effect-coloured trim and sparse ambient motes are accepted additions; opaque gem/masonry requirements remain unchanged. Combined static/moving parts may merge within a parent when colours, normals, material ownership and aiming are preserved.
+
+The final catalogue includes all 38 canonical combined towers. Existing bounds and budgets apply; [combined-towers.test.mjs](combined-towers.test.mjs) and [COMBINED-TOWERS.md](COMBINED-TOWERS.md) supplement the basic measurements. Effect-coloured trims and sparse ambient motes are accepted additions; opaque gem/masonry requirements remain unchanged. Compatible parts may merge within a motion parent while preserving normals, colours, ownership and aiming.
+
 ## 1. Read first
 
 | Source                                                                                | Use it for                                                                                                                                                   |
@@ -417,7 +421,7 @@ Copy this into the task.
 - **Emerald grip regression.** The old prong intersection is fixed. Tests check grip vertices against the new gem hull, and the setting leans with the gem.
 - **Draw calls.** Diamond uses 28 meshes in its superstructure. On a full board, the game renderer should merge static meshes that share a material. Keep static masonry on shared materials so that merge stays possible.
 - **Probe coverage.** The occlusion test samples five camera angles and aims at each probed cell. It is not exhaustive for free rotation.
-- **Not specified here.** Turn easing, attack and impact effects, idle animation, level-of-detail models, special-tower recipes and their final look.
+- **Not specified here.** Turn easing, attack and impact effects, idle animation, level-of-detail models, gameplay execution of special-tower abilities. The canonical combined catalogue and its reviewed visual identities are finalized.
 
 ## 14. Glossary
 

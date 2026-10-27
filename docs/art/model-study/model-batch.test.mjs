@@ -1,3 +1,4 @@
+import { COMBINED_TOWERS } from "./combined-towers.js";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { createModelBatch } from "./model-batch.js";
@@ -74,7 +75,7 @@ function equivalent(source, batch) {
     ),
   );
 }
-for (const type of [...GEM_TYPES, ...SPECIAL_TOWERS])
+for (const type of [...GEM_TYPES, ...SPECIAL_TOWERS, ...COMBINED_TOWERS])
   for (const { tier } of QUALITY_TIERS) {
     const source = new THREE.Group();
     const roots = [];

@@ -7,6 +7,7 @@ import {
   SPECIAL_TOWERS,
 } from "./models.js";
 import { createModelBatch } from "./model-batch.js";
+import { COMBINED_TOWERS } from "./combined-towers.js";
 
 const sides = ["north", "east", "south", "west"];
 const neighbours = (mask) =>
@@ -71,7 +72,7 @@ for (const seed of [1, 7, 31])
           );
         }
       }
-for (const type of [...GEM_TYPES, ...SPECIAL_TOWERS])
+for (const type of [...GEM_TYPES, ...SPECIAL_TOWERS, ...COMBINED_TOWERS])
   for (const quality of [1, 2, 3, 4, 5, 6]) {
     const wall = createStone({ x: 1, seed: 7, neighbours: { west: true } });
     const tower = createGemTower(type.id, {
@@ -259,5 +260,5 @@ for (let mask = 0; mask < 16; mask++) {
   batch.dispose();
 }
 console.log(
-  `PASS: 768 wall profiles/colours, ${(GEM_TYPES.length + SPECIAL_TOWERS.length) * 6} tower transitions, ${(GEM_TYPES.length + SPECIAL_TOWERS.length) * 24} fitted cardinal shaft contacts and head clearances, preserved towers, all masks, face/budget checks and batched merge animation`,
+  `PASS: 768 wall profiles/colours, ${(GEM_TYPES.length + SPECIAL_TOWERS.length + COMBINED_TOWERS.length) * 6} tower transitions, ${(GEM_TYPES.length + SPECIAL_TOWERS.length + COMBINED_TOWERS.length) * 24} fitted cardinal shaft contacts and head clearances, preserved towers, all masks, face/budget checks and batched merge animation`,
 );

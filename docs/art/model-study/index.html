@@ -95,6 +95,39 @@
       display: block;
       font-weight: 600;
     }
+    .label[data-extended],
+    .label[data-connections] {
+      white-space: normal;
+      width: 112px;
+      font-size: 11px;
+      line-height: 1.15;
+    }
+    #identity {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      padding: 8px 28px 16px;
+      color: #bdc3c7;
+      font-size: 13px;
+    }
+    #identity[hidden] {
+      display: none;
+    }
+    #identity article {
+      flex: 1 1 190px;
+    }
+    #identity h3 {
+      margin: 0 0 6px;
+      color: #f4f3ef;
+      font-size: 15px;
+    }
+    #identity p {
+      margin: 4px 0;
+      line-height: 1.4;
+    }
+    #identity strong {
+      color: #d9e6ed;
+    }
     .health {
       position: absolute;
       width: 44px;
@@ -155,7 +188,7 @@
     <div>
       <p class="kicker">FACET TD / P1.5 / MODEL STUDY 01</p>
       <h1>Castle walls. Gem towers.</h1>
-      <p>Connected castle masonry and gem-crowned towers.</p>
+      <p>46 tower designs · connected castle walls and ambient particles.</p>
     </div>
     <nav aria-label="Model view">
       <button id="iso" aria-pressed="true">Isometric</button
@@ -167,6 +200,7 @@
   <main>
     <div id="stage"><div class="labels" id="labels"></div></div>
     <p id="error" role="alert" hidden></p>
+    <section id="identity" aria-label="Tower effects and design cues"></section>
   </main>
   <footer>
     <label
@@ -188,6 +222,7 @@
         step="0.01" /></label
     ><button id="variation">New masonry variation</button
     ><button id="walk" aria-pressed="true">Pause target</button>
+    <button id="particles" aria-pressed="true">Ambient particles</button>
     <p id="status" role="status">Connected · variation 1</p>
   </footer>
   <script type="module" src="./study.js"></script>

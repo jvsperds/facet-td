@@ -24,11 +24,14 @@
   </style>
   <h1>Tower rendering benchmark</h1>
   <p>
-    37 × 37 board, all eight types at Huge, 64 moving creep proxies. Tests keep
-    the current art unchanged.
+    37 × 37 board, all 46 current designs, 64 moving creep proxies and one wall
+    per four towers. Ambient comparison uses the integrated renderer, with and
+    without eight particles per tower, over three alternating-order runs. Use
+    ?catalog=basic for the original eight-type comparison.
   </p>
   <button id="run">Run bounded test suite</button>
   <button id="optimize">Compare integrated optimization</button>
+  <button id="ambient">Compare ambient particles</button>
   <pre id="status" role="status">
 Ready. Keep this tab visible while measuring.</pre>
   <script type="module" src="./benchmark.js"></script>

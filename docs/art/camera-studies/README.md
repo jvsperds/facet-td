@@ -29,3 +29,7 @@ The final images were visually reviewed for seven marker labels, E-only castle a
 ![Isometric 270 degrees](iso-270.png)
 
 ![Top view](top.png)
+
+## Latest environment correction
+
+No bridge is required at either endpoint. Use unobstructed continuous cave floor, with the entrance and castle embedded in the sunken chamber walls and fixed in world orientation. The [model brief](../environment/MODEL_BRIEF.md) supersedes these details in the retained concept images; the [actual Three.js blockout](../environment/README.md) demonstrates the spatial arrangement.
