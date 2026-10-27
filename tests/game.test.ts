@@ -106,3 +106,31 @@ test('an automated game runs to its end without errors', () => {
   expect(['lost', 'won']).toContain(g.phase);
   expect(g.level).toBeGreaterThan(1);
 }, 60_000);
+
+test('after wave 50 the game goes endless: no build phase, near-unkillable creeps, falling is a win', () => {
+  const sim = new Sim(data, 3);
+  const g = sim.game;
+  g.level = 50;
+  for (let x = 12; g.draft.length < 5; x += 2) g.build({ x, y: 12 });
+  sim.send(0, { type: 'keep', id: g.draft[0], upgrade: 0 });
+  // Clear wave 50 by removing its creeps as they spawn.
+  while (g.level === 50) {
+    sim.step();
+    g.creeps.length = 0;
+  }
+  expect(g.phase).toBe('wave');
+  expect(g.guaiLevel).toBe(1);
+  expect(g.canBuild({ x: 12, y: 14 }).ok).toBe(false);
+  // The original waits 11 s after wave 50 before endless spawning starts.
+  for (let i = 0; i < 10 * 30; i++) sim.step();
+  expect(g.creeps).toHaveLength(0);
+  while (!g.creeps.length) sim.step();
+  const c = g.creeps[0];
+  const pool = data.files['lua/addon_game_mode.json'] as { guai_50_ability: { value: string[] } };
+  expect(c.hp).toBeGreaterThanOrEqual(100000);
+  expect(c.skills!.filter((s) => pool.guai_50_ability.value.includes(s)).length).toBeGreaterThan(0);
+  g.castleHp = 1;
+  while (g.phase === 'wave') sim.step();
+  expect(g.phase).toBe('won');
+  expect(g.level).toBe(51);
+}, 60_000);

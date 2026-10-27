@@ -73,7 +73,9 @@ export function Hud({
         <strong>Facet TD</strong>
         <span>{mode === 'classic' ? 'Classic' : 'Facet'}</span>
         <span class="tabular">
-          Wave {game.level}/{LAST_LEVEL}
+          {game.level > LAST_LEVEL
+            ? `Endless wave ${game.level}`
+            : `Wave ${game.level}/${LAST_LEVEL}`}
         </span>
         <span>
           {paused.value
@@ -81,7 +83,9 @@ export function Hud({
             : game.phase === 'build'
               ? 'Build'
               : game.phase === 'wave'
-                ? 'Wave'
+                ? game.enraged
+                  ? 'Wave · Enraged'
+                  : 'Wave'
                 : 'Game over'}
         </span>
         <span
@@ -369,7 +373,13 @@ function EndCard({ game }: { game: Game; tick: number }) {
     <div class="end" role="dialog" aria-modal="true" aria-labelledby="end-title">
       <div class="panel end-card">
         <h2 id="end-title">{won ? 'Victory' : 'The castle fell'}</h2>
-        <p>{won ? `All ${LAST_LEVEL} waves cleared.` : `Wave ${game.level} broke through.`}</p>
+        <p>
+          {!won
+            ? `Wave ${game.level} broke through.`
+            : game.level > LAST_LEVEL
+              ? `All ${LAST_LEVEL} waves cleared; the castle held until endless wave ${game.level}.`
+              : `All ${LAST_LEVEL} waves cleared.`}
+        </p>
         <p class="tabular">
           Gold {game.gold} · Build level {game.heroLevel}
         </p>

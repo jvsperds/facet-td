@@ -91,6 +91,7 @@ setInterval(() => {
     g.phase,
     g.level,
     g.castleHp,
+    g.enraged,
     g.gold,
     g.xp,
     g.creeps.length,

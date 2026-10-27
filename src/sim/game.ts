@@ -25,8 +25,8 @@ import {
 
 // Gem TD's single-player loop, ported from addon_game_mode.lua (line numbers cite the VPK script):
 // build five random gems, keep one (the rest become stones), then a wave walks the maze to the castle.
-// Not yet ported (phase 5): remaining tower and creep abilities, recipes/combines, downgrades, hero skills and
-// prayers, elites, enrage, levels past 50.
+// After wave 50 the game goes endless: waves 51+ replay the list without a build phase until the castle
+// falls, which then counts as a win.
 
 export const TICK_HZ = 30;
 export const DRAFT_SIZE = 5;
@@ -200,7 +200,7 @@ export class Game {
     return c.skills ?? this.skills(c.name);
   }
   private immune(c: Creep) {
-    return this.enemySkills(c).includes('enemy_momian') || this.waveTicks > 181 * TICK_HZ;
+    return this.enemySkills(c).includes('enemy_momian') || this.enraged;
   }
   private near(a: Cell, b: Cell, radius: number) {
     return sq(a.x - b.x) + sq(a.y - b.y) <= sq(radius);
@@ -311,7 +311,7 @@ export class Game {
     for (const source of this.creeps)
       if (this.enemySkills(source).includes('guai_xietong')) slow -= 150;
     if ((c.hasteUntil ?? 0) > this.time) percent += 50;
-    if (this.waveTicks > 181 * TICK_HZ) percent += 100;
+    if (this.enraged) percent += 100;
     // shortcut: assumes Dota's 100 movement-speed floor; verify against the original runtime before Classic certification.
     const speed = stopped
       ? 0
@@ -850,6 +850,15 @@ export class Game {
 
   // ---- Wave (start_shuaguai, line 6261; spawning in OnThink, line 3346) ----
 
+  /** UpdateGuaiLevel (line 13692): endless waves replay the wave list from the start. */
+  get guaiLevel() {
+    return this.level > LAST_LEVEL ? this.level - LAST_LEVEL : this.level;
+  }
+  /** Rage aura from the castle (enemy_crazy, line 3304): +100% speed and magic immunity. */
+  get enraged() {
+    return this.phase === 'wave' && this.waveTicks > 181 * TICK_HZ;
+  }
+
   private startWave() {
     this.phase = 'wave';
     this.perfected = false;
@@ -857,8 +866,8 @@ export class Game {
     this.waveDamage = {};
     this.delayed = [];
     const guai = this.luaValue<Record<string, string>>('guai');
-    let name = guai[this.level];
-    if (guai[this.level + 100] && this.rng.int(1, 2) === 1) name = guai[this.level + 100];
+    let name = guai[this.guaiLevel];
+    if (guai[this.guaiLevel + 100] && this.rng.int(1, 2) === 1) name = guai[this.guaiLevel + 100];
     this.spawnName = name;
     this.toSpawn = name.includes('boss') ? 1 : this.luaValue<number>('wave_enemy_count');
     this.nextSpawn = 0;
@@ -866,19 +875,35 @@ export class Game {
 
   private spawn() {
     let name = this.spawnName;
-    if ([35, 36, 38].includes(this.level) && this.rng.int(1, 100) > 50) name += '1';
+    if ([35, 36, 38].includes(this.guaiLevel) && this.rng.int(1, 100) > 50) name += '1';
     const u = this.units[name] ?? this.units[this.spawnName];
     const difficulty = this.luaValue<Record<string, number>>('gem_difficulty')[1];
     const speedFactor = this.luaValue<Record<string, number>>('gem_difficulty_speed')[1];
     const elite = !name.includes('boss') && !name.includes('tester') && this.rng.int(1, 400) === 1;
-    const hp = Math.max(
-      1,
-      Math.floor(
-        num(u, 'StatusHealth') *
-          difficulty *
-          (elite ? ((51 - Math.min(this.level, 50)) / 50) * 6 + 2 : 1),
-      ),
-    );
+    let hp =
+      num(u, 'StatusHealth') *
+      difficulty *
+      (elite ? ((51 - Math.min(this.level, 50)) / 50) * 6 + 2 : 1);
+    let speed = (num(u, 'MovementSpeed') * speedFactor) / CELL_UNITS / TICK_HZ;
+    const skills = new Set([
+      ...this.skills(name),
+      ...(this.luaValue<Record<string, string[]>>('guai_ability')[this.guaiLevel] ?? []),
+    ]);
+    if (this.level > LAST_LEVEL) {
+      // Endless creeps (line 3415): two random guai_50_ability skills, then near-unkillable HP.
+      // Offline there is no weekly word_object theme, so the original's no-theme branch applies.
+      if (name.includes('fly')) hp /= 3;
+      const pool = this.luaValue<string[]>('guai_50_ability');
+      for (let i = 0; i < 2; i++) {
+        const skill = pool[this.rng.int(1, pool.length) - 1];
+        if (skill === 'enemy_momian') hp /= 5;
+        if (skill === 'enemy_wumian') hp /= 3;
+        skills.add(skill);
+      }
+      hp = hp > 10000 ? 999999999 : hp * 100000;
+      speed *= 1.8;
+    }
+    hp = Math.max(1, Math.floor(hp));
     const damage =
       this.level % 10 === 0
         ? 100
@@ -890,7 +915,7 @@ export class Game {
       hp,
       maxHp: hp,
       armor: num(u, 'ArmorPhysical'),
-      speed: (num(u, 'MovementSpeed') * speedFactor) / CELL_UNITS / TICK_HZ,
+      speed,
       x: start.x,
       y: start.y,
       step: 1,
@@ -898,12 +923,7 @@ export class Game {
       boss: name.includes('boss'),
       damage,
       elite,
-      skills: [
-        ...new Set([
-          ...this.skills(name),
-          ...(this.luaValue<Record<string, string[]>>('guai_ability')[this.level] ?? []),
-        ]),
-      ],
+      skills: [...skills],
     });
     this.toSpawn--;
   }
@@ -1481,18 +1501,33 @@ export class Game {
     }
     if (this.castleHp <= 0) {
       this.castleHp = 0;
-      this.phase = 'lost';
+      // Lines 3835 and 7493: falling after wave 50 is a win.
+      this.phase = this.level > LAST_LEVEL ? 'won' : 'lost';
     } else if (this.toSpawn <= 0 && this.creeps.length === 0) {
-      const mvp = this.gems
-        .filter((g) => (g.level ?? 0) < 10)
-        .sort(
-          (a, b) => (this.waveDamage[b.id] ?? 0) - (this.waveDamage[a.id] ?? 0) || a.id - b.id,
-        )[0];
+      const mvp =
+        this.level > LAST_LEVEL
+          ? undefined
+          : this.gems
+              .filter((g) => (g.level ?? 0) < 10)
+              .sort(
+                (a, b) =>
+                  (this.waveDamage[b.id] ?? 0) - (this.waveDamage[a.id] ?? 0) || a.id - b.id,
+              )[0];
       if (mvp && (this.waveDamage[mvp.id] ?? 0) > 0) mvp.level = (mvp.level ?? 0) + 1;
       // EndRoundIfNoEnemyAlive (line 13441)
       for (const g of this.gems) [g.cooldown, g.target] = [0, null];
-      if (this.level >= LAST_LEVEL) this.phase = 'won';
-      else {
+      if (this.level >= LAST_LEVEL) {
+        // No build phase after 50 (line 4683): the next wave follows after 11 s at 50, else 1.1 s.
+        const delay = Math.round((this.level === LAST_LEVEL ? 11 : 1.1) * TICK_HZ);
+        this.level++;
+        // shortcut: the wave list ends at 50, so the original has no wave 101; end the run there as a win.
+        if (!this.luaValue<Record<string, string>>('guai')[this.guaiLevel]) this.phase = 'won';
+        else {
+          this.startWave();
+          this.nextSpawn = tick + delay;
+          this.waveTicks = -delay; // the original starts the rage stopwatch when spawning begins
+        }
+      } else {
         this.level++;
         this.phase = 'build';
       }
