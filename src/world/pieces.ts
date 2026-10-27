@@ -128,7 +128,19 @@ export function createPieces(scene: THREE.Scene, game: Game) {
   ring.rotation.x = -Math.PI / 2;
   ring.position.y = 0.05;
   hero.add(body, crown, ring);
-  scene.add(hero);
+  // Light-pillar beacon: a translucent column the ground route bends through.
+  const beacon = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.3, 0.3, 2.4, 12, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: '#fff1a8',
+      transparent: true,
+      opacity: 0.45,
+      depthWrite: false,
+    }),
+  );
+  beacon.position.y = 1.2;
+  beacon.visible = false;
+  scene.add(hero, beacon);
   const cells = new Map<number, Piece>();
   const creeps = new Map<number, CreepView>();
   const effects: {
@@ -261,6 +273,11 @@ export function createPieces(scene: THREE.Scene, game: Game) {
       hero.visible = !!game.hero.selected;
       const position = toScene(game.heroPosition);
       hero.position.set(position.x, 0, position.z);
+      beacon.visible = !!game.beacon;
+      if (game.beacon) {
+        const b = toScene(game.beacon);
+        beacon.position.set(b.x, 1.2, b.z);
+      }
       syncCells();
       // Capture endpoints before removing dead creeps, so lethal shots still arrive and burst.
       const killed = new Set(game.events.filter((e) => e.type === 'kill').map((e) => e.id));

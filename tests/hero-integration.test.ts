@@ -149,3 +149,49 @@ test('two-stage swaps preserve stone count and whirlwind rotates occupied neighb
   expect(g.stoneAt(a)).toBe(true);
   expect(g.gold).toBe(gold - 50);
 });
+
+test('stone line builds along the hero facing and turns the first normal stone it meets into a gem', () => {
+  const sim = setup(),
+    g = sim.game;
+  expect(g.configureHero('h101', { a212: 1 }).ok).toBe(true);
+  const row = [15, 16, 17, 18].map((x) => ({ x, y: 14 }));
+  for (const c of row) expect(g.board.kind(c) === 'open' && !g.stoneAt(c)).toBe(true);
+  g.heroPosition = { x: 14, y: 14 };
+  g.heroFacing = { x: 1, y: 0 };
+  g.stones.set(17 + 14 * 64, row[2]);
+  sim.send(0, { type: 'hero-cast', action: 'gemtd_hero_shitou' });
+  for (let i = 0; i < 60; i++) sim.step();
+  expect(g.stoneAt(row[0]) && g.stoneAt(row[1])).toBe(true);
+  expect(g.stoneAt(row[2])).toBe(false);
+  expect(g.gemAt(row[2])).toBeDefined();
+  expect(g.draft).not.toContain(g.gemAt(row[2])!.id);
+  expect(g.stoneAt(row[3]) || !!g.gemAt(row[3])).toBe(false);
+});
+
+test('beacon reroutes ground creeps through its cell, blocks building there and clears at round end', () => {
+  const sim = setup(),
+    g = sim.game;
+  expect(g.configureHero('h101', { a403: 1 }).ok).toBe(true);
+  g.heroPosition = { x: 14, y: 14 };
+  expect(g.canHeroAction('gemtd_hero_guangzhudaobiao', undefined, { x: 5, y: 19 }).ok).toBe(false);
+  const point = { x: 15, y: 15 };
+  expect(g.route).not.toContainEqual(point);
+  sim.send(0, { type: 'hero-cast', action: 'gemtd_hero_guangzhudaobiao', point });
+  for (let i = 0; i < 8; i++) sim.step();
+  expect(g.beacon).toEqual(point);
+  const at = g.route.findIndex((c) => c.x === point.x && c.y === point.y);
+  const path2 = g.route.findIndex((c) => c.x === 5 && c.y === 19);
+  expect(at).toBeGreaterThan(0);
+  expect(at).toBeLessThan(path2);
+  expect(g.canBuild(point).ok).toBe(false);
+  for (let x = 20; g.draft.length < 5; x += 2) g.build({ x, y: 25 });
+  sim.send(0, { type: 'keep', id: g.draft[0], upgrade: 0 });
+  sim.step();
+  expect(g.phase).toBe('wave');
+  while (g.phase !== 'build') {
+    sim.step();
+    g.creeps.length = 0;
+  }
+  expect(g.beacon).toBeNull();
+  expect(g.route).not.toContainEqual(point);
+});

@@ -111,6 +111,16 @@ export class Game {
   xp = 0;
   hero: HeroState = { selected: '', abilities: {}, cooldowns: {} };
   heroPosition: Cell = { x: 19, y: 19 };
+  // shortcut: the hero's spawn facing is not in the VPK data; south is assumed until checked in the original.
+  heroFacing = { x: 0, y: -1 };
+  /** Light-pillar beacon (guangzhudaobiao, line 9232): ground creeps detour through it until the round ends. */
+  beacon: Cell | null = null;
+  private stoneLine: {
+    left: number;
+    next: number;
+    at: Cell;
+    dir: { x: number; y: number };
+  } | null = null;
   private heroRoute: Cell[] = [];
   private pendingHero: { due: number; plan: Extract<HeroPlan, { ok: true }> } | null = null;
   private prayers: {
@@ -462,11 +472,17 @@ export class Game {
       (!this.board.inside(point) || !Number.isInteger(point.x) || !Number.isInteger(point.y))
     )
       return { ok: false, reason: 'Invalid target cell.' };
-    if (plan.effect.kind === 'stoneLine' || plan.effect.kind === 'beacon')
-      return { ok: false, reason: 'This board skill is still being ported.' };
+    if (plan.effect.kind === 'stoneLine' && this.stoneLine)
+      return { ok: false, reason: 'The stone line is still being built.' };
+    if (plan.effect.kind === 'beacon') {
+      const refusal = this.beaconRefusal(plan.effect.point);
+      if (refusal) return { ok: false, reason: refusal };
+    }
     const gem = this.gems.find((g) => g.id === target);
     const position =
-      gem?.cell ?? (target !== undefined && target < 0 ? this.stones.get(-target) : point);
+      plan.effect.kind === 'stoneLine'
+        ? undefined
+        : (gem?.cell ?? (target !== undefined && target < 0 ? this.stones.get(-target) : point));
     if (position && !this.near(position, this.heroPosition, 500 / CELL_UNITS))
       return { ok: false, reason: 'Move the hero closer to this tower.' };
     if (
@@ -476,6 +492,25 @@ export class Game {
     )
       return { ok: false, reason: 'No normal stone is close to this tower.' };
     return { ok: true };
+  }
+  /** guangzhudaobiao's placement checks, in the original's order. */
+  private beaconRefusal(p: Cell) {
+    const kind = this.board.kind(p);
+    if (kind === 'no-build' || kind === 'outside') return 'Unable to build here';
+    if (this.creeps.some((c) => this.near(c, p, 192 / CELL_UNITS))) return 'Unable to build here';
+    if (this.friendlyAt(p)) return 'Unable to build here';
+    if (kind === 'waypoint') return 'Unable to build here';
+    if (!this.findRoute(undefined, p)) return 'Blocked if build here';
+    return null;
+  }
+  /** A friendly unit within 58 units of a cell centre: stone, tower, hero or beacon. */
+  private friendlyAt(c: Cell) {
+    return (
+      this.stoneAt(c) ||
+      !!this.gemAt(c) ||
+      this.near(this.heroPosition, c, 58 / CELL_UNITS) ||
+      (this.beacon?.x === c.x && this.beacon?.y === c.y)
+    );
   }
   castHero(action: string, target: number | undefined, tick: number, point?: Cell): Check {
     const check = this.canHeroAction(action, target, point, tick);
@@ -520,6 +555,24 @@ export class Game {
         this.gems = this.gems.filter((g) => !this.draft.includes(g.id));
         this.draft = [];
         this.route = this.findRoute() ?? this.route;
+      } else if (effect.kind === 'beacon') {
+        // The new beacon replaces the old one; the original re-checks the route when it lands.
+        const p = { x: effect.point.x, y: effect.point.y };
+        const previous = this.beacon;
+        this.beacon = null;
+        this.beacon = this.beaconRefusal(p) ? previous : p;
+        this.route = this.findRoute() ?? this.route;
+      } else if (effect.kind === 'stoneLine') {
+        // gemtd_hero_shitou (line 8818): from the hero's cell, one stone per 0.2 s along its facing.
+        this.stoneLine = {
+          left: effect.count,
+          next: tick,
+          at: {
+            x: Math.floor(this.heroPosition.x + 0.5),
+            y: Math.floor(this.heroPosition.y + 0.5),
+          },
+          dir: { ...this.heroFacing },
+        };
       } else if (effect.kind === 'towerBuff') {
         const target = this.gems.find((g) => g.id === effect.target);
         if (target) {
@@ -614,6 +667,7 @@ export class Game {
         dx = point.x - this.heroPosition.x,
         dy = point.y - this.heroPosition.y,
         d = Math.sqrt(dx * dx + dy * dy);
+      if (d > 0) this.heroFacing = { x: dx / d, y: dy / d };
       if (d <= distance) {
         this.heroPosition = { ...point };
         this.heroRoute.shift();
@@ -626,6 +680,38 @@ export class Game {
         distance = 0;
       }
     }
+  }
+  private stoneLineStep(tick: number) {
+    const line = this.stoneLine;
+    if (!line || tick < line.next) return;
+    line.at = {
+      x: Math.floor(line.at.x + line.dir.x + 0.5),
+      y: Math.floor(line.at.y + line.dir.y + 0.5),
+    };
+    line.left--;
+    const c = line.at;
+    const kind = this.board.kind(c);
+    // build_1_stone (line 8906) with can_remove_stone = false: any refusal ends the line.
+    const ok =
+      kind !== 'no-build' &&
+      kind !== 'outside' &&
+      !this.creeps.some((e) => this.near(e, c, 96 / CELL_UNITS)) &&
+      !this.friendlyAt(c) &&
+      kind !== 'waypoint' &&
+      !!this.findRoute(c);
+    if (ok) {
+      this.stones.set(key(c), { ...c });
+      this.route = this.findRoute() ?? this.route;
+    } else if (this.stoneAt(c)) {
+      // Running into a normal stone turns it into a random basic gem that stays on the board.
+      const quality = this.rollQuality();
+      const types = this.luaValue<Record<string, string>>('gem_tower_basic');
+      const name = types[this.rng.int(1, Object.keys(types).length)] + quality;
+      this.stones.delete(key(c));
+      this.gems.push({ id: this.nextId++, name, cell: { ...c }, cooldown: 0, target: null });
+    }
+    if (ok && line.left > 0) line.next = tick + Math.round(0.2 * TICK_HZ);
+    else this.stoneLine = null;
   }
   private heroTargetCell(id: number) {
     return id < 0 ? this.stones.get(-id) : this.gems.find((g) => g.id === id)?.cell;
@@ -650,12 +736,13 @@ export class Game {
     this.gems.some((g) => !g.name.includes('shiban') && g.cell.x === x && g.cell.y === y);
 
   /** Ground route through every waypoint (find_all_path, line 6873), or null when any leg is cut. */
-  private findRoute(extra?: Cell): Cell[] | null {
+  private findRoute(extra?: Cell, beacon = this.beacon): Cell[] | null {
     const blocked = extra
       ? (x: number, y: number) => (x === extra.x && y === extra.y) || this.blocked(x, y)
       : this.blocked;
     const route: Cell[] = [];
-    const w = this.flyRoute;
+    // With a beacon the first leg runs path1 -> beacon -> path2 (find_all_path, line 6908).
+    const w = beacon ? [this.flyRoute[0], beacon, ...this.flyRoute.slice(1)] : this.flyRoute;
     for (let i = 0; i + 1 < w.length; i++) {
       const leg = findPath(w[i], w[i + 1], blocked);
       if (!leg) return null;
@@ -675,7 +762,8 @@ export class Game {
     const kind = this.board.kind(c);
     if (kind === 'outside' || kind === 'waypoint' || kind === 'no-build')
       return no('Unable to build here');
-    if (this.gemAt(c)) return no('Unable to build here');
+    if (this.gemAt(c) || (this.beacon?.x === c.x && this.beacon?.y === c.y))
+      return no('Unable to build here');
     if (!this.findRoute(c)) return no('Blocked if build here');
     return { ok: true };
   }
@@ -685,13 +773,7 @@ export class Game {
     if (!check.ok) return check;
     this.stones.delete(key(c)); // building on a stone replaces it (line 4960)
     // Quality from the hero level's odds table (gem_gailv), then a uniform type (gem_tower_basic).
-    const roll = this.rng.int(1, 100);
-    let quality = '1';
-    let best = 0;
-    for (const [per, lv] of Object.entries(
-      this.luaValue<Record<string, Record<string, string>>>('gem_gailv')[this.heroLevel] ?? {},
-    ))
-      if (roll > Number(per) && best <= Number(per)) [best, quality] = [Number(per), lv];
+    let quality = this.rollQuality();
     if (this.prayers.quality) {
       if (!this.perfected) {
         const prayerRoll = this.rng.int(1, 100);
@@ -710,6 +792,17 @@ export class Game {
     this.draft.push(gem.id);
     this.route = this.findRoute() ?? this.route;
     return { ok: true };
+  }
+
+  private rollQuality() {
+    const roll = this.rng.int(1, 100);
+    let quality = '1';
+    let best = 0;
+    for (const [per, lv] of Object.entries(
+      this.luaValue<Record<string, Record<string, string>>>('gem_gailv')[this.heroLevel] ?? {},
+    ))
+      if (roll > Number(per) && best <= Number(per)) [best, quality] = [Number(per), lv];
+    return quality;
   }
 
   canRemove(c: Cell): Check {
@@ -1453,6 +1546,7 @@ export class Game {
     this.time = tick;
     this.events = [];
     this.heroStep(tick);
+    this.stoneLineStep(tick);
     if (this.tabletUpgradeIn > 0 && --this.tabletUpgradeIn === 0) {
       for (const g of [...this.gems]) {
         const upgrade = this.combineOptions(g.id).find((p) => p.kind === 'tablet-upgrade');
@@ -1516,6 +1610,8 @@ export class Game {
       if (mvp && (this.waveDamage[mvp.id] ?? 0) > 0) mvp.level = (mvp.level ?? 0) + 1;
       // EndRoundIfNoEnemyAlive (line 13441)
       for (const g of this.gems) [g.cooldown, g.target] = [0, null];
+      this.beacon = null; // start_build removes the beacon (line 4662)
+      this.route = this.findRoute() ?? this.route;
       if (this.level >= LAST_LEVEL) {
         // No build phase after 50 (line 4683): the next wave follows after 11 s at 50, else 1.1 s.
         const delay = Math.round((this.level === LAST_LEVEL ? 11 : 1.1) * TICK_HZ);
@@ -1562,6 +1658,9 @@ export class Game {
       hero: this.hero,
       heroPosition: this.heroPosition,
       heroRoute: this.heroRoute,
+      heroFacing: this.heroFacing,
+      beacon: this.beacon,
+      stoneLine: this.stoneLine,
       pendingHero: this.pendingHero,
       prayers: this.prayers,
       perfected: this.perfected,
