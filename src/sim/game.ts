@@ -47,7 +47,7 @@ export interface Creep {
   damage: number;
 }
 export type GameEvent =
-  | { type: 'attack'; from: number; to: number; damage: number }
+  | { type: 'attack'; from: number; to: number; damage: number; x: number; y: number }
   | { type: 'kill'; id: number; gold: number }
   | { type: 'leak'; id: number; damage: number };
 export type Refusal = { ok: false; reason: string };
@@ -309,7 +309,14 @@ export class Game {
     const damage = raw * (1 - (0.06 * a) / (1 + 0.06 * Math.abs(a)));
     target.hp -= damage;
     g.cooldown = Math.max(1, Math.round(num(u, 'AttackRate') * TICK_HZ));
-    this.events.push({ type: 'attack', from: g.id, to: target.id, damage });
+    this.events.push({
+      type: 'attack',
+      from: g.id,
+      to: target.id,
+      damage,
+      x: target.x,
+      y: target.y,
+    });
     if (target.hp <= 0) this.kill(target);
   }
 
