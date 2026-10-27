@@ -1,9 +1,12 @@
-import { useSignal } from '@preact/signals';
+import { useSignal, type Signal } from '@preact/signals';
 import type { ComponentChildren } from 'preact';
-import type { Board, Cell } from '../sim/board';
+import type { Cell } from '../sim/board';
+import { DRAFT_SIZE, LAST_LEVEL, qualityOf, type Check, type Game } from '../sim/game';
+import type { Cmd, Sim } from '../sim/sim';
 import { announcement, rotateMode, selected, view, type CameraActions } from '../input/camera';
 
-// DOM overlay: status bar, lower-left selection info, lower-right icon toolstrip with camera flyout.
+// DOM overlay: status bar, top-left round summary, lower-left selection info with actions,
+// lower-right icon toolstrip with camera flyout, end-of-game card.
 // Panels marked data-exclude are measured and kept clear of playable cells by the camera fit.
 
 const WAYPOINT_NAMES = [
@@ -15,62 +18,71 @@ const WAYPOINT_NAMES = [
   'Checkpoint 5',
   'Castle exit (E)',
 ];
+const QUALITY = ['', 'Chipped', 'Flawed', 'Normal', 'Flawless', 'Perfect', 'Huge'];
+const XP_NEXT = [250, 650, 1200, 1900];
 
-function describe(board: Board, cell: Cell) {
-  const kind = board.kind(cell);
-  if (kind === 'waypoint') {
-    const i = board.waypoints.findIndex((w) => w.cell.x === cell.x && w.cell.y === cell.y);
-    return { title: WAYPOINT_NAMES[i], detail: 'Creep route waypoint. Cannot build here.' };
-  }
-  return {
-    stone: { title: 'Stone', detail: 'Default wall stone placed at game start.' },
-    'no-build': {
-      title: 'No-build zone',
-      detail: cell.x <= 9 ? 'Reserved around the spawn.' : 'Reserved around the castle.',
-    },
-    open: { title: 'Open cell', detail: 'Gems can be placed here once building starts.' },
-    outside: { title: 'Outside the board', detail: '' },
-  }[kind];
-}
-
-export function Hud({
-  board,
-  actions,
-  mode,
-  version,
-}: {
-  board: Board;
+type Props = {
+  sim: Sim;
+  ticked: Signal<number>;
+  paused: Signal<boolean>;
+  send: (cmd: Cmd) => void;
   actions: CameraActions;
   mode: string;
-  version: string;
-}) {
+};
+
+/** English display name from the original localization, e.g. "chipped sapphire/B1" -> "Chipped sapphire". */
+function displayName(sim: Sim, unit: string) {
+  const tokens = (
+    sim.data.files['localization/english.json'] as { lang: { Tokens: Record<string, string> } }
+  ).lang.Tokens;
+  const text = (tokens[unit] ?? unit).split('/')[0];
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+const code = (name: string) => `${name[6].toUpperCase()}${qualityOf(name)}`;
+const same = (a: Cell, b: Cell) => a.x === b.x && a.y === b.y;
+
+export function Hud({ sim, ticked, paused, send, actions, mode }: Props) {
+  // Passed down as a prop: signal-aware components skip re-renders when only their parent's signals change.
+  const tick = ticked.value;
+  const game = sim.game;
   const flyout = useSignal(false);
-  const cell = selected.value;
-  const info = cell && describe(board, cell);
   const v = view.value;
+  const level = game.heroLevel;
   return (
     <>
       <header class="status" data-exclude>
         <strong>Facet TD</strong>
         <span>{mode === 'classic' ? 'Classic' : 'Facet'}</span>
-        <span class="muted">data {version}</span>
+        <span class="tabular">
+          Wave {game.level}/{LAST_LEVEL}
+        </span>
+        <span>
+          {paused.value
+            ? 'Paused'
+            : game.phase === 'build'
+              ? 'Build'
+              : game.phase === 'wave'
+                ? 'Wave'
+                : 'Game over'}
+        </span>
+        <span class="tabular" aria-label={`Castle ${game.castleHp} of 100 HP`}>
+          Castle {game.castleHp}
+        </span>
+        <span class="tabular">Gold {game.gold}</span>
+        <span
+          class="tabular"
+          title={
+            level < 5
+              ? `${game.xp} of ${XP_NEXT[level - 1]} XP to the next build level`
+              : 'Highest build level'
+          }
+        >
+          Build Lv {level}
+        </span>
       </header>
 
-      <section class="panel info" data-exclude aria-label="Selection">
-        {info ? (
-          <>
-            <h2>{info.title}</h2>
-            <p class="muted tabular">
-              Cell {cell.x}, {cell.y}
-            </p>
-            {info.detail && <p>{info.detail}</p>}
-          </>
-        ) : (
-          <p>
-            Click or tap a cell to inspect it, or focus the board and use the arrow keys and Enter.
-          </p>
-        )}
-      </section>
+      <RoundSummary sim={sim} tick={tick} />
+      <SelectionPanel sim={sim} send={send} tick={tick} />
 
       <div
         class="tools"
@@ -115,13 +127,146 @@ export function Hud({
           >
             <path d="M4 8h4l2-3h4l2 3h4v11H4z M12 10a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7" />
           </Tool>
+          <Tool
+            label="Pause"
+            pressed={paused.value}
+            onClick={() => {
+              paused.value = !paused.value;
+              announcement.value = paused.value ? 'Paused' : 'Resumed';
+            }}
+          >
+            {paused.value ? <path d="M7 5v14l12-7z" /> : <path d="M8 5v14 M16 5v14" />}
+          </Tool>
         </div>
       </div>
+
+      {(game.phase === 'lost' || game.phase === 'won') && <EndCard game={game} tick={tick} />}
 
       <div class="sr-only" aria-live="polite">
         {announcement.value}
       </div>
     </>
+  );
+}
+
+/** The five gems placed this round (IMPLEMENTATION.md "HUD and input"); a filled slot selects its gem. */
+function RoundSummary({ sim }: { sim: Sim; tick: number }) {
+  const game = sim.game;
+  const draft = game.draft.map((id) => game.gems.find((g) => g.id === id)!);
+  return (
+    <section class="panel summary" data-exclude aria-label="This round">
+      {game.phase === 'wave' ? (
+        <p class="tabular">
+          Wave {game.level}: {game.creeps.length} creeps on the board
+        </p>
+      ) : (
+        <div class="slots">
+          {Array.from({ length: DRAFT_SIZE }, (_, i) => {
+            const g = draft[i];
+            if (!g)
+              return <button class="slot" disabled aria-label={`Gem ${i + 1} of 5: not placed`} />;
+            const label = `Gem ${i + 1} of 5: ${displayName(sim, g.name)}, cell ${g.cell.x}, ${g.cell.y}`;
+            const active = selected.value !== null && same(selected.value, g.cell);
+            return (
+              <button
+                class={`slot gem-${g.name[6]}`}
+                aria-label={label}
+                title={label}
+                aria-pressed={active}
+                onClick={() => {
+                  selected.value = { ...g.cell };
+                  announcement.value = `Selected ${displayName(sim, g.name)}`;
+                }}
+              >
+                {code(g.name)}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function SelectionPanel({ sim, send }: { sim: Sim; send: (cmd: Cmd) => void; tick: number }) {
+  const game = sim.game;
+  const cell = selected.value;
+  if (!cell)
+    return (
+      <section class="panel info" data-exclude aria-label="Selection">
+        <p>
+          {game.phase === 'build'
+            ? `Select an open cell and place gem ${game.draft.length + 1} of 5.`
+            : 'Click or tap a cell to inspect it.'}
+        </p>
+      </section>
+    );
+  const gem = game.gemAt(cell);
+  const kind = sim.board.kind(cell);
+  let title = 'Open cell';
+  let detail = '';
+  const buttons: [string, Check, Cmd][] = [];
+  if (gem) {
+    const u = game.unit(gem.name);
+    title = displayName(sim, gem.name);
+    detail = `${QUALITY[qualityOf(gem.name)]} · damage ${u.AttackDamageMin}–${u.AttackDamageMax} · every ${u.AttackRate}s · range ${(Number(u.AttackRange) / 128).toFixed(1)} cells`;
+    if (game.draft.includes(gem.id))
+      for (const up of [0, 1, 2] as const) {
+        const r = game.keepResult(gem.id, up);
+        if (up === 0 || r.ok || game.draft.length === DRAFT_SIZE)
+          buttons.push([up ? `Keep +${up}` : 'Keep', r, { type: 'keep', id: gem.id, upgrade: up }]);
+        if (up && r.ok) detail += ` · Keep +${up} makes ${displayName(sim, r.name).toLowerCase()}`;
+      }
+  } else if (game.stoneAt(cell)) {
+    title = 'Stone';
+    detail = 'Blocks the creep route. A gem can be built over it.';
+    buttons.push(['Remove stone', game.canRemove(cell), { type: 'remove', cell }]);
+  } else if (kind === 'waypoint') {
+    title = WAYPOINT_NAMES[sim.board.waypoints.findIndex((w) => same(w.cell, cell))];
+    detail = 'Creep route waypoint. Cannot build here.';
+  } else if (kind === 'no-build') {
+    title = 'No-build zone';
+    detail = cell.x <= 9 ? 'Reserved around the spawn.' : 'Reserved around the castle.';
+  }
+  if (!gem && kind !== 'waypoint' && kind !== 'no-build')
+    buttons.unshift(['Place gem', game.canBuild(cell), { type: 'build', cell }]);
+  const refusal = buttons.find(([, check]) => !check.ok)?.[1];
+  return (
+    <section class="panel info" data-exclude aria-label="Selection">
+      <h2>{title}</h2>
+      <p class="muted tabular">
+        Cell {cell.x}, {cell.y}
+      </p>
+      {detail && <p>{detail}</p>}
+      {buttons.length > 0 && (
+        <div class="actions">
+          {buttons.map(([label, check, cmd]) => (
+            <button disabled={!check.ok} onClick={() => send(cmd)}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      {refusal && !refusal.ok && <p class="muted">{refusal.reason}</p>}
+    </section>
+  );
+}
+
+function EndCard({ game }: { game: Game; tick: number }) {
+  const won = game.phase === 'won';
+  return (
+    <div class="end" role="dialog" aria-modal="true" aria-labelledby="end-title">
+      <div class="panel end-card">
+        <h2 id="end-title">{won ? 'Victory' : 'The castle fell'}</h2>
+        <p>{won ? `All ${LAST_LEVEL} waves cleared.` : `Wave ${game.level} broke through.`}</p>
+        <p class="tabular">
+          Gold {game.gold} · Build level {game.heroLevel}
+        </p>
+        <button ref={(b) => b?.focus()} onClick={() => (location.href = location.pathname)}>
+          Play again
+        </button>
+      </div>
+    </div>
   );
 }
 

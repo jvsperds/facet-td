@@ -3,7 +3,7 @@ import { loadData } from '../src/data';
 import { Rng } from '../src/sim/rng';
 import { Sim } from '../src/sim/sim';
 
-const data = loadData('classic', { 'x.json': { a: 1 } }, {});
+const data = loadData('classic');
 
 function play(seed: number) {
   const sim = new Sim(data, seed, 4);

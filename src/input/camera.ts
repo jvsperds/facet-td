@@ -1,5 +1,6 @@
 import { signal } from '@preact/signals';
 import type { Board, Cell } from '../sim/board';
+import type { Cmd } from '../sim/sim';
 import {
   arrowStep,
   azimuth,
@@ -30,7 +31,7 @@ export const announcement = signal('');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const clampZoom = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
 
-export function createCameraInput(world: World, board: Board) {
+export function createCameraInput(world: World, board: Board, send: (cmd: Cmd) => void) {
   const set = (patch: Partial<ViewState>, animate = true) => {
     view.value = { ...view.value, ...patch };
     world.setView(view.value, animate && !reducedMotion.matches);
@@ -155,6 +156,8 @@ export function createCameraInput(world: World, board: Board) {
       cursor.value = next;
       reveal(next);
       announcement.value = `Cell ${next.x}, ${next.y}`;
+    } else if (e.key === 'b' || e.key === 'B') {
+      if (cursor.value) send({ type: 'build', cell: cursor.value });
     } else if (e.key === '+' || e.key === '=') actions.zoomBy(1.25);
     else if (e.key === '-') actions.zoomBy(1 / 1.25);
     else return;

@@ -1,22 +1,30 @@
-import { effect } from '@preact/signals';
+import { effect, signal } from '@preact/signals';
 import { render } from 'preact';
 import { loadData, type Mode } from './data';
 import { Hud } from './hud/Hud';
 import { createCameraInput, cursor, selected } from './input/camera';
-import { Board } from './sim/board';
-import { Sim, TICK_HZ } from './sim/sim';
+import { Sim, TICK_HZ, type Cmd } from './sim/sim';
 import { createWorld } from './world/world';
 import './style.css';
 
 const mode: Mode = 'classic';
-const sim = new Sim(loadData(mode), 1);
-const board = new Board(sim.data);
-const world = createWorld(board);
+// The seed is the only outside input; `?seed=` replays a game.
+const seed = Number(new URLSearchParams(location.search).get('seed')) || Date.now() >>> 0;
+const sim = new Sim(loadData(mode), seed);
+const board = sim.board;
+const world = createWorld(board, sim.game);
 document.body.prepend(world.canvas);
-const actions = createCameraInput(world, board);
+const send = (cmd: Cmd) => sim.send(0, cmd);
+const actions = createCameraInput(world, board, send);
+/** Bumped after sim steps so the HUD re-reads sim state. */
+const ticked = signal(0);
+const paused = signal(false);
 
 const hudRoot = document.getElementById('hud')!;
-render(<Hud board={board} actions={actions} mode={mode} version={sim.data.version} />, hudRoot);
+render(
+  <Hud sim={sim} ticked={ticked} paused={paused} send={send} actions={actions} mode={mode} />,
+  hudRoot,
+);
 
 // Camera fit avoids every HUD panel, re-measured whenever the window or a panel changes size.
 const measure = () => {
@@ -29,9 +37,10 @@ const measure = () => {
   );
 };
 const panelObserver = new ResizeObserver(measure);
-new MutationObserver(() =>
-  hudRoot.querySelectorAll('[data-exclude]').forEach((el) => panelObserver.observe(el)),
-).observe(hudRoot, {
+new MutationObserver(() => {
+  hudRoot.querySelectorAll('[data-exclude]').forEach((el) => panelObserver.observe(el));
+  measure(); // panels that appear or disappear change the fit
+}).observe(hudRoot, {
   childList: true,
   subtree: true,
 });
@@ -41,15 +50,40 @@ measure();
 
 effect(() => world.setMarks(selected.value, cursor.value));
 
-// Fixed-rate sim clock; nothing is simulated on the board yet.
+// Fixed-rate sim clock. Pausing stops stepping; queued commands apply on resume.
+world.afterStep();
 let last = performance.now();
 let acc = 0;
+let lastShown = '';
 setInterval(() => {
   const now = performance.now();
   acc += Math.min(now - last, 250) / 1000;
   last = now;
-  for (; acc >= 1 / TICK_HZ; acc -= 1 / TICK_HZ) sim.step();
+  if (paused.value) acc = 0;
+  let stepped = false;
+  for (; acc >= 1 / TICK_HZ; acc -= 1 / TICK_HZ) {
+    sim.step();
+    world.afterStep();
+    stepped = true;
+  }
+  // Re-render the HUD only when something it shows changed; build checks there run route searches.
+  const g = sim.game;
+  const shown = [
+    g.phase,
+    g.level,
+    g.castleHp,
+    g.gold,
+    g.xp,
+    g.creeps.length,
+    g.draft.length,
+    g.gems.length,
+    g.stones.size,
+  ].join();
+  if (stepped && shown !== lastShown) {
+    lastShown = shown;
+    ticked.value++;
+  }
 }, 1000 / TICK_HZ);
 
 // Test hook for the Playwright smoke test (dev server only).
-if (import.meta.env.DEV) Object.assign(window, { facet: { world, board } });
+if (import.meta.env.DEV) Object.assign(window, { facet: { world, board, sim } });

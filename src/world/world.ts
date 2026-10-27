@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-// shortcut: the reviewed phase 1.5 factories are imported in place from docs/art; move them under src/world when phase 3 adopts towers.
-import { createStone } from '../../docs/art/model-study/models.js';
 import type { Board, Cell } from '../sim/board';
+import type { Game } from '../sim/game';
+import { TICK_HZ } from '../sim/game';
+import { createPieces } from './pieces';
 import { azimuth, elevation, frame, toCell, toScene, type Rect, type ViewState } from './view';
 
 // Draws the board and owns the orthographic camera. Reads sim state, never changes it.
@@ -23,7 +24,7 @@ const LABEL_MIN_PX = 22;
 
 export type World = ReturnType<typeof createWorld>;
 
-export function createWorld(board: Board) {
+export function createWorld(board: Board, game: Game) {
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
@@ -84,21 +85,9 @@ export function createWorld(board: Board) {
   slab.receiveShadow = true;
   scene.add(ground, slab);
 
-  // Default stones as connected castle walls (docs/art/model-study/WALLS.md).
-  const isStone = (x: number, y: number) => board.kind({ x, y }) === 'stone';
-  const stones: THREE.Object3D[] = board.stones.map(({ x, y }) => {
-    const { x: sx, z: sz } = toScene({ x, y });
-    const neighbours = {
-      north: isStone(x, y + 1),
-      south: isStone(x, y - 1),
-      east: isStone(x + 1, y),
-      west: isStone(x - 1, y),
-    };
-    const stone = createStone({ x: sx, z: sz, neighbours, seed: 1 });
-    stone.position.set(sx, 0, sz);
-    return stone;
-  });
-  scene.add(...stones);
+  // Stones, towers and creeps follow the sim (pieces.ts).
+  const pieces = createPieces(scene, game);
+  let lastStep = performance.now();
 
   // Waypoint labels stay upright and unoccluded through every rotation.
   const labels = board.waypoints.map((w, i) => {
@@ -212,18 +201,19 @@ export function createWorld(board: Board) {
     return f;
   };
   function updateOccluders() {
+    const blockers = pieces.objects();
     const hit = new Set<THREE.Object3D>();
     const d = new THREE.Vector3(...current.basis.d);
     for (const cell of focusCells) {
       const { x, z } = toScene(cell);
       ray.set(new THREE.Vector3(x, 0.15, z), d);
-      for (const i of ray.intersectObjects(stones, true)) {
+      for (const i of ray.intersectObjects(blockers, true)) {
         let o: THREE.Object3D = i.object;
-        while (o.parent && !stones.includes(o)) o = o.parent;
-        if (stones.includes(o) && !(o.position.x === x && o.position.z === z)) hit.add(o);
+        while (o.parent && !blockers.includes(o)) o = o.parent;
+        if (blockers.includes(o) && !(o.position.x === x && o.position.z === z)) hit.add(o);
       }
     }
-    for (const s of stones)
+    for (const s of blockers)
       s.traverse((o) => {
         if (!(o instanceof THREE.Mesh)) return;
         o.userData.solid ??= o.material;
@@ -232,9 +222,15 @@ export function createWorld(board: Board) {
   }
 
   let lastKey = '';
+  let lastFrame = performance.now();
   renderer.setAnimationLoop((now) => {
     place(now);
-    const key = `${shown.e},${shown.a},${focusCells.map((c) => `${c.x}:${c.y}`)}`;
+    pieces.frame(
+      Math.min(1, (now - lastStep) * (TICK_HZ / 1000)),
+      Math.min(0.1, (now - lastFrame) / 1000),
+    );
+    lastFrame = now;
+    const key = `${shown.e},${shown.a},${focusCells.map((c) => `${c.x}:${c.y}`)},${pieces.version}`;
     if (key !== lastKey) updateOccluders();
     lastKey = key;
     renderer.render(scene, camera);
@@ -247,6 +243,11 @@ export function createWorld(board: Board) {
   return {
     canvas: renderer.domElement,
     setView,
+    /** Call after every sim tick so pieces follow the sim. */
+    afterStep() {
+      pieces.afterStep();
+      lastStep = performance.now();
+    },
     get scale() {
       return current.scale;
     },
