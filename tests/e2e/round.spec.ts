@@ -6,8 +6,12 @@ type Facet = {
   world: { moving: boolean; screenOf(c: Cell): { x: number; y: number } };
   sim: { game: { draft: number[]; gems: { id: number; cell: Cell }[]; phase: string } };
 };
+// Copy only the checked fields: the full game state is large and slow to serialize.
 const facet = (page: Page) =>
-  page.evaluate(() => (window as unknown as { facet: Facet }).facet.sim.game);
+  page.evaluate(() => {
+    const g = (window as unknown as { facet: Facet }).facet.sim.game;
+    return { draft: g.draft, gems: g.gems.map(({ id, cell }) => ({ id, cell })), phase: g.phase };
+  });
 
 async function select(page: Page, cell: Cell) {
   await page.waitForFunction(() => !(window as unknown as { facet: Facet }).facet.world.moving);
