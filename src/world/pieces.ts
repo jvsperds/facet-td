@@ -1,14 +1,20 @@
 import * as THREE from 'three';
-import { createCreep, createGemTower, createStone } from '../../docs/art/model-study/models.js';
+import {
+  createCreep,
+  createGemTower,
+  createStone,
+  GEM_TYPES,
+} from '../../docs/art/model-study/models.js';
 import type { Cell } from '../sim/board';
 import { qualityOf, type Game } from '../sim/game';
 import { toScene } from './view';
 
-// Everything on the board that the sim owns: stones, gem towers, creeps and attack flashes.
+// Everything on the board that the sim owns: stones, gem towers, creeps and combat effects.
 // Rebuilt from sim state after each tick; creeps interpolate between the last two ticks.
 
-const FLASH_SECONDS = 0.12;
-const MAX_FLASHES = 128;
+const TRAVEL_SECONDS = 0.12;
+const IMPACT_SECONDS = 0.24;
+const MAX_EFFECTS = 128;
 // The art study draws thin walls (core half 0.22, wall half-width 0.16, plinth radius 0.31); the board
 // stretches them to fill their cell, and filled neighbours touch, so the joining arms are dropped.
 const ALONG = 0.5 / 0.22;
@@ -59,18 +65,38 @@ function fillCell(obj: THREE.Object3D, n: Record<string, boolean>, tower: boolea
 export function createPieces(scene: THREE.Scene, game: Game) {
   const cells = new Map<number, Piece>();
   const creeps = new Map<number, CreepView>();
-  const flashes: { from: number; to: number; age: number }[] = [];
-  // One preallocated buffer; a new attribute per frame would leak a GPU buffer each frame.
-  const flashPositions = new THREE.BufferAttribute(new Float32Array(MAX_FLASHES * 6), 3);
-  flashPositions.setUsage(THREE.DynamicDrawUsage);
-  const flashGeometry = new THREE.BufferGeometry().setAttribute('position', flashPositions);
-  flashGeometry.setDrawRange(0, 0);
-  const flashLines = new THREE.LineSegments(
-    flashGeometry,
-    new THREE.LineBasicMaterial({ color: '#FFF6C8', depthTest: false }),
+  const effects: {
+    start: THREE.Vector3;
+    end: THREE.Vector3;
+    color: THREE.Color;
+    age: number;
+    lethal: boolean;
+  }[] = [];
+  // Two fixed instance buffers keep dense volleys bounded without per-frame GPU allocations.
+  const projectiles = new THREE.InstancedMesh(
+    new THREE.OctahedronGeometry(0.14),
+    new THREE.MeshBasicMaterial(),
+    MAX_EFFECTS,
   );
-  flashLines.renderOrder = 9;
-  scene.add(flashLines);
+  const impacts = new THREE.InstancedMesh(
+    new THREE.RingGeometry(0.7, 1, 16),
+    new THREE.MeshBasicMaterial({
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.75,
+      depthWrite: false,
+    }),
+    MAX_EFFECTS,
+  );
+  projectiles.name = 'combat-projectiles';
+  impacts.name = 'combat-impacts';
+  for (const mesh of [projectiles, impacts]) {
+    mesh.count = 0;
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    mesh.frustumCulled = false; // instances move independently of the mesh origin
+    scene.add(mesh);
+  }
+  const pose = new THREE.Object3D();
   let version = 0;
 
   function syncCells() {
@@ -163,9 +189,29 @@ export function createPieces(scene: THREE.Scene, game: Game) {
     /** Call after every sim tick. */
     afterStep() {
       syncCells();
-      syncCreeps();
+      // Capture endpoints before removing dead creeps, so lethal shots still arrive and burst.
+      const killed = new Set(game.events.filter((e) => e.type === 'kill').map((e) => e.id));
       for (const e of game.events)
-        if (e.type === 'attack') flashes.push({ from: e.from, to: e.to, age: 0 });
+        if (e.type === 'attack') {
+          const gem = game.gems.find((g) => g.id === e.from);
+          const live = game.creeps.find((c) => c.id === e.to);
+          const previous = creeps.get(e.to);
+          // shortcut: a creep killed on its spawn tick bursts at the entrance; use event positions if exact impacts become necessary.
+          const cell = live ?? previous?.cur ?? (killed.has(e.to) ? game.flyRoute[0] : undefined);
+          if (!gem || !cell) continue;
+          const start = toScene(gem.cell);
+          const end = toScene(cell);
+          const color = GEM_TYPES.find((t) => t.id === gem.name[6].toUpperCase())!.color;
+          if (effects.length === MAX_EFFECTS) effects.shift();
+          effects.push({
+            start: new THREE.Vector3(start.x, 1.2, start.z),
+            end: new THREE.Vector3(end.x, (previous?.height ?? 0.8) - 0.25, end.z),
+            color: new THREE.Color(color),
+            age: 0,
+            lethal: killed.has(e.to),
+          });
+        }
+      syncCreeps();
     },
     /** Call every frame; `alpha` is the fraction of the current tick that has elapsed. */
     frame(alpha: number, dt: number) {
@@ -179,32 +225,44 @@ export function createPieces(scene: THREE.Scene, game: Game) {
         if (dx || dy) v.obj.rotation.y = Math.atan2(dy, dx);
         (v.bar.userData.holder as THREE.Object3D).position.set(s.x, v.height, s.z);
       }
-      // Towers face their current target; flashes connect tower heads to creeps briefly.
+      // Towers face their current target; visual travel never delays sim damage.
       for (const g of game.gems) {
         const obj = cells.get(key(g.cell))?.obj;
         const t = g.target !== null ? creeps.get(g.target) : undefined;
         if (t) obj?.userData.aimAt(t.obj.position.x, t.obj.position.z);
         else obj?.userData.aimAt();
       }
-      let n = 0;
-      for (let i = flashes.length - 1; i >= 0; i--) {
-        const f = flashes[i];
+      let shots = 0;
+      let rings = 0;
+      for (let i = effects.length - 1; i >= 0; i--) {
+        const f = effects[i];
         f.age += dt;
-        const gem = game.gems.find((g) => g.id === f.from);
-        const target = creeps.get(f.to);
-        if (f.age > FLASH_SECONDS || !gem || !target) {
-          flashes.splice(i, 1);
+        if (f.age >= TRAVEL_SECONDS + IMPACT_SECONDS) {
+          effects.splice(i, 1);
           continue;
         }
-        if (n >= MAX_FLASHES) continue;
-        const s = toScene(gem.cell);
-        const p = target.obj.position;
-        flashPositions.array.set([s.x, 1, s.z, p.x, target.height - 0.25, p.z], n * 6);
-        n++;
+        if (f.age < TRAVEL_SECONDS) {
+          pose.position.lerpVectors(f.start, f.end, f.age / TRAVEL_SECONDS);
+          pose.rotation.set(0, f.age * 12, 0);
+          pose.scale.setScalar(1);
+          pose.updateMatrix();
+          projectiles.setMatrixAt(shots, pose.matrix);
+          projectiles.setColorAt(shots++, f.color);
+        } else {
+          const t = (f.age - TRAVEL_SECONDS) / IMPACT_SECONDS;
+          pose.position.copy(f.end);
+          pose.rotation.set(-Math.PI / 2, 0, 0);
+          pose.scale.setScalar((0.15 + t * (f.lethal ? 0.8 : 0.4)) * (1 - t));
+          pose.updateMatrix();
+          impacts.setMatrixAt(rings, pose.matrix);
+          impacts.setColorAt(rings++, f.color);
+        }
       }
-      if (n || flashGeometry.drawRange.count) {
-        flashGeometry.setDrawRange(0, n * 2);
-        flashPositions.needsUpdate = true;
+      projectiles.count = shots;
+      impacts.count = rings;
+      for (const mesh of [projectiles, impacts]) {
+        mesh.instanceMatrix.needsUpdate = true;
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       }
     },
   };
