@@ -86,6 +86,8 @@ p {
   flex-direction: column;
   gap: 8px;
   padding: 8px;
+  max-height: calc(100dvh - 336px);
+  overflow: auto;
 }
 button {
   min-width: 48px;
@@ -137,8 +139,22 @@ button[aria-expanded='true'] {
   }
 }
 
+@media (max-height: 600px) and (min-width: 601px) {
+  .tools {
+    flex-direction: row;
+    align-items: flex-end;
+  }
+  .flyout {
+    width: 360px;
+    max-height: calc(100dvh - 100px);
+  }
+}
+
 /* Phone portrait: the toolstrip becomes a row so the board keeps its width. */
 @media (max-width: 600px) {
+  .flyout {
+    max-height: calc(100dvh - 168px);
+  }
   .strip {
     flex-direction: row;
   }
@@ -161,12 +177,24 @@ button[aria-expanded='true'] {
   box-sizing: border-box;
   width: 296px;
   max-width: calc(100vw - 24px);
-  height: 66px;
+  height: 142px;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: space-between;
 }
 .summary p {
   margin: 4px 8px;
+}
+.combat-notice {
+  font-size: 14px;
+}
+.reward {
+  color: #d4dec7;
+  font-size: 13px;
+}
+.danger {
+  color: #ffb3af;
 }
 .slots {
   display: flex;

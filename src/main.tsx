@@ -1,7 +1,9 @@
 import { effect, signal } from '@preact/signals';
 import { render } from 'preact';
+import { createAudio } from './audio';
 import { loadData, type Mode } from './data';
 import { Hud } from './hud/Hud';
+import { createFeedback } from './hud/feedback';
 import { createCameraInput, cursor, selected } from './input/camera';
 import { Sim, TICK_HZ, type Cmd } from './sim/sim';
 import { createWorld } from './world/world';
@@ -19,10 +21,25 @@ const actions = createCameraInput(world, board, send);
 /** Bumped after sim steps so the HUD re-reads sim state. */
 const ticked = signal(0);
 const paused = signal(false);
+const routeVisible = signal(false);
+const feedback = createFeedback(sim.game);
+const audio = createAudio();
+addEventListener('pointerdown', () => audio.unlock());
+addEventListener('keydown', () => audio.unlock());
 
 const hudRoot = document.getElementById('hud')!;
 render(
-  <Hud sim={sim} ticked={ticked} paused={paused} send={send} actions={actions} mode={mode} />,
+  <Hud
+    sim={sim}
+    ticked={ticked}
+    paused={paused}
+    send={send}
+    actions={actions}
+    mode={mode}
+    feedback={feedback}
+    audio={audio}
+    routeVisible={routeVisible}
+  />,
   hudRoot,
 );
 
@@ -49,6 +66,7 @@ addEventListener('resize', measure);
 measure();
 
 effect(() => world.setMarks(selected.value, cursor.value));
+effect(() => world.setRouteVisible(routeVisible.value));
 
 // Fixed-rate sim clock. Pausing stops stepping; queued commands apply on resume.
 world.afterStep();
@@ -64,6 +82,7 @@ setInterval(() => {
   for (; acc >= 1 / TICK_HZ; acc -= 1 / TICK_HZ) {
     sim.step();
     world.afterStep();
+    audio.play(feedback.afterStep());
     stepped = true;
   }
   // Re-render the HUD only when something it shows changed; build checks there run route searches.

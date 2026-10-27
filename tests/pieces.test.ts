@@ -30,7 +30,7 @@ test('lethal shots retain their endpoints, burst, expire and reuse fixed instanc
   const buffer = shots.instanceMatrix;
   game.creeps = [];
   game.events = [
-    { type: 'attack', from: 1, to: 2, damage: 10 },
+    { type: 'attack', from: 1, to: 2, damage: 10, x: 13, y: 12 },
     { type: 'kill', id: 2, gold: 5 },
   ];
   pieces.afterStep();
@@ -48,12 +48,15 @@ test('lethal shots retain their endpoints, burst, expire and reuse fixed instanc
   expect(shots.instanceMatrix).toBe(buffer);
 
   game.events = [
-    { type: 'attack', from: 1, to: 99, damage: 10 },
+    { type: 'attack', from: 1, to: 99, damage: 10, x: 14, y: 12 },
     { type: 'kill', id: 99, gold: 5 },
   ];
   pieces.afterStep();
   pieces.frame(1, 0.01);
   expect(shots.count).toBe(1); // even a creep killed before its first rendered tick gets an effect
+  pieces.frame(1, 0.12);
+  rings.getMatrixAt(0, matrix);
+  expect(new THREE.Vector3().setFromMatrixPosition(matrix).x).toBe(-5);
   pieces.frame(1, 1);
 
   // A busy tick cannot grow the effect buffers or retain an unbounded backlog.
@@ -71,10 +74,26 @@ test('lethal shots retain their endpoints, burst, expire and reuse fixed instanc
     boss: false,
     damage: 1,
   });
-  game.events = Array.from({ length: 300 }, () => ({ type: 'attack', from: 1, to: 3, damage: 1 }));
+  game.events = Array.from({ length: 300 }, () => ({
+    type: 'attack',
+    from: 1,
+    to: 3,
+    damage: 1,
+    x: 13,
+    y: 12,
+  }));
   pieces.afterStep();
   pieces.frame(1, 0.01);
   expect(shots.count).toBe(128);
   pieces.frame(1, 1);
   expect(shots.count + rings.count).toBe(0);
+  pieces.afterStep();
+  pieces.frame(1, 0.01, true);
+  expect(shots.count).toBe(0);
+  expect(rings.count).toBe(128);
+  rings.getMatrixAt(0, matrix);
+  const before = matrix.clone();
+  pieces.frame(1, 0.1, true);
+  rings.getMatrixAt(0, matrix);
+  expect(matrix.equals(before)).toBe(true);
 });

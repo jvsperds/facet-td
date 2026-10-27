@@ -194,13 +194,10 @@ export function createPieces(scene: THREE.Scene, game: Game) {
       for (const e of game.events)
         if (e.type === 'attack') {
           const gem = game.gems.find((g) => g.id === e.from);
-          const live = game.creeps.find((c) => c.id === e.to);
           const previous = creeps.get(e.to);
-          // shortcut: a creep killed on its spawn tick bursts at the entrance; use event positions if exact impacts become necessary.
-          const cell = live ?? previous?.cur ?? (killed.has(e.to) ? game.flyRoute[0] : undefined);
-          if (!gem || !cell) continue;
+          if (!gem) continue;
           const start = toScene(gem.cell);
-          const end = toScene(cell);
+          const end = toScene(e);
           const color = GEM_TYPES.find((t) => t.id === gem.name[6].toUpperCase())!.color;
           if (effects.length === MAX_EFFECTS) effects.shift();
           effects.push({
@@ -214,7 +211,7 @@ export function createPieces(scene: THREE.Scene, game: Game) {
       syncCreeps();
     },
     /** Call every frame; `alpha` is the fraction of the current tick that has elapsed. */
-    frame(alpha: number, dt: number) {
+    frame(alpha: number, dt: number, reducedMotion = false) {
       for (const v of creeps.values()) {
         const x = v.prev.x + (v.cur.x - v.prev.x) * alpha;
         const y = v.prev.y + (v.cur.y - v.prev.y) * alpha;
@@ -241,7 +238,7 @@ export function createPieces(scene: THREE.Scene, game: Game) {
           effects.splice(i, 1);
           continue;
         }
-        if (f.age < TRAVEL_SECONDS) {
+        if (f.age < TRAVEL_SECONDS && !reducedMotion) {
           pose.position.lerpVectors(f.start, f.end, f.age / TRAVEL_SECONDS);
           pose.rotation.set(0, f.age * 12, 0);
           pose.scale.setScalar(1);
@@ -249,10 +246,12 @@ export function createPieces(scene: THREE.Scene, game: Game) {
           projectiles.setMatrixAt(shots, pose.matrix);
           projectiles.setColorAt(shots++, f.color);
         } else {
-          const t = (f.age - TRAVEL_SECONDS) / IMPACT_SECONDS;
+          const t = Math.max(0, (f.age - TRAVEL_SECONDS) / IMPACT_SECONDS);
           pose.position.copy(f.end);
           pose.rotation.set(-Math.PI / 2, 0, 0);
-          pose.scale.setScalar((0.15 + t * (f.lethal ? 0.8 : 0.4)) * (1 - t));
+          pose.scale.setScalar(
+            reducedMotion ? 0.22 : (0.2 + t * (f.lethal ? 1.2 : 0.65)) * (1 - t),
+          );
           pose.updateMatrix();
           impacts.setMatrixAt(rings, pose.matrix);
           impacts.setColorAt(rings++, f.color);

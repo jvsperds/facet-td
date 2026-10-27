@@ -1,5 +1,7 @@
 import { useSignal, type Signal } from '@preact/signals';
 import type { ComponentChildren } from 'preact';
+import type { Audio } from '../audio';
+import type { Feedback } from './feedback';
 import type { Cell } from '../sim/board';
 import { DRAFT_SIZE, LAST_LEVEL, qualityOf, type Check, type Game } from '../sim/game';
 import type { Cmd, Sim } from '../sim/sim';
@@ -28,6 +30,9 @@ type Props = {
   send: (cmd: Cmd) => void;
   actions: CameraActions;
   mode: string;
+  feedback: Feedback;
+  audio: Audio;
+  routeVisible: Signal<boolean>;
 };
 
 /** English display name from the original localization, e.g. "chipped sapphire/B1" -> "Chipped sapphire". */
@@ -41,7 +46,17 @@ function displayName(sim: Sim, unit: string) {
 const code = (name: string) => `${name[6].toUpperCase()}${qualityOf(name)}`;
 const same = (a: Cell, b: Cell) => a.x === b.x && a.y === b.y;
 
-export function Hud({ sim, ticked, paused, send, actions, mode }: Props) {
+export function Hud({
+  sim,
+  ticked,
+  paused,
+  send,
+  actions,
+  mode,
+  feedback,
+  audio,
+  routeVisible,
+}: Props) {
   // Passed down as a prop: signal-aware components skip re-renders when only their parent's signals change.
   const tick = ticked.value;
   const game = sim.game;
@@ -65,7 +80,10 @@ export function Hud({ sim, ticked, paused, send, actions, mode }: Props) {
                 ? 'Wave'
                 : 'Game over'}
         </span>
-        <span class="tabular" aria-label={`Castle ${game.castleHp} of 100 HP`}>
+        <span
+          class={`tabular ${game.castleHp <= 25 ? 'danger' : ''}`}
+          aria-label={`Castle ${game.castleHp} of 100 HP`}
+        >
           Castle {game.castleHp}
         </span>
         <span class="tabular">Gold {game.gold}</span>
@@ -81,7 +99,7 @@ export function Hud({ sim, ticked, paused, send, actions, mode }: Props) {
         </span>
       </header>
 
-      <RoundSummary sim={sim} tick={tick} />
+      <RoundSummary sim={sim} tick={tick} feedback={feedback} />
       <SelectionPanel sim={sim} send={send} tick={tick} />
 
       <div
@@ -96,6 +114,22 @@ export function Hud({ sim, ticked, paused, send, actions, mode }: Props) {
             <button onClick={() => actions.zoomBy(1.25)}>Zoom in</button>
             <button onClick={() => actions.zoomBy(1 / 1.25)}>Zoom out</button>
             <button onClick={actions.reset}>Reset view</button>
+            <button
+              aria-pressed={routeVisible.value}
+              onClick={() => (routeVisible.value = !routeVisible.value)}
+            >
+              Show routes
+            </button>
+            <small>Ground: solid · Flying: dashed</small>
+            <button
+              disabled={!audio.available.value}
+              aria-pressed={audio.enabled.value}
+              onClick={() => audio.toggle()}
+            >
+              {audio.available.value
+                ? `Sound ${audio.enabled.value ? 'on' : 'off'}`
+                : 'Sound unavailable'}
+            </button>
           </div>
         )}
         <div class="strip panel" role="toolbar" aria-label="Tools">
@@ -150,7 +184,7 @@ export function Hud({ sim, ticked, paused, send, actions, mode }: Props) {
 }
 
 /** The five gems placed this round (IMPLEMENTATION.md "HUD and input"); a filled slot selects its gem. */
-function RoundSummary({ sim }: { sim: Sim; tick: number }) {
+function RoundSummary({ sim, feedback }: { sim: Sim; tick: number; feedback: Feedback }) {
   const game = sim.game;
   const draft = game.draft.map((id) => game.gems.find((g) => g.id === id)!);
   return (
@@ -184,6 +218,17 @@ function RoundSummary({ sim }: { sim: Sim; tick: number }) {
           })}
         </div>
       )}
+      <p
+        class={`combat-notice ${feedback.notice.value.danger ? 'danger' : ''}`}
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {feedback.notice.value.text}
+      </p>
+      <p class="reward tabular" aria-label="Wave rewards">
+        {feedback.reward.value.kills} kills · +{feedback.reward.value.gold} gold this wave
+      </p>
     </section>
   );
 }

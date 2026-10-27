@@ -28,6 +28,8 @@ export function createWorld(board: Board, game: Game) {
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
   renderer.domElement.setAttribute('role', 'img');
   renderer.domElement.setAttribute(
     'aria-label',
@@ -44,6 +46,7 @@ export function createWorld(board: Board, game: Game) {
   Object.assign(sun.shadow.camera, { left: -27, right: 27, top: 27, bottom: -27, far: 80 });
   sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.bias = -0.0003;
+  sun.shadow.normalBias = 0.02;
   scene.add(sun);
 
   // Ground: one mesh of per-cell quads coloured by cell kind.
@@ -87,6 +90,41 @@ export function createWorld(board: Board, game: Game) {
 
   // Stones, towers and creeps follow the sim (pieces.ts).
   const pieces = createPieces(scene, game);
+  const route = new THREE.Line(
+    new THREE.BufferGeometry(),
+    new THREE.LineBasicMaterial({ color: '#164FAD', depthTest: false }),
+  );
+  const flyingRoute = new THREE.Line(
+    new THREE.BufferGeometry(),
+    new THREE.LineDashedMaterial({
+      color: '#5A3421',
+      depthTest: false,
+      dashSize: 0.3,
+      gapSize: 0.25,
+    }),
+  );
+  const routes = new THREE.Group().add(route, flyingRoute);
+  route.renderOrder = flyingRoute.renderOrder = 5;
+  routes.visible = false;
+  scene.add(routes);
+  let lastRoute: Cell[] | undefined;
+  function syncRoute() {
+    if (game.route === lastRoute) return;
+    lastRoute = game.route;
+    for (const [line, cells] of [
+      [route, game.route],
+      [flyingRoute, game.flyRoute],
+    ] as const) {
+      line.geometry.dispose();
+      line.geometry = new THREE.BufferGeometry().setFromPoints(
+        cells.map((cell) => {
+          const { x, z } = toScene(cell);
+          return new THREE.Vector3(x, 0.05, z);
+        }),
+      );
+      line.computeLineDistances();
+    }
+  }
   let lastStep = performance.now();
 
   // Waypoint labels stay upright and unoccluded through every rotation.
@@ -140,7 +178,7 @@ export function createWorld(board: Board, game: Game) {
     target = next;
     from = { ...shown };
     started = performance.now();
-    duration = animate ? TRANSITION_MS : 0;
+    duration = animate && !reducedMotion.matches ? TRANSITION_MS : 0;
   }
 
   function place(now: number) {
@@ -228,6 +266,7 @@ export function createWorld(board: Board, game: Game) {
     pieces.frame(
       Math.min(1, (now - lastStep) * (TICK_HZ / 1000)),
       Math.min(0.1, (now - lastFrame) / 1000),
+      reducedMotion.matches,
     );
     lastFrame = now;
     const key = `${shown.e},${shown.a},${focusCells.map((c) => `${c.x}:${c.y}`)},${pieces.version}`;
@@ -243,9 +282,14 @@ export function createWorld(board: Board, game: Game) {
   return {
     canvas: renderer.domElement,
     setView,
+    setRouteVisible(visible: boolean) {
+      routes.visible = visible;
+      if (visible) syncRoute();
+    },
     /** Call after every sim tick so pieces follow the sim. */
     afterStep() {
       pieces.afterStep();
+      if (routes.visible) syncRoute();
       lastStep = performance.now();
     },
     get scale() {
@@ -256,6 +300,7 @@ export function createWorld(board: Board, game: Game) {
       return performance.now() < started + duration;
     },
     resize(w: number, h: number) {
+      if (viewport.w === w && viewport.h === h) return;
       viewport = { x: 0, y: 0, w, h };
       renderer.setSize(w, h);
     },
