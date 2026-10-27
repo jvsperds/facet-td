@@ -1,11 +1,12 @@
 import type { GameData } from '../data';
+import { readTowerAbilities, type TowerAbility } from './abilities';
 import { Board, CELL_UNITS, type Cell } from './board';
 import { findPath } from './path';
 import type { Rng } from './rng';
 
 // Gem TD's single-player loop, ported from addon_game_mode.lua (line numbers cite the VPK script):
 // build five random gems, keep one (the rest become stones), then a wave walks the maze to the castle.
-// Not yet ported (phase 5): tower and creep abilities, recipes/combines, downgrades, hero skills and
+// Not yet ported (phase 5): remaining tower and creep abilities, recipes/combines, downgrades, hero skills and
 // prayers, elites, enrage, levels past 50.
 
 export const TICK_HZ = 30;
@@ -45,6 +46,8 @@ export interface Creep {
   boss: boolean;
   /** Castle HP lost if it arrives. */
   damage: number;
+  /** Named VPK modifiers: repeated hits refresh a tier; different tiers stack. */
+  modifiers?: Record<string, { expires: number; slow: number; armor: number }>;
 }
 export type GameEvent =
   | { type: 'attack'; from: number; to: number; damage: number; x: number; y: number }
@@ -81,6 +84,7 @@ export class Game {
   private nextId = 1;
   private readonly units: Record<string, Unit>;
   private readonly lua: Record<string, { value: unknown }>;
+  private readonly abilitiesByUnit: Record<string, TowerAbility[]>;
 
   constructor(
     data: GameData,
@@ -89,6 +93,7 @@ export class Game {
   ) {
     this.units = (data.files['npc/units.json'] as { DOTAUnits: Record<string, Unit> }).DOTAUnits;
     this.lua = data.files['lua/addon_game_mode.json'] as Record<string, { value: unknown }>;
+    this.abilitiesByUnit = readTowerAbilities(data);
     this.castleHp = this.luaValue<number>('gem_castle_hp');
     for (const s of board.stones) this.stones.set(key(s), s);
     this.flyRoute = board.waypoints.map((w) => w.cell);
@@ -100,6 +105,43 @@ export class Game {
   }
   unit(name: string): Unit {
     return this.units[name];
+  }
+
+  abilities(name: string): readonly TowerAbility[] {
+    return this.abilitiesByUnit[name] ?? [];
+  }
+
+  /** Opal tiers stack; two emitters of the same modifier grant only one buff (VPK tooltips). */
+  attackInterval(gem: Gem) {
+    let bonus = 0;
+    for (const a of this.abilities(gem.name)) if (a.kind === 'speed') bonus += a.amount;
+    const auras = new Set<string>();
+    for (const source of this.gems)
+      for (const a of this.abilities(source.name)) {
+        if (a.kind !== 'aura' || auras.has(a.modifier)) continue;
+        if (sq(source.cell.x - gem.cell.x) + sq(source.cell.y - gem.cell.y) > sq(a.radius))
+          continue;
+        auras.add(a.modifier);
+        bonus += a.amount;
+      }
+    // Dota's 100 base attack speed, capped at 700 since 7.20 (dota2.com/720).
+    return (
+      (num(this.units[gem.name], 'AttackRate') * 100) / Math.min(700, Math.max(20, 100 + bonus))
+    );
+  }
+
+  creepStats(c: Creep) {
+    let slow = 0;
+    let armor = c.armor;
+    for (const m of Object.values(c.modifiers ?? {})) {
+      slow += m.slow;
+      armor += m.armor;
+    }
+    // shortcut: assumes Dota's 100 movement-speed floor; verify against the original runtime before Classic certification.
+    const speed = slow
+      ? Math.max(100 / CELL_UNITS / TICK_HZ, c.speed + slow / CELL_UNITS / TICK_HZ)
+      : c.speed;
+    return { speed, armor };
   }
 
   get heroLevel() {
@@ -269,7 +311,7 @@ export class Game {
 
   private move(c: Creep) {
     const route = c.fly ? this.flyRoute : this.route;
-    let left = c.speed;
+    let left = this.creepStats(c).speed;
     while (left > 0 && c.step < route.length) {
       const t = route[c.step];
       const dx = t.x - c.x;
@@ -288,7 +330,7 @@ export class Game {
     }
   }
 
-  private attack(g: Gem) {
+  private attack(g: Gem, tick: number) {
     if (g.cooldown > 0) g.cooldown--;
     const u = this.units[g.name];
     const range = num(u, 'AttackRange') / CELL_UNITS;
@@ -302,13 +344,18 @@ export class Game {
       }
     }
     g.target = target?.id ?? null;
-    if (!target || g.cooldown > 0) return;
+    if (!target) {
+      g.cooldown = Math.max(0, g.cooldown);
+      return;
+    }
+    if (g.cooldown > 0) return;
     // Pre-7.20 Dota armour: damage x (1 - 0.06a / (1 + 0.06|a|)).
-    const a = target.armor;
+    const a = this.creepStats(target).armor;
     const raw = this.rng.int(num(u, 'AttackDamageMin'), num(u, 'AttackDamageMax'));
     const damage = raw * (1 - (0.06 * a) / (1 + 0.06 * Math.abs(a)));
     target.hp -= damage;
-    g.cooldown = Math.max(1, Math.round(num(u, 'AttackRate') * TICK_HZ));
+    // Carry fractional tick debt so fast towers keep their average rate at 30 Hz.
+    g.cooldown += Math.max(1, this.attackInterval(g) * TICK_HZ);
     this.events.push({
       type: 'attack',
       from: g.id,
@@ -318,6 +365,16 @@ export class Game {
       y: target.y,
     });
     if (target.hp <= 0) this.kill(target);
+    else
+      for (const effect of this.abilities(g.name)) {
+        if (effect.kind !== 'slow' && effect.kind !== 'armor') continue;
+        target.modifiers ??= {};
+        target.modifiers[effect.modifier] = {
+          expires: tick + Math.round(effect.duration * TICK_HZ),
+          slow: effect.kind === 'slow' ? effect.amount : 0,
+          armor: effect.kind === 'armor' ? effect.amount : 0,
+        };
+      }
   }
 
   /** OnEntityKilled (line 6480): XP and gold by level band. */
@@ -339,8 +396,13 @@ export class Game {
       this.spawn();
       this.nextSpawn = tick + SPAWN_TICKS;
     }
-    for (const c of this.creeps) this.move(c);
-    for (const g of this.gems) this.attack(g);
+    for (const c of this.creeps) {
+      for (const [name, m] of Object.entries(c.modifiers ?? {}))
+        if (m.expires <= tick) delete c.modifiers![name];
+      if (c.modifiers && !Object.keys(c.modifiers).length) delete c.modifiers;
+      this.move(c);
+    }
+    for (const g of this.gems) this.attack(g, tick);
     if (tick % SPAWN_TICKS === 0) {
       const castle = this.flyRoute[this.flyRoute.length - 1];
       for (const c of [...this.creeps]) {

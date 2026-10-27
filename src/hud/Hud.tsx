@@ -254,7 +254,14 @@ function SelectionPanel({ sim, send }: { sim: Sim; send: (cmd: Cmd) => void; tic
   if (gem) {
     const u = game.unit(gem.name);
     title = displayName(sim, gem.name);
-    detail = `${QUALITY[qualityOf(gem.name)]} · damage ${u.AttackDamageMin}–${u.AttackDamageMax} · every ${u.AttackRate}s · range ${(Number(u.AttackRange) / 128).toFixed(1)} cells`;
+    detail = `${QUALITY[qualityOf(gem.name)]} · damage ${u.AttackDamageMin}–${u.AttackDamageMax} · every ${game.attackInterval(gem).toFixed(2)}s · range ${(Number(u.AttackRange) / 128).toFixed(1)} cells`;
+    for (const a of game.abilities(gem.name)) {
+      if (a.kind === 'slow') detail += ` · On hit: ${a.amount} movement speed for ${a.duration}s`;
+      else if (a.kind === 'armor') detail += ` · On hit: ${a.amount} armor for ${a.duration}s`;
+      else if (a.kind === 'speed') detail += ` · +${a.amount} attack speed`;
+      else if (a.kind === 'aura')
+        detail += ` · Aura: +${a.amount} attack speed within ${a.radius.toFixed(2)} cells`;
+    }
     if (game.draft.includes(gem.id))
       for (const up of [0, 1, 2] as const) {
         const r = game.keepResult(gem.id, up);
