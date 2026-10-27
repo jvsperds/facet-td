@@ -1,58 +1,55 @@
+import { effect } from '@preact/signals';
 import { render } from 'preact';
-import { signal } from '@preact/signals';
-import * as THREE from 'three';
 import { loadData, type Mode } from './data';
+import { Hud } from './hud/Hud';
+import { createCameraInput, cursor, selected } from './input/camera';
+import { Board } from './sim/board';
 import { Sim, TICK_HZ } from './sim/sim';
+import { createWorld } from './world/world';
 import './style.css';
 
-// Phase 1 placeholder: proves the stack wires together. The board comes in phase 2.
 const mode: Mode = 'classic';
 const sim = new Sim(loadData(mode), 1);
-const tick = signal(0);
+const board = new Board(sim.data);
+const world = createWorld(board);
+document.body.prepend(world.canvas);
+const actions = createCameraInput(world, board);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-document.body.prepend(renderer.domElement);
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
-camera.position.set(3, 3, 3);
-camera.lookAt(0, 0, 0);
-const gem = new THREE.Mesh(
-  new THREE.OctahedronGeometry(1),
-  new THREE.MeshStandardMaterial({ color: 0x4fa3ff, flatShading: true }),
-);
-scene.add(gem, new THREE.AmbientLight(0xffffff, 0.4));
-const sun = new THREE.DirectionalLight(0xffffff, 2);
-sun.position.set(2, 4, 1);
-scene.add(sun);
+const hudRoot = document.getElementById('hud')!;
+render(<Hud board={board} actions={actions} mode={mode} version={sim.data.version} />, hudRoot);
 
-const resize = () => {
-  renderer.setSize(innerWidth, innerHeight);
-  renderer.setPixelRatio(devicePixelRatio);
-  camera.aspect = innerWidth / innerHeight;
-  camera.updateProjectionMatrix();
+// Camera fit avoids every HUD panel, re-measured whenever the window or a panel changes size.
+const measure = () => {
+  world.resize(innerWidth, innerHeight);
+  world.setPanels(
+    [...hudRoot.querySelectorAll('[data-exclude]')].map((el) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.left, y: r.top, w: r.width, h: r.height };
+    }),
+  );
 };
-addEventListener('resize', resize);
-resize();
+const panelObserver = new ResizeObserver(measure);
+new MutationObserver(() =>
+  hudRoot.querySelectorAll('[data-exclude]').forEach((el) => panelObserver.observe(el)),
+).observe(hudRoot, {
+  childList: true,
+  subtree: true,
+});
+hudRoot.querySelectorAll('[data-exclude]').forEach((el) => panelObserver.observe(el));
+addEventListener('resize', measure);
+measure();
 
+effect(() => world.setMarks(selected.value, cursor.value));
+
+// Fixed-rate sim clock; nothing is simulated on the board yet.
 let last = performance.now();
 let acc = 0;
-renderer.setAnimationLoop((now) => {
+setInterval(() => {
+  const now = performance.now();
   acc += Math.min(now - last, 250) / 1000;
   last = now;
-  while (acc >= 1 / TICK_HZ) {
-    sim.step();
-    acc -= 1 / TICK_HZ;
-  }
-  tick.value = sim.tick;
-  gem.rotation.y = now / 1000;
-  renderer.render(scene, camera);
-});
+  for (; acc >= 1 / TICK_HZ; acc -= 1 / TICK_HZ) sim.step();
+}, 1000 / TICK_HZ);
 
-function Hud() {
-  return (
-    <div class="hud">
-      Facet TD · {mode} · data {sim.data.version} · tick {tick}
-    </div>
-  );
-}
-render(<Hud />, document.getElementById('hud')!);
+// Test hook for the Playwright smoke test (dev server only).
+if (import.meta.env.DEV) Object.assign(window, { facet: { world, board } });

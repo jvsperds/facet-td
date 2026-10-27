@@ -8,6 +8,7 @@
     "jsxImportSource": "preact",
     "strict": true,
     "resolveJsonModule": true,
+    "allowJs": true,
     "noEmit": true,
     "skipLibCheck": true,
     "types": ["vite/client"]

@@ -22,6 +22,7 @@ The work log is the shared Vault, project **Facet TD** (`Vault/Projects/Facet TD
 | --- | --- | --- | --- |
 | 1, Foundation | Facet TD phase 0-1 scaffold and sim copy | `src/`, `data/`, `tests/`, tool config (`package.json`, `vite.config.ts`, ...) | `phase-1/foundation` |
 | 1.5, Art and UI direction | Facet TD phase 1.5 art and UI direction | `docs/art/` (direction doc, mockups, HUD wireframe) | `phase-1.5/art-direction` |
+| 2, Board | Facet TD phase 2 board | `src/`, `tests/`, tool config; imports `docs/art/model-study` factories read-only | `phase-2/board` |
 
 - Edit only paths you own. Phase 1.5 writes no code in `src/`.
 - `docs/PLAN.md` and this file belong to the lead. Propose changes in your task's activity log.
