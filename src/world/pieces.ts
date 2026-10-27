@@ -1,10 +1,5 @@
 import * as THREE from 'three';
-import {
-  createCreep,
-  createGemTower,
-  createStone,
-  FLY_ALTITUDE,
-} from '../../docs/art/model-study/models.js';
+import { createCreep, createGemTower, createStone } from '../../docs/art/model-study/models.js';
 import type { Cell } from '../sim/board';
 import { qualityOf, type Game } from '../sim/game';
 import { toScene } from './view';
@@ -14,6 +9,12 @@ import { toScene } from './view';
 
 const FLASH_SECONDS = 0.12;
 const MAX_FLASHES = 128;
+// The art study draws thin walls (core half 0.22, wall half-width 0.16, plinth radius 0.31); the board
+// stretches them to fill their cell, and filled neighbours touch, so the joining arms are dropped.
+const ALONG = 0.5 / 0.22;
+const ACROSS = 0.5 / 0.16;
+const PLINTH = 0.5 / 0.31;
+const CREEP_SCALE = 2;
 const BAR = { width: 0.5, height: 0.07, back: '#25282C', fill: '#7ED07A', low: '#FFB3AF' };
 
 type Piece = { sig: string; obj: THREE.Object3D };
@@ -23,7 +24,6 @@ type CreepView = {
   prev: { x: number; y: number };
   cur: { x: number; y: number };
   height: number;
-  fly: boolean;
 };
 
 const key = (c: Cell) => c.y * 64 + c.x;
@@ -40,6 +40,20 @@ function dispose(o: THREE.Object3D) {
     if (!m.userData.sharedMaterial)
       (Array.isArray(m.material) ? m.material : [m.material]).forEach((x) => x.dispose());
   });
+}
+
+function fillCell(obj: THREE.Object3D, n: Record<string, boolean>, tower: boolean) {
+  const horizontal = !tower && (n.east || n.west) && !n.north && !n.south;
+  const vertical = !tower && (n.north || n.south) && !n.east && !n.west;
+  obj.scale.set(vertical ? ACROSS : ALONG, ALONG, horizontal ? ACROSS : ALONG);
+  // Children: core mesh, one group per joining arm, then the tower itself on gem cells.
+  obj.children.slice(1, tower ? -1 : undefined).forEach(dispose);
+  if (!tower) return;
+  const t = obj.children.at(-1)!;
+  // Quality still sets the size, compressed so even a chipped tower fills most of its cell.
+  const s = PLINTH * (0.7 + 0.3 * t.scale.y);
+  t.scale.setScalar(s / ALONG); // undo the base stretch: the tower grows evenly
+  t.position.y = 0.08 * (1 - s / ALONG); // keep the plinth seated on the stone, as the factory does
 }
 
 export function createPieces(scene: THREE.Scene, game: Game) {
@@ -90,6 +104,7 @@ export function createPieces(scene: THREE.Scene, game: Game) {
           } as typeof options)
         : createStone(options);
       obj.position.set(sx, 0, sz);
+      fillCell(obj, neighbours, !!name);
       obj.userData.cell = cell;
       scene.add(obj);
       cells.set(k, { sig, obj });
@@ -110,6 +125,8 @@ export function createPieces(scene: THREE.Scene, game: Game) {
       if (!v) {
         const scale = Number(game.unit(c.name)?.ModelScale ?? 1);
         const obj = createCreep({ modelScale: scale, flying: c.fly, boss: c.boss });
+        // Grow body and shadow in place; the body's flying altitude stays as the factory set it.
+        for (const part of obj.children) part.scale.setScalar(CREEP_SCALE);
         const bar = new THREE.Sprite(BAR_FILL);
         const back = new THREE.Sprite(BAR_BACK);
         back.scale.set(BAR.width, BAR.height, 1);
@@ -123,8 +140,7 @@ export function createPieces(scene: THREE.Scene, game: Game) {
           bar,
           prev: { x: c.x, y: c.y },
           cur: { x: c.x, y: c.y },
-          height: obj.userData.healthBarY ?? 0.5,
-          fly: c.fly,
+          height: new THREE.Box3().setFromObject(obj).max.y + 0.15,
         };
         creeps.set(c.id, v);
       }
@@ -157,11 +173,11 @@ export function createPieces(scene: THREE.Scene, game: Game) {
         const x = v.prev.x + (v.cur.x - v.prev.x) * alpha;
         const y = v.prev.y + (v.cur.y - v.prev.y) * alpha;
         const s = toScene({ x, y });
-        const lift = v.fly ? FLY_ALTITUDE : 0;
-        v.obj.position.set(s.x, lift, s.z);
+        // The creep factory already lifts flying bodies; the group stays on the ground with the shadow.
+        v.obj.position.set(s.x, 0, s.z);
         const [dx, dy] = [v.cur.x - v.prev.x, v.cur.y - v.prev.y];
         if (dx || dy) v.obj.rotation.y = Math.atan2(dy, dx);
-        (v.bar.userData.holder as THREE.Object3D).position.set(s.x, lift + v.height + 0.12, s.z);
+        (v.bar.userData.holder as THREE.Object3D).position.set(s.x, v.height, s.z);
       }
       // Towers face their current target; flashes connect tower heads to creeps briefly.
       for (const g of game.gems) {
@@ -183,7 +199,7 @@ export function createPieces(scene: THREE.Scene, game: Game) {
         if (n >= MAX_FLASHES) continue;
         const s = toScene(gem.cell);
         const p = target.obj.position;
-        flashPositions.array.set([s.x, 1, s.z, p.x, p.y + target.height * 0.6, p.z], n * 6);
+        flashPositions.array.set([s.x, 1, s.z, p.x, target.height - 0.25, p.z], n * 6);
         n++;
       }
       if (n || flashGeometry.drawRange.count) {
