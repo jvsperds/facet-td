@@ -360,7 +360,9 @@ function SelectionPanel({ sim, send }: { sim: Sim; send: (cmd: Cmd) => void; tic
               ? `Select an open cell and place gem ${game.draft.length + 1} of 5.`
               : 'Click or tap a cell to inspect it.'}
           </p>
-          <p class="muted">Arrow keys move the board cursor; Enter selects.</p>
+          <p class="muted">
+            Double-click a cell to place a gem. Arrow keys move the cursor; Enter selects.
+          </p>
         </div>
       </section>
     );

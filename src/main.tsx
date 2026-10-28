@@ -17,7 +17,7 @@ const board = sim.board;
 const world = createWorld(board, sim.game);
 document.body.prepend(world.canvas);
 const send = (cmd: Cmd) => sim.send(0, cmd);
-const actions = createCameraInput(world, board, send);
+const actions = createCameraInput(world, board, send, (cell) => sim.game.canBuild(cell).ok);
 /** Bumped after sim steps so the HUD re-reads sim state. */
 const ticked = signal(0);
 const paused = signal(false);
