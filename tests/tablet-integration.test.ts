@@ -93,7 +93,10 @@ test('a nearby chain-frost tower can trigger from a tablet cast and bounces with
     cooldown: 10000,
     target: null,
   });
-  expect(game.abilities('gemtd_haibao')).toContainEqual({ kind: 'trait', name: 'tower_chain_frost' });
+  expect(game.abilities('gemtd_haibao')).toContainEqual({
+    kind: 'trait',
+    name: 'tower_chain_frost',
+  });
   sim.rng.int = (min) => min;
   sim.step();
   expect(creep.hp).toBeLessThan(creep.maxHp);
