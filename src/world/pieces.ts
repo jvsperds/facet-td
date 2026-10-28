@@ -99,6 +99,21 @@ function extraTower(name: string, options: Parameters<typeof createStone>[0]) {
   return base;
 }
 
+/**
+ * The art-study model for a gem, combined, special or named tower, standing on its stone footing
+ * at the origin. The tower itself is the last child; the HUD renders it for its icons.
+ */
+export function towerModel(name: string) {
+  const options = { x: 0, z: 0, neighbours: {}, seed: 1 };
+  const basic = isBasicGem(name);
+  return basic || TOWER_SPECS.some((t) => t.id === name)
+    ? createGemTower(basic ? name[6].toUpperCase() : name, {
+        ...options,
+        ...(basic ? { quality: qualityOf(name) } : {}),
+      } as typeof options)
+    : extraTower(name, options);
+}
+
 function dispose(o: THREE.Object3D) {
   o.removeFromParent();
   o.traverse((m) => {
@@ -222,15 +237,7 @@ export function createPieces(scene: THREE.Scene, game: Game) {
       // Tower: rebuilt only when the gem changes; the wall handles every join.
       if (!name || cells.get(k)?.sig === name) continue;
       if (cells.has(k)) dispose(cells.get(k)!.obj);
-      const options = { x: sx, z: sz, neighbours: {}, seed: 1 };
-      const basic = isBasicGem(name);
-      const obj =
-        basic || TOWER_SPECS.some((t) => t.id === name)
-          ? createGemTower(basic ? name[6].toUpperCase() : name, {
-              ...options,
-              ...(basic ? { quality: qualityOf(name) } : {}),
-            } as typeof options)
-          : extraTower(name, options);
+      const obj = towerModel(name);
       obj.position.set(sx, 0, sz);
       if (floor.has(k)) layTablet(obj);
       else seatTower(obj);

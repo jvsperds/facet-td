@@ -1,6 +1,6 @@
 import type { GameData } from '../data';
 import type { Game } from '../sim/game';
-import { GemGlyph } from './icons';
+import { TowerIcon } from './TowerIcon';
 import { compact, displayName, gemType } from './names';
 
 // Damage meter (inspired by GemTD's damage panel): this wave's top towers and their share.
@@ -35,7 +35,7 @@ export function DamageMeter({ data, game }: { data: GameData; game: Game }) {
                   style={{ width: `${Math.max(2, share * 100)}%` }}
                   aria-hidden="true"
                 />
-                <GemGlyph type={type} class="glyph mini" />
+                <TowerIcon name={g.name} class="glyph mini" />
                 <span class="damage-name">{displayName(data, g.name)}</span>
                 <span class="tabular">
                   {compact(d)} · {Math.round(share * 100)}%
