@@ -22,7 +22,11 @@ const ORIGIN = 0.5; // board x of lattice column 0 (west edge of cell 1)
 const HALF_BAND = 0.5 / Math.SQRT2; // diagonal band half-width: the band meets the cell corners
 export const WALL_TOP = 0.29;
 const MERLON = { height: 0.09, depth: 0.08, axis: 0.14, diagonal: 0.18 };
-const COURSES = [0, 0.03, 0.115, 0.2, 0.27, WALL_TOP]; // footing, three brick courses, coping
+/** Chamfer on every outer top edge, in cells: just enough to catch the light. */
+export const CHAMFER = 0.025;
+const MERLON_CHAMFER = 0.012;
+// Footing, three brick courses, coping; the chamfer rises from the coping to the walkway.
+const COURSES = [0, 0.03, 0.115, 0.2, 0.27, WALL_TOP - CHAMFER];
 const TONES = {
   footing: '#55595B',
   bricks: ['#6E7272', '#686C6C', '#737676', '#636767'],
@@ -172,6 +176,57 @@ function corners(i: number, j: number, q: number) {
 const filledAt = (r: WallRaster, i: number, j: number, q: number) =>
   i >= 0 && j >= 0 && i < N && j < N && r.filled[(j * N + i) * 4 + q] === 1;
 
+/** Is the board point (x, y) inside the wall footprint? */
+export function filledAtPoint(r: WallRaster, x: number, y: number) {
+  const fx = (x - ORIGIN) / STEP;
+  const fy = (y - ORIGIN) / STEP;
+  const [i, j] = [Math.floor(fx), Math.floor(fy)];
+  const [u, v] = [fx - i, fy - j];
+  const q = v < u && v < 1 - u ? 0 : u > v && u > 1 - v ? 1 : v > u && v > 1 - u ? 2 : 3;
+  return filledAt(r, i, j, q);
+}
+
+const insetCache = new WeakMap<WallRaster, Map<string, Point>>();
+/**
+ * Where a walkway vertex moves for the top-edge chamfer: inward by CHAMFER from every outer
+ * edge meeting it, mitred at corners. Only depends on the shared raster, so neighbouring cells
+ * agree on every shared vertex. Interior vertices and pinch points stay put.
+ */
+export function insetAt(r: WallRaster, x: number, y: number): Point {
+  let cache = insetCache.get(r);
+  if (!cache) insetCache.set(r, (cache = new Map()));
+  const id = `${Math.round(x * 16)},${Math.round(y * 16)}`;
+  const hit = cache.get(id);
+  if (hit) return hit;
+  // Edges leave a lattice corner in eight directions and a square's centre in four diagonals.
+  const corner = Math.abs((x - ORIGIN) / STEP - Math.round((x - ORIGIN) / STEP)) < 1e-6;
+  const reach = corner ? STEP : STEP / 2;
+  const normals: Point[] = [];
+  for (let k = 0; k < 8; k++) {
+    if (!corner && k % 2 === 0) continue;
+    const angle = (k * Math.PI) / 4;
+    const [dx, dy] = [Math.round(Math.cos(angle)), Math.round(Math.sin(angle))];
+    // Sample a quarter of the way along: a diagonal's midpoint is a lattice square's centre,
+    // where all four triangles meet.
+    const [mx, my] = [x + (dx * reach) / 4, y + (dy * reach) / 4];
+    const l = Math.hypot(dx, dy);
+    const [px, py] = [(-dy / l) * 0.01, (dx / l) * 0.01];
+    const left = filledAtPoint(r, mx + px, my + py);
+    const right = filledAtPoint(r, mx - px, my - py);
+    if (left === right) continue;
+    // Outward: toward the free side.
+    normals.push(left ? [dy / l, -dx / l] : [-dy / l, dx / l]);
+  }
+  let result: Point = [x, y];
+  if (normals.length === 2) {
+    const [[ax, ay], [bx, by]] = normals;
+    const k = CHAMFER / (1 + ax * bx + ay * by);
+    result = [x - (ax + bx) * k, y - (ay + by) * k];
+  }
+  cache.set(id, result);
+  return result;
+}
+
 /** What one stone cell draws, in board units: walkway triangles, outer faces and merlons. */
 export interface WallParts {
   walk: { i: number; j: number; points: [Point, Point, Point] }[];
@@ -265,7 +320,7 @@ export function wallMesh(r: WallRaster, cell: Cell, material: THREE.Material) {
   // Walkway: one flagstone tone per lattice square.
   for (const { i, j, points } of parts.walk) {
     pick(TONES.walk, hash(i, j, 7));
-    const [a, b, c] = points.map(([x, y]) => P(x, y, WALL_TOP));
+    const [a, b, c] = points.map(([x, y]) => P(...insetAt(r, x, y), WALL_TOP));
     tri(a, b, c, UP);
   }
 
@@ -296,27 +351,56 @@ export function wallMesh(r: WallRaster, cell: Cell, material: THREE.Material) {
         const [h0, h1] = [COURSES[level], COURSES[level + 1]];
         quad(P(p[0], p[1], h0), P(q[0], q[1], h0), P(q[0], q[1], h1), P(p[0], p[1], h1));
       }
+    // Chamfer: from the top of the coping up and in to the walkway's inset edge.
+    const [fi, ti] = [insetAt(r, ...from), insetAt(r, ...to)];
+    const h = WALL_TOP - CHAMFER;
+    COLOR.set(TONES.coping);
+    quad(
+      P(from[0], from[1], h),
+      P(to[0], to[1], h),
+      P(ti[0], ti[1], WALL_TOP),
+      P(fi[0], fi[1], WALL_TOP),
+    );
   }
 
-  // Merlons: boxes standing on the walkway, their outer face flush with the wall face.
+  // Merlons: boxes standing on the walkway just behind the chamfer, their own tops chamfered.
   for (const m of parts.merlons) {
     const l = Math.hypot(m.dx, m.dy);
     const [tx, ty] = [(m.dx / l) * (m.length / 2), (m.dy / l) * (m.length / 2)];
     const [ix, iy] = [-m.nx * MERLON.depth, -m.ny * MERLON.depth];
+    const [ox, oy] = [m.x - m.nx * CHAMFER, m.y - m.ny * CHAMFER];
     const ring: Point[] = [
-      [m.x - tx, m.y - ty],
-      [m.x + tx, m.y + ty],
-      [m.x + tx + ix, m.y + ty + iy],
-      [m.x - tx + ix, m.y - ty + iy],
+      [ox - tx, oy - ty],
+      [ox + tx, oy + ty],
+      [ox + tx + ix, oy + ty + iy],
+      [ox - tx + ix, oy - ty + iy],
     ];
+    const [cx, cy] = [ox + ix / 2, oy + iy / 2];
+    // Each top corner steps in by the chamfer along both of the box's own axes.
+    const [ux, uy] = [m.dx / l, m.dy / l];
+    const [vx, vy] = [-m.nx, -m.ny];
+    const c = MERLON_CHAMFER;
+    const steps: Point[] = [
+      [c, c],
+      [-c, c],
+      [-c, -c],
+      [c, -c],
+    ];
+    const inner = ring.map(([x, y], n): Point => [
+      x + ux * steps[n][0] + vx * steps[n][1],
+      y + uy * steps[n][0] + vy * steps[n][1],
+    ]);
     const [h0, h1] = [WALL_TOP, WALL_TOP + MERLON.height];
+    const h = h1 - MERLON_CHAMFER;
     pick(TONES.merlon, hash(Math.round(m.x * 8), Math.round(m.y * 8), 3));
-    centre = P(m.x + ix / 2, m.y + iy / 2, (h0 + h1) / 2);
+    centre = P(cx, cy, (h0 + h1) / 2);
     for (let n = 0; n < 4; n++) {
       const [a, b] = [ring[n], ring[(n + 1) % 4]];
-      quad(P(a[0], a[1], h0), P(b[0], b[1], h0), P(b[0], b[1], h1), P(a[0], a[1], h1));
+      const [ai, bi] = [inner[n], inner[(n + 1) % 4]];
+      quad(P(a[0], a[1], h0), P(b[0], b[1], h0), P(b[0], b[1], h), P(a[0], a[1], h));
+      quad(P(a[0], a[1], h), P(b[0], b[1], h), P(bi[0], bi[1], h1), P(ai[0], ai[1], h1));
     }
-    const top = ring.map(([x, y]) => P(x, y, h1));
+    const top = inner.map(([x, y]) => P(x, y, h1));
     tri(top[0], top[1], top[2], UP);
     tri(top[0], top[2], top[3], UP);
   }

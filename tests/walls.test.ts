@@ -1,7 +1,10 @@
 import * as THREE from 'three';
 import { expect, test } from 'vitest';
 import {
+  CHAMFER,
   cellKey,
+  filledAtPoint,
+  insetAt,
   joins,
   wallMesh,
   wallParts,
@@ -143,4 +146,32 @@ test('wall meshes are finite, outward-facing and only exist for stones', () => {
     expect(box.max.y).toBeCloseTo(0.38);
   }
   expect(wallMesh(r, { x: 7, y: 7 }, material)).toBeNull();
+});
+
+test('outer top edges are chamfered a little and mitred at corners; interiors stay flat', () => {
+  const stones: Cell[] = [];
+  for (let x = 10; x < 14; x++) for (let y = 10; y < 14; y++) stones.push({ x, y });
+  const r = wallRaster(occupancy(stones));
+  // Middle of the west face: straight inward by the chamfer.
+  const [x, y] = insetAt(r, 9.5, 11.5);
+  expect(x).toBeCloseTo(9.5 + CHAMFER);
+  expect(y).toBeCloseTo(11.5);
+  // Convex corner: mitred diagonally.
+  const corner = insetAt(r, 9.5, 9.5);
+  expect(corner[0]).toBeCloseTo(9.5 + CHAMFER);
+  expect(corner[1]).toBeCloseTo(9.5 + CHAMFER);
+  // Interior vertex: untouched.
+  expect(insetAt(r, 11.5, 11.5)).toEqual([11.5, 11.5]);
+
+  // A diagonal band's side moves perpendicular to the run.
+  const band = wallRaster(occupancy([0, 1, 2].map((i) => ({ x: 20 + i, y: 20 + i }))));
+  const side = insetAt(band, 20.75, 21.25); // on the band's north-west side
+  expect(side[0] - 20.75).toBeCloseTo(CHAMFER / Math.SQRT2);
+  expect(side[1] - 21.25).toBeCloseTo(-CHAMFER / Math.SQRT2);
+  expect(filledAtPoint(band, ...side)).toBe(true);
+
+  // The mesh still tops out at 0.38 and its walkway corners sit inside the footprint.
+  const mesh = wallMesh(r, { x: 10, y: 10 }, new THREE.MeshStandardMaterial())!;
+  mesh.geometry.computeBoundingBox();
+  expect(mesh.geometry.boundingBox!.max.y).toBeCloseTo(0.38);
 });
