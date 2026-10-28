@@ -1017,6 +1017,22 @@ export class Game {
   get guaiLevel() {
     return this.level > LAST_LEVEL ? this.level - LAST_LEVEL : this.level;
   }
+  /**
+   * The creep the coming (or current) wave spawns, for the HUD's wave preview. Some levels have a
+   * second creep chosen at random when the wave starts (`guai[level + 100]`); both are listed.
+   */
+  get wavePreview(): { names: string[]; count: number } {
+    const guai = this.luaValue<Record<string, string>>('guai');
+    const level = this.guaiLevel;
+    const names = [guai[level], guai[level + 100]].filter((n): n is string => !!n);
+    if (this.phase === 'wave' && this.spawnName) names.splice(0, names.length, this.spawnName);
+    const count = names[0]?.includes('boss') ? 1 : this.luaValue<number>('wave_enemy_count');
+    return { names, count };
+  }
+  /** Damage each tower has dealt this wave, by tower id (read-only view for the damage meter). */
+  get damageThisWave(): Readonly<Record<number, number>> {
+    return this.waveDamage;
+  }
   /** Rage aura from the castle (enemy_crazy, line 3304): +100% speed and magic immunity. */
   get enraged() {
     return this.phase === 'wave' && this.waveTicks > 181 * TICK_HZ;
