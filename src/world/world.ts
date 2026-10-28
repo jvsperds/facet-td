@@ -169,6 +169,44 @@ export function createWorld(board: Board, game: Game) {
   }
   selectedRim.renderOrder = cursor.renderOrder = 10;
 
+  // Row and column guides through the highlighted cell: faint strips across the board that fade
+  // over the five cells nearest each edge, so the axis reads without boxing the board in.
+  const guideStrip = (alongX: boolean) => {
+    const pos: number[] = [];
+    const col: number[] = [];
+    for (let i = 1; i <= n; i++) {
+      const edge = Math.min(i - 1, n - i);
+      const alpha = 0.2 * (edge >= 5 ? 1 : (edge + 1) / 6);
+      // Along x: scene x = i - 19 on the row's line; along z: scene z = 19 - i on the column's.
+      const [a, b] = alongX ? [i - 19.5, i - 18.5] : [18.5 - i, 19.5 - i];
+      const quad = alongX
+        ? [a, -0.5, a, 0.5, b, 0.5, a, -0.5, b, 0.5, b, -0.5]
+        : [-0.5, a, -0.5, b, 0.5, b, -0.5, a, 0.5, b, 0.5, a];
+      for (let k = 0; k < 12; k += 2) {
+        pos.push(quad[k], 0, quad[k + 1]);
+        col.push(0.09, 0.31, 0.68, alpha); // the focus blue
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 4));
+    const m = new THREE.Mesh(
+      g,
+      new THREE.MeshBasicMaterial({
+        vertexColors: true,
+        transparent: true,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+    );
+    m.position.y = 0.012;
+    m.visible = false;
+    scene.add(m);
+    return m;
+  };
+  const guideRow = guideStrip(true);
+  const guideColumn = guideStrip(false);
+
   // The selected creep: a gold ring that follows it.
   const creepRing = new THREE.Group().add(
     new THREE.Mesh(
@@ -391,6 +429,13 @@ export function createWorld(board: Board, game: Game) {
         if (d < bestD) [bestD, best] = [d, c.id];
       }
       return best;
+    },
+    /** Row and column guides through `cell`, or none. */
+    setGuides(cell: Cell | null) {
+      guideRow.visible = guideColumn.visible = cell !== null;
+      if (!cell) return;
+      guideRow.position.z = 19 - cell.y;
+      guideColumn.position.x = cell.x - 19;
     },
     /** Ring the selected creep, or nothing. */
     markCreep(id: number | null) {

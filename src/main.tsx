@@ -4,7 +4,7 @@ import { createAudio } from './audio';
 import { loadData, type Mode } from './data';
 import { Hud } from './hud/Hud';
 import { createFeedback } from './hud/feedback';
-import { createCameraInput, cursor, selected, selectedCreep } from './input/camera';
+import { createCameraInput, cursor, hovered, selected, selectedCreep } from './input/camera';
 import { Sim, TICK_HZ, type Cmd } from './sim/sim';
 import { createWorld } from './world/world';
 import './style.css';
@@ -70,6 +70,8 @@ measure();
 
 effect(() => world.setMarks(selected.value, cursor.value));
 effect(() => world.markCreep(selectedCreep.value));
+// Row and column guides follow the pointer, else the keyboard cursor, else the selection.
+effect(() => world.setGuides(hovered.value ?? cursor.value ?? selected.value));
 // The selected tower's attack range, refreshed when the selection or the towers change.
 effect(() => {
   void ticked.value;

@@ -11,9 +11,9 @@ import { toScene } from './view';
 // - A brick-arched cave mouth set into a rock face north of the spawn (S) is where creeps come
 //   from; a fortified crystal vault set into rock east of the castle exit (E) is what they attack.
 //   Both face inward, keep their world orientation, and are reached over clear floor lanes.
-// - Light sets the mood: warm lanterns and glowing amber and ice crystal clusters bake light pools
+// - Light sets the mood: glowing amber and ice crystal clusters bake light pools
 //   into the rock and floor vertex colours and draw additive halos; dust drifts in the air. No real
-//   lights are added, so the cave costs the same however many lamps it has.
+//   lights are added, so the cave costs the same however many crystals it has.
 // - The vault's heart crystal dims as castle HP falls and flashes when a creep gets through.
 // - Foreground rock is cut down to the height where it would start to hide the board, recomputed
 //   when the camera turns (the study's cutaway), so the arena stays readable at every angle.
@@ -31,7 +31,6 @@ const FLOOR_TONES = ['#8d9499', '#868d93', '#939a9f'];
 const BACKDROP = [43 / 255, 47 / 255, 52 / 255];
 const AMBER = new THREE.Color('#ffb04a');
 const ICE = new THREE.Color('#5aa6ff');
-const LAMP_LIGHT = new THREE.Color('#ff9440');
 
 const hash = (a: number, b: number, c = 0) => {
   let h = Math.imul(a | 0, 374761393) ^ Math.imul(b | 0, 668265263) ^ Math.imul(c | 0, 2147483647);
@@ -158,7 +157,7 @@ const shardGeometry = () =>
     6,
   );
 
-/** A light baked into the rock and floor colours: warm lamps and glowing crystals. */
+/** A light baked into the rock and floor colours: glowing crystals. */
 type Pool = {
   x: number;
   y: number;
@@ -401,7 +400,7 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
   }
   group.add(rock);
 
-  // Decor: instanced crystals, lanterns and rubble. Items on rock remember their column, so the
+  // Decor: instanced crystals and rubble. Items on rock remember their column, so the
   // cutaway can hide them while it lowers that column.
   const pose = new THREE.Object3D();
   const axis = new THREE.Vector3();
@@ -438,20 +437,6 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
   const shards = {
     amber: instancer(shardGeometry(), crystalMaterial(AMBER), 'cave-crystals-amber'),
     ice: instancer(shardGeometry(), crystalMaterial(ICE), 'cave-crystals-ice'),
-  };
-  const iron = new THREE.MeshLambertMaterial({ color: '#2f2c29' });
-  const lantern = {
-    post: instancer(
-      new THREE.BoxGeometry(0.08, 1, 0.08).translate(0, 0.5, 0),
-      iron,
-      'cave-lamp-posts',
-    ),
-    frame: instancer(new THREE.BoxGeometry(0.24, 0.05, 0.24), iron, 'cave-lamp-frames'),
-    flame: instancer(
-      new THREE.BoxGeometry(0.16, 0.2, 0.16),
-      new THREE.MeshBasicMaterial({ color: '#ffd284' }),
-      'cave-lamp-flames',
-    ),
   };
   const rubble = instancer(
     new THREE.BoxGeometry(1, 1, 1),
@@ -490,29 +475,8 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
     halos.push({ column, at: new THREE.Vector3(x, y + 0.8 * size, z), size: 3 * size, tint });
   }
 
-  /** Lantern on a post (`post` 0 hangs it on a wall). */
-  function lamp(x: number, y: number, z: number, column = -1, post = 0.45) {
-    pose.scale.set(1, post, 1);
-    pose.position.set(x, y, z);
-    if (post > 0) lantern.post.add(column);
-    pose.scale.set(1, 1, 1);
-    for (const dy of [0.02, 0.27]) {
-      pose.position.set(x, y + post + dy, z);
-      lantern.frame.add(column);
-    }
-    pose.position.set(x, y + post + 0.15, z);
-    lantern.flame.add(column);
-    pools.push({ x, y: y + post, z, color: LAMP_LIGHT, radius: 3.4, strength: 0.7, column });
-    halos.push({
-      column,
-      at: new THREE.Vector3(x, y + post + 0.15, z),
-      size: 1.5,
-      tint: LAMP_LIGHT,
-    });
-  }
-
-  // Scattered decor, kept apart so clusters and lamps read individually. Clusters glow on ledges
-  // and the open floor, and glint far off in the dark; lamps light the near floor and ledges.
+  // Scattered crystals, kept apart so clusters read individually. They glow on ledges and the open
+  // floor, and glint far off in the dark.
   const placed: { x: number; z: number }[] = [];
   const clear = (x: number, z: number, gap: number) =>
     placed.every((p) => Math.hypot(p.x - x, p.z - z) >= gap);
@@ -531,23 +495,13 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
     const size = far ? 0.45 + hash(c.i, c.j, 12) * 0.3 : 0.6 + hash(c.i, c.j, 12) * 0.45;
     cluster(c.x, c.h, c.z, crystalTone(c.x, c.z), size, c.column);
   }
+  // Small warm clusters close to the arena light its rim in place of torches.
   for (const c of sites) {
-    if (c.ring < 1 || c.ring > 9 || c.h > 2.5 || hash(c.i, c.j, 5) > 0.03) continue;
+    if (c.ring < 1 || c.ring > 7 || c.h > 2 || hash(c.i, c.j, 5) > 0.03) continue;
     if (!clear(c.x, c.z, 5)) continue;
     placed.push(c);
-    lamp(c.x, c.h, c.z, c.column);
+    cluster(c.x, c.h, c.z, 'amber', 0.35 + hash(c.i, c.j, 17) * 0.2, c.column);
   }
-  // Lanterns along the floor ring, clear of the lanes and both structures.
-  for (const t of [-15, -7.5, 0, 7.5, 15])
-    for (const [x, z] of [
-      [t, -FLOOR + 0.25],
-      [t, FLOOR - 0.25],
-      [-FLOOR + 0.25, t],
-      [FLOOR - 0.25, t],
-    ]) {
-      const nearLane = lanes.some((l) => distToSegment(x, z, l) < LANE_HALF + 1.5);
-      if (!nearLane) lamp(x, 0, z);
-    }
   // Rubble at the foot of the rock.
   for (const { x, z, i, j, ring } of tiles) {
     const v = hash(i, j, 13);
@@ -588,8 +542,8 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
     return m;
   };
 
-  // Cave mouth: a stepped brick arch set into a rock face, the tunnel dark beyond it, lanterns
-  // hung on the jambs and standing either side. Modelled in study units, then scaled down.
+  // Cave mouth: a stepped brick arch set into a rock face, the tunnel dark beyond it. Modelled in
+  // study units, then scaled down.
   const cave = new THREE.Group();
   cave.name = 'cave-mouth';
   cave.position.set(mouth.x, 0, mouth.z);
@@ -618,11 +572,6 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
   shade.position.set(0, 0.005, -0.1); // the floor fades into the tunnel
   cave.add(shade);
   group.add(cave);
-  const m = MOUTH_SCALE;
-  lamp(mouth.x - 2.55 * m, 2 * m, mouth.z + 1.15 * m, -1, 0);
-  lamp(mouth.x + 2.55 * m, 2 * m, mouth.z + 1.15 * m, -1, 0);
-  lamp(mouth.x - 4 * m, 0, mouth.z + 1.8 * m);
-  lamp(mouth.x + 4 * m, 0, mouth.z + 1.8 * m);
 
   // Crystal vault: an open keep set into the rock, gate toward the board. Four crenellated towers
   // with blue banners and curtain walls in the board walls' masonry greys; ice crystals fill the
@@ -638,22 +587,80 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
   const wall = masonry('#73787a');
   const cap = masonry('#808486');
   const footing = masonry('#62676a');
+  // The castle crumbles as its HP falls: every part above the footing and the lower courses has
+  // an HP share below which it breaks off and tumbles to the ground. Crenels, merlons and banners
+  // go first, then tower caps, upper courses and tower tops, and last the lintel and the
+  // portcullis, the gate broken in. Healing puts the parts back.
+  type Part = {
+    mesh: THREE.Mesh;
+    below: number;
+    home: { position: THREE.Vector3; rotation: THREE.Euler };
+    material: THREE.Material | THREE.Material[];
+    state: 'whole' | 'falling' | 'fallen';
+    velocity: THREE.Vector3;
+    spin: THREE.Vector3;
+  };
+  const parts: Part[] = [];
+  let partSeed = 0;
+  /** Register `mesh` to break off once castle HP drops below a share in [lo, hi). */
+  const breaks = (mesh: THREE.Mesh, lo: number, hi: number) => {
+    const below = lo + hash(partSeed++, 7, 41) * (hi - lo);
+    parts.push({
+      mesh,
+      below,
+      home: { position: mesh.position.clone(), rotation: mesh.rotation.clone() },
+      material: mesh.material,
+      state: 'whole',
+      velocity: new THREE.Vector3(),
+      spin: new THREE.Vector3(),
+    });
+    return mesh;
+  };
   const crenels = (x0: number, x1: number, z0: number, z1: number, y: number) => {
     const along = Math.abs(x1 - x0) > Math.abs(z1 - z0);
     const length = along ? Math.abs(x1 - x0) : Math.abs(z1 - z0);
     for (let t = 0.3; t < length; t += 0.6) {
       const k = t / length;
-      block(fort, 0.32, 0.35, 0.32, x0 + (x1 - x0) * k, y, z0 + (z1 - z0) * k, cap);
+      breaks(
+        block(fort, 0.32, 0.35, 0.32, x0 + (x1 - x0) * k, y, z0 + (z1 - z0) * k, cap),
+        0.55,
+        0.97,
+      );
+    }
+  };
+  /** A curtain wall: a solid lower course and an upper course in chunks that can fall. */
+  const curtain = (w: number, d: number, x: number, z: number) => {
+    block(fort, w, 1.4, d, x, 0.3, z, wall);
+    const along = w > d;
+    const length = along ? w : d;
+    const pieces = Math.max(1, Math.round(length / 1.2));
+    for (let k = 0; k < pieces; k++) {
+      const offset = -length / 2 + (length / pieces) * (k + 0.5);
+      const size = length / pieces;
+      breaks(
+        block(
+          fort,
+          along ? size : w,
+          0.8,
+          along ? d : size,
+          along ? x + offset : x,
+          1.7,
+          along ? z : z + offset,
+          wall,
+        ),
+        0.1,
+        0.45,
+      );
     }
   };
   block(fort, 8.4, 0.3, 8.4, 0, 0, 0, footing);
   // Curtain walls: back and sides solid, the front split by the gate.
-  block(fort, 7, 2.2, 0.7, 0, 0.3, -3.5, wall);
-  block(fort, 0.7, 2.2, 7, -3.5, 0.3, 0, wall);
-  block(fort, 0.7, 2.2, 7, 3.5, 0.3, 0, wall);
-  block(fort, 2.4, 2.2, 0.7, -2.3, 0.3, 3.5, wall);
-  block(fort, 2.4, 2.2, 0.7, 2.3, 0.3, 3.5, wall);
-  block(fort, 2.2, 0.7, 0.7, 0, 1.8, 3.5, wall); // lintel over the gate
+  curtain(7, 0.7, 0, -3.5);
+  curtain(0.7, 7, -3.5, 0);
+  curtain(0.7, 7, 3.5, 0);
+  curtain(2.4, 0.7, -2.3, 3.5);
+  curtain(2.4, 0.7, 2.3, 3.5);
+  breaks(block(fort, 2.2, 0.7, 0.7, 0, 1.8, 3.5, wall), 0.08, 0.12); // lintel over the gate
   crenels(-3.2, 3.2, -3.75, -3.75, 2.5);
   crenels(-3.75, -3.75, -3.2, 3.2, 2.5);
   crenels(3.75, 3.75, -3.2, 3.2, 2.5);
@@ -664,17 +671,16 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
     [-3.5, 3.5],
     [3.5, 3.5],
   ]) {
-    block(fort, 1.7, 3.4, 1.7, tx, 0.3, tz, wall);
-    block(fort, 1.9, 0.2, 1.9, tx, 3.7, tz, cap);
+    block(fort, 1.7, 2.2, 1.7, tx, 0.3, tz, wall);
+    breaks(block(fort, 1.7, 1.2, 1.7, tx, 2.5, tz, wall), 0.15, 0.3);
+    breaks(block(fort, 1.9, 0.2, 1.9, tx, 3.7, tz, cap), 0.32, 0.5);
     for (const [mx, mz] of [
       [-0.65, -0.65],
       [0.65, -0.65],
       [-0.65, 0.65],
       [0.65, 0.65],
     ])
-      block(fort, 0.42, 0.4, 0.42, tx + mx, 3.9, tz + mz, cap);
-    const [wx, wz] = fortWorld(tx, tz);
-    lamp(wx, 3.9 * FORT_SCALE, wz, -1, 0.2);
+      breaks(block(fort, 0.42, 0.4, 0.42, tx + mx, 3.9, tz + mz, cap), 0.55, 0.97);
   }
   // Banners on the front towers and beside the gate: blue cloth, gold trim and a gem emblem.
   const cloth = new THREE.MeshLambertMaterial({ color: '#2a4d8c', side: THREE.DoubleSide });
@@ -686,21 +692,50 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
     [1.45, 3.86, 0.6, 2.2],
   ]) {
     const length = top * 0.55;
+    // One banner: cloth with its emblem, hung from a rod; it falls as one piece.
     const banner = new THREE.Mesh(new THREE.PlaneGeometry(w, length), cloth);
     banner.position.set(bx, top - length / 2, bz);
     const rod = new THREE.Mesh(new THREE.BoxGeometry(w + 0.12, 0.07, 0.07), gold);
-    rod.position.set(bx, top, bz + 0.02);
+    rod.position.set(0, length / 2, 0.02);
     const emblem = new THREE.Mesh(
       new THREE.PlaneGeometry(w * 0.4, w * 0.4).rotateZ(Math.PI / 4),
       gold,
     );
-    emblem.position.set(bx, top - length * 0.45, bz + 0.01);
-    fort.add(banner, rod, emblem);
+    emblem.position.set(0, length * 0.05, 0.01);
+    banner.add(rod, emblem);
+    fort.add(banner);
+    breaks(banner, 0.4, 0.8);
   }
-  // Portcullis across the gate.
+  // Portcullis across the gate: the last thing to go.
   const bars = new THREE.MeshLambertMaterial({ color: '#26292c' });
-  for (let i = -0.9; i <= 0.91; i += 0.3) block(fort, 0.09, 1.5, 0.09, i, 0.3, 3.75, bars);
-  block(fort, 2, 0.09, 0.09, 0, 1.1, 3.75, bars);
+  for (let i = -0.9; i <= 0.91; i += 0.3)
+    breaks(block(fort, 0.09, 1.5, 0.09, i, 0.3, 3.75, bars), 0.02, 0.07);
+  breaks(block(fort, 2, 0.09, 0.09, 0, 1.1, 3.75, bars), 0.02, 0.07);
+  // Debris bursting from the gate when a creep breaks in, and smoke once the castle is burning.
+  const DEBRIS = 14;
+  const debris = new THREE.InstancedMesh(new THREE.BoxGeometry(0.22, 0.22, 0.22), wall, DEBRIS);
+  debris.name = 'cave-debris';
+  const flying: { at: THREE.Vector3; velocity: THREE.Vector3; life: number }[] = [];
+  for (let k = 0; k < DEBRIS; k++) {
+    flying.push({ at: new THREE.Vector3(), velocity: new THREE.Vector3(), life: 0 });
+    debris.setMatrixAt(k, new THREE.Matrix4().makeScale(0, 0, 0));
+  }
+  fort.add(debris);
+  const smokeMaterial = new THREE.SpriteMaterial({
+    map: glow,
+    color: '#7a7d80',
+    transparent: true,
+    depthWrite: false,
+    opacity: 0,
+  });
+  const smoke = [-3.5, 3.5].flatMap((tx) =>
+    [0, 1, 2].map((k) => {
+      const puff = new THREE.Sprite(smokeMaterial.clone());
+      puff.userData = { x: tx, z: 3.5 - k * 0.4, phase: k / 3 };
+      fort.add(puff);
+      return puff;
+    }),
+  );
   // Heart crystal on its pedestal, a glow round it, ice crystals in the courtyard corners.
   block(fort, 1.6, 0.6, 1.6, 0, 0.3, 0, footing);
   block(fort, 1.1, 0.4, 1.1, 0, 0.9, 0, cap);
@@ -749,12 +784,8 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
     strength: 0.7,
     column: -1,
   });
-  for (const lx of [-1.6, 1.6]) {
-    const [wx, wz] = fortWorld(lx, 4.7);
-    lamp(wx, 0, wz);
-  }
 
-  const meshes = [shards.amber, shards.ice, lantern.post, lantern.frame, lantern.flame, rubble];
+  const meshes = [shards.amber, shards.ice, rubble];
   for (const mesh of meshes) mesh.build();
   const haloMesh = new THREE.InstancedMesh(
     new THREE.PlaneGeometry(1, 1),
@@ -805,7 +836,7 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
   floor.receiveShadow = true;
   group.add(floor);
 
-  // Dust drifting through the lamplight.
+  // Dust drifting through the crystal light.
   const MOTES = 180;
   const motePositions = new Float32Array(MOTES * 3);
   for (let k = 0; k < MOTES; k++) {
@@ -879,6 +910,13 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
   // Castle state: the heart dims with castle HP and flashes red when a creep gets through.
   let hpRatio = 1;
   let flash = 0;
+  let burst = 0;
+  const box = new THREE.Box3();
+  const settle = new THREE.Matrix4();
+  // Soot: the masonry darkens as the castle burns.
+  const clean = [wall, cap, footing].map((m) => (m as THREE.MeshLambertMaterial).color.clone());
+  const soot = new THREE.Color('#2e3134');
+  const matrix = new THREE.Matrix4();
   let clock = 0;
   const calm = new THREE.Color('#4aa8e8');
   const hurt = new THREE.Color('#ff5a4f');
@@ -889,7 +927,40 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
     /** After each sim step: castle HP share and how much damage leaked this tick. */
     castle(ratio: number, leaked: number) {
       hpRatio = Math.max(0, Math.min(1, ratio));
-      if (leaked > 0) flash = 1;
+      if (leaked > 0) {
+        flash = 1;
+        // Rubble flies out of the gate as the creep breaks in.
+        flying.forEach((d, k) => {
+          d.at.set((hash(k, burst, 51) - 0.5) * 1.6, 1 + hash(k, burst, 52), 3.6);
+          d.velocity.set(
+            (hash(k, burst, 53) - 0.5) * 4,
+            2.5 + hash(k, burst, 54) * 3,
+            2 + hash(k, burst, 55) * 3,
+          );
+          d.life = 1.2;
+        });
+        burst++;
+      }
+      for (const p of parts) {
+        if (p.state === 'whole' && hpRatio < p.below) {
+          // Break off: outward from the keep's centre, up, and tumbling.
+          p.state = 'falling';
+          const out = new THREE.Vector3(p.mesh.position.x, 0, p.mesh.position.z).normalize();
+          p.velocity.copy(out).multiplyScalar(1.2 + hash(p.mesh.id, 3, 61) * 1.8);
+          p.velocity.y = 1.5 + hash(p.mesh.id, 4, 61) * 2;
+          p.spin.set(
+            (hash(p.mesh.id, 5, 61) - 0.5) * 8,
+            (hash(p.mesh.id, 6, 61) - 0.5) * 4,
+            (hash(p.mesh.id, 7, 61) - 0.5) * 8,
+          );
+        } else if (p.state !== 'whole' && hpRatio >= p.below) {
+          // Healed: the part is rebuilt where it stood.
+          p.state = 'whole';
+          p.mesh.position.copy(p.home.position);
+          p.mesh.rotation.copy(p.home.rotation);
+          p.mesh.material = p.material;
+        }
+      }
     },
     frame(dt: number, reducedMotion: boolean) {
       clock += dt;
@@ -902,6 +973,53 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
       aura.material.color.copy(heartMaterial.emissive);
       aura.material.opacity = 0.25 + 0.6 * hpRatio + flash * 0.5;
       fort.position.x = vault.x + (reducedMotion ? 0 : Math.sin(clock * 60) * 0.05 * flash);
+      [wall, cap, footing].forEach((m, k) =>
+        (m as THREE.MeshLambertMaterial).color.copy(clean[k]).lerp(soot, (1 - hpRatio) * 0.55),
+      );
+      // Falling parts tumble down to the footing and come to rest as darker rubble.
+      for (const p of parts) {
+        if (p.state !== 'falling') continue;
+        const m = p.mesh;
+        if (!reducedMotion) {
+          p.velocity.y -= 14 * dt;
+          m.position.addScaledVector(p.velocity, dt);
+          m.rotation.x += p.spin.x * dt;
+          m.rotation.y += p.spin.y * dt;
+          m.rotation.z += p.spin.z * dt;
+        }
+        m.geometry.computeBoundingBox();
+        settle.makeRotationFromEuler(m.rotation);
+        const bottom = box.copy(m.geometry.boundingBox!).applyMatrix4(settle).min.y;
+        if (reducedMotion || m.position.y + bottom <= 0.3) {
+          m.position.y = 0.3 - bottom;
+          p.state = 'fallen';
+          const dark = (Array.isArray(p.material) ? p.material[0] : p.material).clone();
+          if ('color' in dark) (dark.color as THREE.Color).multiplyScalar(0.62);
+          m.material = dark;
+        }
+      }
+      // Gate debris arcs out and shrinks away.
+      flying.forEach((d, k) => {
+        if (d.life <= 0) return;
+        d.life = reducedMotion ? 0 : d.life - dt;
+        d.velocity.y -= 14 * dt;
+        d.at.addScaledVector(d.velocity, dt);
+        if (d.at.y < 0.4) [d.at.y, d.velocity.y] = [0.4, -d.velocity.y * 0.3];
+        const size = Math.max(0, Math.min(1, d.life / 0.4));
+        matrix.makeRotationY(k + clock * 3).setPosition(d.at);
+        matrix.scale(new THREE.Vector3(size, size, size));
+        debris.setMatrixAt(k, matrix);
+      });
+      debris.instanceMatrix.needsUpdate = true;
+      // Smoke from the front towers below half HP, thicker as it falls.
+      const burning = Math.max(0, 0.5 - hpRatio) * 2;
+      for (const puff of smoke) {
+        const { x, z, phase } = puff.userData as { x: number; z: number; phase: number };
+        const t = reducedMotion ? 0.5 : (clock * 0.35 + phase) % 1;
+        puff.position.set(x + Math.sin(t * 6 + phase * 9) * 0.3, 3.4 + t * 3.5, z);
+        puff.scale.setScalar(1 + t * 2.5);
+        (puff.material as THREE.SpriteMaterial).opacity = burning * 0.85 * Math.sin(t * Math.PI);
+      }
       if (!reducedMotion) {
         // Dust rises slowly and sways, wrapping back to the floor.
         for (let k = 0; k < MOTES; k++) {
@@ -913,7 +1031,7 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
       }
     },
     /** For tests: rock columns, floor tiles, the lanes' clear floor and both structures. */
-    debug: { columns, tiles, lanes, mouth, vault },
+    debug: { columns, tiles, lanes, mouth, vault, parts },
   };
 }
 export type Environment = ReturnType<typeof createEnvironment>;
