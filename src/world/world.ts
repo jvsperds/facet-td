@@ -201,6 +201,8 @@ export function createWorld(board: Board, game: Game) {
   let from = shown;
   let started = -Infinity;
   let duration = 0;
+  /** False from a setView until a frame has placed the camera at the target. */
+  let settled = true;
   let viewport: Rect = { x: 0, y: 0, w: 1, h: 1 };
   let panels: Rect[] = [];
   let current = frame(target, shown.e, shown.a, viewport, panels);
@@ -211,11 +213,13 @@ export function createWorld(board: Board, game: Game) {
     from = { ...shown };
     started = performance.now();
     duration = animate && !reducedMotion.matches ? TRANSITION_MS : 0;
+    settled = false;
   }
 
   function place(now: number) {
     const t = duration ? Math.min(1, (now - started) / duration) : 1;
     const k = t * t * (3 - 2 * t);
+    settled = t >= 1;
     const to = {
       e: elevation(target),
       a: azimuth(target),
@@ -328,9 +332,12 @@ export function createWorld(board: Board, game: Game) {
     get scale() {
       return current.scale;
     },
-    /** True while a view transition runs; picks are refused until the shown projection settles. */
+    /**
+     * True until a frame has drawn the end of the latest view change; picks are refused until the
+     * shown projection settles. Measured by frames, not the clock, so slow frames cannot race it.
+     */
     get moving() {
-      return performance.now() < started + duration;
+      return !settled;
     },
     resize(w: number, h: number) {
       if (viewport.w === w && viewport.h === h) return;

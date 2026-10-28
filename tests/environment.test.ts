@@ -75,10 +75,10 @@ test('the cutaway keeps every rock column low enough not to hide the board', () 
 
 test('the heart crystal dims with castle HP and flashes on a leak', () => {
   const { scene, env } = make();
-  const fort = scene.getObjectByName('cave-fortress')!;
-  const heart = fort.children.find(
-    (c) => c instanceof THREE.Mesh && c.geometry instanceof THREE.OctahedronGeometry,
-  ) as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
+  const heart = scene.getObjectByName('cave-heart') as THREE.Mesh<
+    THREE.BufferGeometry,
+    THREE.MeshStandardMaterial
+  >;
   env.castle(1, 0);
   env.frame(0.1, true);
   const full = heart.material.emissiveIntensity;
