@@ -53,6 +53,8 @@ export interface Gem {
   level?: number;
   prd?: Record<string, number>;
   buffs?: Record<string, { expires: number; values: Record<string, number> }>;
+  /** Natural Emerald copies up to three resolved VPK tower abilities from nearby ranged towers. */
+  stolenAbilities?: TowerAbility[];
 }
 export interface Creep {
   id: number;
@@ -200,6 +202,9 @@ export class Game {
   abilities(name: string): readonly TowerAbility[] {
     return this.abilitiesByUnit[name] ?? [];
   }
+  private gemAbilities(gem: Gem): readonly TowerAbility[] {
+    return [...this.abilities(gem.name), ...(gem.stolenAbilities ?? [])];
+  }
 
   private skills(name: string) {
     return Object.entries(this.units[name] ?? {})
@@ -218,7 +223,7 @@ export class Game {
   private allyFields(g: Gem) {
     const seen = new Set<string>();
     return this.gems.flatMap((source) =>
-      this.abilities(source.name).flatMap((a) => {
+      this.gemAbilities(source).flatMap((a) => {
         if (a.kind !== 'field' || !a.ally || !this.near(source.cell, g.cell, a.radius)) return [];
         const key = a.multiple ? `${a.modifier}:${source.id}` : a.modifier;
         if (seen.has(key)) return [];
@@ -256,7 +261,7 @@ export class Game {
       !this.enemySkills(c).includes('riki_permanent_invisibility') ||
       this.gems.some(
         (g) =>
-          this.skills(g.name).includes('tower_true_sight') &&
+          this.gemAbilities(g).some((a) => a.kind === 'trait' && a.name === 'tower_true_sight') &&
           this.near(g.cell, c, this.attackRange(g)),
       )
     );
@@ -272,10 +277,10 @@ export class Game {
   /** Opal tiers stack; two emitters of the same modifier grant only one buff (VPK tooltips). */
   attackInterval(gem: Gem) {
     let bonus = 0;
-    for (const a of this.abilities(gem.name)) if (a.kind === 'speed') bonus += a.amount;
+    for (const a of this.gemAbilities(gem)) if (a.kind === 'speed') bonus += a.amount;
     const auras = new Set<string>();
     for (const source of this.gems)
-      for (const a of this.abilities(source.name)) {
+      for (const a of this.gemAbilities(source)) {
         if (a.kind !== 'aura' || auras.has(a.modifier)) continue;
         if (sq(source.cell.x - gem.cell.x) + sq(source.cell.y - gem.cell.y) > sq(a.radius))
           continue;
@@ -367,7 +372,7 @@ export class Game {
 
   private refreshFields(tick: number) {
     for (const g of this.gems)
-      for (const a of this.abilities(g.name))
+      for (const a of this.gemAbilities(g))
         if (a.kind === 'field' && !a.ally)
           for (const c of this.creeps)
             if (
@@ -935,6 +940,10 @@ export class Game {
   private applyProgression(plan: Extract<Plan, { ok: true }>, id: number, cell?: Cell) {
     const anchor = this.gems.find((g) => g.id === id)!;
     const position = plan.placement === 'separate' ? cell! : anchor.cell;
+    const stolenAbilities =
+      plan.result === 'gemtd_tianranzumulv'
+        ? this.naturalEmeraldAbilities(plan.consume, position)
+        : [];
     const level = Math.min(
       10,
       this.gems
@@ -956,11 +965,35 @@ export class Game {
       cooldown: 0,
       target: null,
       level,
+      ...(stolenAbilities.length ? { stolenAbilities } : {}),
     });
     if (plan.endDraft) this.draft = [];
     this.route = this.findRoute() ?? this.route;
     if (plan.endDraft) this.startWave();
     if (plan.kind === 'tablet' || plan.kind === 'tablet-upgrade') this.tabletUpgradeIn = TICK_HZ;
+  }
+
+  /** Natural Emerald (combine lines 9566-9611): copy three distinct pool abilities nearby. */
+  private naturalEmeraldAbilities(consumed: number[], position: Cell): TowerAbility[] {
+    const pool = this.luaValue<string[]>('stealable_ability_pool');
+    const candidates = this.gems.filter(
+      (g) =>
+        !consumed.includes(g.id) &&
+        g.name !== 'gemtd_tianranzumulv' &&
+        this.units[g.name]?.AttackCapabilities === 'DOTA_UNIT_CAP_RANGED_ATTACK' &&
+        this.near(g.cell, position, 220 / CELL_UNITS),
+    );
+    const options = candidates.flatMap((g) =>
+      pool
+        .filter((name) => this.skills(g.name).includes(name))
+        .flatMap((name) => this.gemAbilities(g).filter((ability) => ability.name === name)),
+    );
+    const picked: TowerAbility[] = [];
+    for (let attempts = 0; options.length && attempts < 100 && picked.length < 3; attempts++) {
+      const ability = options[this.rng.int(1, options.length) - 1];
+      if (!picked.some((a) => a.name === ability.name)) picked.push(ability);
+    }
+    return picked;
   }
 
   // ---- Wave (start_shuaguai, line 6261; spawning in OnThink, line 3346) ----
@@ -1474,7 +1507,7 @@ export class Game {
       return;
     }
     if (g.cooldown > 0) return;
-    const bonus = this.abilities(g.name).reduce(
+    const bonus = this.gemAbilities(g).reduce(
       (n, a) => n + (a.kind === 'damage' ? a.amount : 0),
       0,
     );
@@ -1487,7 +1520,7 @@ export class Game {
       (this.towerProperty(g, 'MODIFIER_PROPERTY_DAMAGEOUTGOING_PERCENTAGE') +
         Math.min(100, (g.level ?? 0) * 10)) /
         100;
-    for (const a of this.abilities(g.name))
+    for (const a of this.gemAbilities(g))
       if (a.kind === 'critical' && this.roll(a.chance, g, a.name, a.pseudo)) raw *= a.multiplier;
     const crit = g.buffs?.gemtd_hero_baoji;
     if (crit && crit.expires > tick && this.roll(10, g, 'hero_crit', true))
@@ -1498,7 +1531,7 @@ export class Game {
       this.roll(50, target, 'untouchable', true)
     )
       g.disabledUntil = tick + TICK_HZ;
-    const additional = this.abilities(g.name).find((a) => a.kind === 'split');
+    const additional = this.gemAbilities(g).find((a) => a.kind === 'split');
     const splitTargets =
       additional?.kind === 'split'
         ? this.creeps
@@ -1536,14 +1569,14 @@ export class Game {
         'physical',
         g.id,
       );
-    for (const a of this.abilities(g.name))
+    for (const a of this.gemAbilities(g))
       if (a.kind === 'splash') {
         if (!landed) continue;
         for (const c of [...this.creeps])
           if (sq(c.x - target.x) + sq(c.y - target.y) <= sq(a.radius))
             this.hurt(c, raw * a.amount, 'pure', g.id);
       }
-    for (const a of this.abilities(g.name)) {
+    for (const a of this.gemAbilities(g)) {
       if (!landed) break;
       if (a.kind === 'script' && this.roll(a.chance, g, a.name))
         this.scriptEffect(g, target, raw, a.fn, a.args, tick);
@@ -1558,7 +1591,7 @@ export class Game {
       }
     }
     if (landed && this.creeps.includes(target))
-      for (const effect of this.abilities(g.name)) {
+      for (const effect of this.gemAbilities(g)) {
         if (effect.kind !== 'slow' && effect.kind !== 'armor' && effect.kind !== 'poison') continue;
         if (this.immune(target) && effect.kind !== 'armor') continue;
         target.modifiers ??= {};

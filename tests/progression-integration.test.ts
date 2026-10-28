@@ -67,6 +67,25 @@ test('three aligned tablets upgrade without leaving blocking stones behind', () 
   expect(g.stones.size).toBe(before);
 });
 
+test('natural emerald steals three distinct nearby ranged tower abilities', () => {
+  const sim = new Sim(data, 5),
+    g = sim.game;
+  g.phase = 'wave';
+  g.gems = [
+    { id: 1, name: 'gemtd_shenhaizhenzhu', cell: { x: 10, y: 10 }, cooldown: 0, target: null },
+    { id: 2, name: 'gemtd_g11111', cell: { x: 11, y: 10 }, cooldown: 0, target: null },
+    { id: 3, name: 'gemtd_d111', cell: { x: 10, y: 11 }, cooldown: 0, target: null },
+    { id: 4, name: 'gemtd_b1', cell: { x: 9, y: 10 }, cooldown: 0, target: null },
+    { id: 5, name: 'gemtd_e1', cell: { x: 10, y: 9 }, cooldown: 0, target: null },
+    { id: 6, name: 'gemtd_p1', cell: { x: 9, y: 9 }, cooldown: 0, target: null },
+  ];
+  expect(g.combine(1, 'normal', 'gemtd_tianranzumulv').ok).toBe(true);
+  const emerald = g.gems.find((gem) => gem.name === 'gemtd_tianranzumulv')!;
+  expect(emerald.stolenAbilities?.map((a) => a.name).sort()).toEqual(
+    ['tower_jianjia1', 'tower_slow1', 'tower_speed_aura1'].sort(),
+  );
+});
+
 test('downgrade and the perfect +2 special outcome are reachable through replayable commands', () => {
   const play = () => {
     const sim = draft(Array(5).fill('gemtd_b11111'));
