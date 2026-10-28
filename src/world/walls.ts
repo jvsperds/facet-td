@@ -1,15 +1,17 @@
 import * as THREE from 'three';
 import { BOARD_SIZE, type Cell } from '../sim/board';
 
-// Board castle walls (issue #9). The wall network is one footprint shared by every stone cell:
-// - a stone is a full-cell block, joined to orthogonal neighbours edge to edge;
-// - stones that touch only diagonally (both orthogonal cells free) are joined by a 45° band, so
+// Board castle walls (issue #9). The wall network is one footprint shared by every stone and tower
+// cell (towers stand on the wall):
+// - orthogonal neighbours join edge to edge, so straight runs and solid blocks merge;
+// - cells that touch only diagonally (both orthogonal cells free) are joined by a 45° band, so
 //   diagonal mazes read as one wall running along the diagonal instead of corner-touching blocks;
-// - a stone joined only diagonally drops its square for a diamond, so the band runs straight through.
+// - corners no neighbour fills are bevelled: flush with a diagonal band's edge where the cell has
+//   one (a straight wall turns diagonal without a step), a small bevel otherwise.
 // The footprint is rasterised onto a quarter-cell lattice of triangles (each 0.25 square split by
 // both diagonals); every footprint edge lies on that lattice, so each triangle is fully in or out.
 // Faces and merlons sit only on edges between filled and free triangles: the outer faces of the
-// union. Solid blocks keep a clear walkway inside. Faces toward a tower cell get no merlons.
+// union. Solid blocks keep a clear walkway inside. Tower cells get no merlons (the plinth covers them).
 // Coordinates here are board units: x east, y north, cell (x, y) spans x ± 0.5, y ± 0.5.
 
 export type Occupant = 'stone' | 'tower';
@@ -44,44 +46,59 @@ export interface WallRaster {
   occ: Occupancy;
   /** One byte per lattice triangle: index ((j * N + i) * 4 + q), q = 0 S, 1 E, 2 N, 3 W. */
   filled: Uint8Array;
-  /** Cell key of the stone that owns each filled triangle. */
+  /** Cell key of the wall cell that owns each filled triangle. */
   owner: Int32Array;
 }
 
-/** Joins of one stone: orthogonal neighbours (any occupant) and diagonal stone bands. */
+/**
+ * Joins of one wall cell: orthogonal neighbours, and diagonal bands to cells that touch only at a
+ * corner (both orthogonal cells free). Towers count like stones: they stand on the wall.
+ */
 export function joins(occ: Occupancy, c: Cell) {
   const has = (x: number, y: number) => occ.has(keyOf(x, y));
   const orthogonal = [has(c.x + 1, c.y), has(c.x, c.y + 1), has(c.x - 1, c.y), has(c.x, c.y - 1)];
   const diagonal: Point[] = [];
   for (const sx of [1, -1])
     for (const sy of [1, -1])
-      if (
-        occ.get(keyOf(c.x + sx, c.y + sy)) === 'stone' &&
-        !has(c.x + sx, c.y) &&
-        !has(c.x, c.y + sy)
-      )
+      if (has(c.x + sx, c.y + sy) && !has(c.x + sx, c.y) && !has(c.x, c.y + sy))
         diagonal.push([sx, sy]);
   return { orthogonal, diagonal };
 }
 
+/** Corner bevel of a cell's core where no orthogonal arm fills that corner, in cells. */
+const CORNER_CUT = 0.25;
+
 function footprint(occ: Occupancy, c: Cell): Poly[] {
   const { orthogonal, diagonal } = joins(occ, c);
+  const [east, north, west, south] = orthogonal;
   const { x, y } = c;
-  const polys: Poly[] = [
-    diagonal.length && !orthogonal.some(Boolean)
-      ? [
-          [x + 0.5, y],
-          [x, y + 0.5],
-          [x - 0.5, y],
-          [x, y - 0.5],
-        ]
-      : [
-          [x - 0.5, y - 0.5],
-          [x + 0.5, y - 0.5],
-          [x + 0.5, y + 0.5],
-          [x - 0.5, y + 0.5],
-        ],
+  // Core: the cell square with bevelled corners. Beside a diagonal band the bevel reaches the
+  // band's edge (a diamond), so a straight wall turns into a diagonal without a step; otherwise a
+  // small bevel softens outer corners and ends. Orthogonal arms fill the corners they touch.
+  const cut = diagonal.length ? 0.5 : CORNER_CUT;
+  const core: Point[] = [];
+  for (const [sx, sy] of [
+    [-1, -1],
+    [1, -1],
+    [1, 1],
+    [-1, 1],
+  ]) {
+    const along = sx * sy > 0 ? 1 : -1; // keep the ring counter-clockwise
+    const a: Point = [x + sx * 0.5, y + sy * (0.5 - cut)];
+    const b: Point = [x + sx * (0.5 - cut), y + sy * 0.5];
+    core.push(...(along > 0 ? [a, b] : [b, a]));
+  }
+  const polys: Poly[] = [core];
+  const arm = (x0: number, x1: number, y0: number, y1: number): Poly => [
+    [x + x0, y + y0],
+    [x + x1, y + y0],
+    [x + x1, y + y1],
+    [x + x0, y + y1],
   ];
+  if (east) polys.push(arm(0, 0.5, -0.5, 0.5));
+  if (west) polys.push(arm(-0.5, 0, -0.5, 0.5));
+  if (north) polys.push(arm(-0.5, 0.5, 0, 0.5));
+  if (south) polys.push(arm(-0.5, 0.5, -0.5, 0));
   // Band from the centre to the shared corner; the neighbour's band continues from there.
   const h = HALF_BAND / Math.SQRT2;
   for (const [sx, sy] of diagonal) {
@@ -122,8 +139,7 @@ const cellAt = (x: number, y: number): Cell => ({ x: Math.round(x), y: Math.roun
 export function wallRaster(occ: Occupancy): WallRaster {
   const filled = new Uint8Array(N * N * 4);
   const owner = new Int32Array(N * N * 4).fill(-1);
-  for (const [k, kind] of occ) {
-    if (kind !== 'stone') continue;
+  for (const k of occ.keys()) {
     const c = { x: k % 64, y: Math.floor(k / 64) };
     const i0 = Math.max(0, (c.x - 2) * SUB);
     const j0 = Math.max(0, (c.y - 2) * SUB);
@@ -247,7 +263,8 @@ export interface WallParts {
 export function wallParts(r: WallRaster, cell: Cell): WallParts {
   const k = cellKey(cell);
   const parts: WallParts = { walk: [], faces: [], merlons: [] };
-  const towerBeyond = (x: number, y: number) => r.occ.get(cellKey(cellAt(x, y))) === 'tower';
+  // A tower's plinth covers its cell's walkway, so merlons there would poke through it.
+  const onTower = (x: number, y: number) => r.occ.get(cellKey(cellAt(x, y))) === 'tower';
   const i0 = Math.max(0, (cell.x - 2) * SUB);
   const j0 = Math.max(0, (cell.y - 2) * SUB);
   for (let j = j0; j < Math.min(N, j0 + SUB * 3); j++)
@@ -280,7 +297,7 @@ export function wallParts(r: WallRaster, cell: Cell): WallParts {
           [nx, ny] = [nx / len, ny / len];
           if (nx * (mx - gx) + ny * (my - gy) < 0) [nx, ny] = [-nx, -ny];
           parts.faces.push({ from, to, nx, ny });
-          if (towerBeyond(mx + nx * 0.1, my + ny * 0.1)) continue;
+          if (onTower(mx - nx * 0.05, my - ny * 0.05)) continue;
           const [dx, dy] = [to[0] - from[0], to[1] - from[1]];
           // One merlon per lattice edge, centred on it; a diagonal pair of half-edges shares one,
           // emitted by the half that reaches the lattice square's west corner.

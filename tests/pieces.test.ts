@@ -31,7 +31,9 @@ test('every combined tower, secret stone and tablet has a finite board model', (
     pieces = createPieces(scene, game);
   pieces.afterStep();
   pieces.frame(1, 0);
-  expect(pieces.objects()).toHaveLength(names.length);
+  // One model per tower, plus a wall block under every tower that is not a floor pedal.
+  const walls = names.filter((n) => !n.includes('shiban')).length;
+  expect(pieces.objects()).toHaveLength(names.length + walls);
   scene.updateMatrixWorld(true);
   for (const object of pieces.objects())
     object.traverse((child) => {
