@@ -152,7 +152,11 @@ function layTablet(obj: THREE.Object3D) {
   obj.children.at(-1)!.scale.setScalar(PLINTH / stretch); // the slab's head grows evenly
 }
 
-export function createPieces(scene: THREE.Scene, game: Game) {
+/**
+ * Board pieces. `tunnel`, a point inside the cave mouth, is where the creeps still to spawn walk
+ * from (presentation only): each leaves it in time to reach S just as the sim spawns it there.
+ */
+export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: number; z: number }) {
   const hero = new THREE.Group();
   const heroMaterial = new THREE.MeshStandardMaterial({ color: '#f4e3a4', roughness: 0.6 });
   const body = new THREE.Mesh(new THREE.ConeGeometry(0.25, 0.7, 6), heroMaterial);
@@ -248,6 +252,51 @@ export function createPieces(scene: THREE.Scene, game: Game) {
     }
   }
 
+  /** Creeps of a model: the factory's body grown to its board size. */
+  function creepModel(name: string, flying: boolean, boss: boolean, elite = false) {
+    const scale = Number(game.unit(name)?.ModelScale ?? 1) * (elite ? 2 : 1);
+    const obj = createCreep({ modelScale: scale, flying, boss });
+    // Grow body and shadow in place; the body's flying altitude stays as the factory set it.
+    const partScale = creepPartScale(scale, flying);
+    for (const part of obj.children) part.scale.setScalar(partScale);
+    return obj;
+  }
+
+  // The approach: creeps still to spawn, walking from the tunnel to S. Their models are reused
+  // front to back, so as the leader becomes the sim's creep at S the rest simply walk on.
+  const approach: THREE.Object3D[] = [];
+  let approachName = '';
+  function syncApproach(alpha: number) {
+    const next = tunnel && game.spawning;
+    if (next && next.name !== approachName) {
+      approach.splice(0).forEach(dispose);
+      approachName = next.name;
+    }
+    let shown = 0;
+    if (next && tunnel) {
+      const s = toScene(game.flyRoute[0]);
+      const [gx, gz] = [s.x - tunnel.x, s.z - tunnel.z];
+      const length = Math.hypot(gx, gz);
+      for (let k = 0; k < next.count; k++) {
+        // Ticks until this creep spawns; it walks the lane at the speed it will spawn with.
+        const ticks = next.next - alpha + k * next.every;
+        const walk = Math.max(0, ticks) * next.speed;
+        if (walk > length) break;
+        let obj = approach[k];
+        if (!obj) {
+          obj = creepModel(next.name, next.name.includes('fly'), next.name.includes('boss'));
+          scene.add(obj);
+          approach.push(obj);
+        }
+        obj.visible = true;
+        obj.position.set(s.x - (gx / length) * walk, 0, s.z - (gz / length) * walk);
+        obj.rotation.y = Math.atan2(-gz, gx);
+        shown++;
+      }
+    }
+    for (let k = shown; k < approach.length; k++) approach[k].visible = false;
+  }
+
   function syncCreeps() {
     const alive = new Set(game.creeps.map((c) => c.id));
     for (const [id, v] of creeps)
@@ -259,11 +308,7 @@ export function createPieces(scene: THREE.Scene, game: Game) {
     for (const c of game.creeps) {
       let v = creeps.get(c.id);
       if (!v) {
-        const scale = Number(game.unit(c.name)?.ModelScale ?? 1) * (c.elite ? 2 : 1);
-        const obj = createCreep({ modelScale: scale, flying: c.fly, boss: c.boss });
-        // Grow body and shadow in place; the body's flying altitude stays as the factory set it.
-        const partScale = creepPartScale(scale, c.fly);
-        for (const part of obj.children) part.scale.setScalar(partScale);
+        const obj = creepModel(c.name, c.fly, c.boss, c.elite);
         const bar = new THREE.Sprite(BAR_FILL);
         const back = new THREE.Sprite(BAR_BACK);
         back.scale.set(BAR.width, BAR.height, 1);
@@ -345,6 +390,7 @@ export function createPieces(scene: THREE.Scene, game: Game) {
     },
     /** Call every frame; `alpha` is the fraction of the current tick that has elapsed. */
     frame(alpha: number, dt: number, reducedMotion = false) {
+      syncApproach(alpha);
       for (const v of creeps.values()) {
         const x = v.prev.x + (v.cur.x - v.prev.x) * alpha;
         const y = v.prev.y + (v.cur.y - v.prev.y) * alpha;

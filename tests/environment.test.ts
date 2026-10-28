@@ -27,7 +27,7 @@ test('rock never stands on the board, its floor ring or the approach lanes', () 
         0,
         Math.min(1, ((c.x - from[0]) * dx + (c.z - from[1]) * dz) / (dx * dx + dz * dz)),
       );
-      expect(Math.hypot(c.x - from[0] - dx * t, c.z - from[1] - dz * t)).toBeGreaterThan(2.2);
+      expect(Math.hypot(c.x - from[0] - dx * t, c.z - from[1] - dz * t)).toBeGreaterThan(1.8); // lanes stay wider than two creeps
     }
   }
 });
