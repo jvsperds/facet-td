@@ -1056,12 +1056,25 @@ export class Game {
         c.y = t.y;
         c.step++;
         left -= d;
+        this.waypointEffects(c, t);
       } else {
         c.x += (dx / d) * left;
         c.y += (dy / d) * left;
         left = 0;
       }
     }
+  }
+
+  /** Lua enemy_go: path-point vitality and theft resolve after each checkpoint is reached. */
+  private waypointEffects(c: Creep, point: Cell) {
+    if (!this.board.waypoints.slice(1).some((w) => w.cell.x === point.x && w.cell.y === point.y))
+      return;
+    const skills = this.enemySkills(c);
+    if (skills.includes('enemy_jili') && !c.modifiers?.modifier_tower_jihan_buff) {
+      const recovered = Math.floor(c.maxHp * 0.2) * (c.fly ? 0.5 : 1);
+      c.hp = Math.min(c.maxHp, c.hp + recovered);
+    }
+    if (skills.includes('enemy_thief')) this.gold = Math.floor(this.gold * 0.99);
   }
 
   private enemyThink(c: Creep, tick: number) {

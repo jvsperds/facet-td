@@ -80,6 +80,60 @@ test('the same seed and commands replay to the same state', () => {
   expect(play()).toBe(play());
 });
 
+test('vitality and theft resolve at path checkpoints, with flying vitality halved', () => {
+  const sim = new Sim(data, 1),
+    g = sim.game;
+  const checkpoint = g.board.waypoints[1].cell;
+  const index = g.route.findIndex((c) => c.x === checkpoint.x && c.y === checkpoint.y);
+  const flyIndex = g.flyRoute.findIndex((c) => c.x === checkpoint.x && c.y === checkpoint.y);
+  expect(index).toBeGreaterThan(0);
+  expect(flyIndex).toBeGreaterThan(0);
+  const previous = g.route[index - 1];
+  const previousFly = g.flyRoute[flyIndex - 1];
+  const speed = Math.sqrt((checkpoint.x - previous.x) ** 2 + (checkpoint.y - previous.y) ** 2);
+  const flySpeed = Math.sqrt(
+    (checkpoint.x - previousFly.x) ** 2 + (checkpoint.y - previousFly.y) ** 2,
+  );
+  g.phase = 'wave';
+  g.gold = 101;
+  g.creeps = [
+    {
+      id: 1,
+      name: 'test',
+      hp: 10,
+      maxHp: 100,
+      armor: 0,
+      speed,
+      x: previous.x,
+      y: previous.y,
+      step: index,
+      fly: false,
+      boss: false,
+      damage: 1,
+      skills: ['enemy_jili', 'enemy_thief'],
+    },
+    {
+      id: 2,
+      name: 'test_fly',
+      hp: 10,
+      maxHp: 100,
+      armor: 0,
+      speed: flySpeed,
+      x: previousFly.x,
+      y: previousFly.y,
+      step: flyIndex,
+      fly: true,
+      boss: false,
+      damage: 1,
+      skills: ['enemy_jili'],
+    },
+  ];
+  sim.step();
+  expect(g.creeps[0].hp).toBe(30);
+  expect(g.creeps[1].hp).toBe(20);
+  expect(g.gold).toBe(99);
+});
+
 test('an automated game runs to its end without errors', () => {
   const sim = new Sim(data, 11);
   const g = sim.game;
