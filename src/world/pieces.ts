@@ -10,6 +10,7 @@ import { COMBINED_TOWERS } from '../../docs/art/model-study/combined-towers.js';
 import type { Cell } from '../sim/board';
 import { isBasicGem, qualityOf, type Game } from '../sim/game';
 import { toScene } from './view';
+import { neighbourhood, wallMesh, wallRaster, type Occupancy } from './walls';
 
 // Everything on the board that the sim owns: stones, gem towers, creeps and combat effects.
 // Rebuilt from sim state after each tick; creeps interpolate between the last two ticks.
@@ -17,10 +18,9 @@ import { toScene } from './view';
 const TRAVEL_SECONDS = 0.12;
 const IMPACT_SECONDS = 0.24;
 const MAX_EFFECTS = 128;
-// The art study draws thin walls (core half 0.22, wall half-width 0.16, plinth radius 0.31); the board
-// stretches them to fill their cell, and filled neighbours touch, so the joining arms are dropped.
+// The art study draws thin tower footings (core half 0.22, plinth radius 0.31); the board stretches
+// them to fill their cell and drops their joining arms. Stones are board walls (walls.ts).
 const ALONG = 0.5 / 0.22;
-const ACROSS = 0.5 / 0.16;
 const PLINTH = 0.5 / 0.31;
 const CREEP_SCALE = 2;
 const BAR = { width: 0.5, height: 0.07, back: '#25282C', fill: '#7ED07A', low: '#FFB3AF' };
@@ -40,6 +40,11 @@ const BAR_BACK = barMaterial(BAR.back);
 const BAR_FILL = barMaterial(BAR.fill);
 const BAR_LOW = barMaterial(BAR.low);
 const TOWER_SPECS = [...SPECIAL_TOWERS, ...COMBINED_TOWERS];
+const WALL_MATERIAL = new THREE.MeshStandardMaterial({
+  vertexColors: true,
+  roughness: 1,
+  flatShading: true,
+});
 const EXTRA_COLORS: Record<string, string> = {
   gemtd_heiyaoshi: '#292c36',
   gemtd_manao: '#dfa57b',
@@ -103,13 +108,11 @@ function dispose(o: THREE.Object3D) {
   });
 }
 
-function fillCell(obj: THREE.Object3D, n: Record<string, boolean>, tower: boolean) {
-  const horizontal = !tower && (n.east || n.west) && !n.north && !n.south;
-  const vertical = !tower && (n.north || n.south) && !n.east && !n.west;
-  obj.scale.set(vertical ? ACROSS : ALONG, ALONG, horizontal ? ACROSS : ALONG);
-  // Children: core mesh, one group per joining arm, then the tower itself on gem cells.
-  obj.children.slice(1, tower ? -1 : undefined).forEach(dispose);
-  if (!tower) return;
+/** Stretch a tower's stone base to fill its cell and keep the tower itself evenly scaled. */
+function fillTowerCell(obj: THREE.Object3D) {
+  obj.scale.setScalar(ALONG);
+  // Children: core mesh, one group per joining arm, then the tower itself.
+  obj.children.slice(1, -1).forEach(dispose);
   const t = obj.children.at(-1)!;
   // Quality still sets the size, compressed so even a chipped tower fills most of its cell.
   const s = PLINTH * (0.7 + 0.3 * t.scale.y);
@@ -177,11 +180,22 @@ export function createPieces(scene: THREE.Scene, game: Game) {
   const pose = new THREE.Object3D();
   let version = 0;
 
+  // Walls are rebuilt from one shared footprint whenever any cell's occupant changes.
+  let occupancy: Occupancy = new Map();
+  let raster = wallRaster(occupancy);
+  let lastOccupancy = '';
+
   function syncCells() {
     const occupied = new Map<number, { cell: Cell; name: string | null }>();
     for (const c of game.stones.values()) occupied.set(key(c), { cell: c, name: null });
     for (const g of game.gems) occupied.set(key(g.cell), { cell: g.cell, name: g.name });
     const has = (x: number, y: number) => occupied.has(key({ x, y }));
+    const signature = [...occupied].map(([k, o]) => `${k}${o.name ? 't' : 's'}`).join();
+    if (signature !== lastOccupancy) {
+      lastOccupancy = signature;
+      occupancy = new Map([...occupied].map(([k, o]) => [k, o.name ? 'tower' : 'stone']));
+      raster = wallRaster(occupancy);
+    }
     for (const [k, p] of cells)
       if (!occupied.has(k)) {
         dispose(p.obj);
@@ -196,7 +210,9 @@ export function createPieces(scene: THREE.Scene, game: Game) {
         east: has(x + 1, y),
         west: has(x - 1, y),
       };
-      const sig = `${name}|${Object.values(neighbours).join()}`;
+      const sig = name
+        ? `${name}|${Object.values(neighbours).join()}`
+        : `wall|${neighbourhood(occupancy, cell)}`;
       if (cells.get(k)?.sig === sig) continue;
       if (cells.has(k)) dispose(cells.get(k)!.obj);
       const { x: sx, z: sz } = toScene(cell);
@@ -210,9 +226,9 @@ export function createPieces(scene: THREE.Scene, game: Game) {
               ...(basic ? { quality: qualityOf(name) } : {}),
             } as typeof options)
           : extraTower(name, options)
-        : createStone(options);
+        : new THREE.Group().add(...[wallMesh(raster, cell, WALL_MATERIAL)].filter((m) => !!m));
       obj.position.set(sx, 0, sz);
-      fillCell(obj, neighbours, !!name);
+      if (name) fillTowerCell(obj);
       obj.userData.cell = cell;
       scene.add(obj);
       cells.set(k, { sig, obj });
