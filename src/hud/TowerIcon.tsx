@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { signal } from '@preact/signals';
+import { createCreep } from '../../docs/art/model-study/models.js';
 import { towerModel } from '../world/pieces';
 import { gemType } from './names';
 import { GemGlyph } from './icons';
@@ -50,11 +51,14 @@ const VIEW = new THREE.Vector3(1, Math.SQRT2 * Math.tan((35.264 * Math.PI) / 180
 
 function render(name: string) {
   const { renderer, scene, camera } = studio!;
-  const model = towerModel(name);
+  // `creep:<unit>` draws that creep whole; any other name is a tower.
+  const creep = name.startsWith('creep:') ? name.slice(6) : null;
   // The tower without its stone footing: on the board it rises from a wall turret instead.
-  const tower = model.children.at(-1)!;
-  const holder = new THREE.Group().add(tower);
-  tower.position.set(0, 0, 0);
+  const subject = creep
+    ? createCreep({ modelScale: 1, flying: creep.includes('fly'), boss: creep.includes('boss') })
+    : towerModel(name).children.at(-1)!;
+  const holder = new THREE.Group().add(subject);
+  subject.position.set(0, 0, 0);
   scene.add(holder);
   holder.updateMatrixWorld(true);
   // Frame the head (the gem and its setting): every part centred in the upper half of the tower.
@@ -68,7 +72,7 @@ function render(name: string) {
     part.setFromObject(o);
     if ((part.min.y + part.max.y) / 2 > waist) box.union(part);
   });
-  if (box.isEmpty()) box.copy(whole);
+  if (box.isEmpty() || creep) box.copy(whole);
   const centre = box.getCenter(new THREE.Vector3());
   camera.position.copy(centre).addScaledVector(VIEW, 20);
   camera.up.set(0, 1, 0);
@@ -136,4 +140,13 @@ export function TowerIcon({ name, class: cls = 'glyph' }: { name: string; class?
   if (url)
     return <img class={`${cls} model`} src={url} alt="" aria-hidden="true" draggable={false} />;
   return <GemGlyph type={gemType(name)} class={cls} />;
+}
+
+/** A creep's portrait from its 3D model; a dot until it is ready. */
+export function CreepIcon({ name, class: cls = 'glyph' }: { name: string; class?: string }) {
+  void ready.value;
+  const url = iconOf(`creep:${name}`);
+  if (url)
+    return <img class={`${cls} model`} src={url} alt="" aria-hidden="true" draggable={false} />;
+  return <span class={`${cls} creep-dot`} aria-hidden="true" />;
 }

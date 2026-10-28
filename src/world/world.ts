@@ -169,6 +169,23 @@ export function createWorld(board: Board, game: Game) {
   }
   selectedRim.renderOrder = cursor.renderOrder = 10;
 
+  // The selected creep: a gold ring that follows it.
+  const creepRing = new THREE.Group().add(
+    new THREE.Mesh(
+      new THREE.RingGeometry(0.33, 0.47, 40).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: '#E8C86A', depthTest: false, transparent: true }),
+    ),
+    // A dark outline keeps it readable on the pale floor.
+    new THREE.Mesh(
+      new THREE.RingGeometry(0.47, 0.55, 40).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: '#202429', depthTest: false, transparent: true }),
+    ),
+  );
+  creepRing.children.forEach((m) => (m.renderOrder = 11));
+  creepRing.visible = false;
+  scene.add(creepRing);
+  let markedCreep: number | null = null;
+
   // Attack range of the selected tower: a pale ring with a faint fill, drawn on the ground.
   const range = new THREE.Group().add(
     new THREE.Mesh(
@@ -305,6 +322,10 @@ export function createWorld(board: Board, game: Game) {
     const dt = Math.min(0.1, (now - lastFrame) / 1000);
     pieces.frame(Math.min(1, (now - lastStep) * (TICK_HZ / 1000)), dt, reducedMotion.matches);
     cave.frame(dt, reducedMotion.matches);
+    const marked =
+      markedCreep === null ? undefined : pieces.creepPoints().find((p) => p.id === markedCreep);
+    creepRing.visible = !!marked;
+    if (marked) creepRing.position.set(marked.x, 0.04, marked.z);
     lastFrame = now;
     const key = `${shown.e},${shown.a},${focusCells.map((c) => `${c.x}:${c.y}`)},${pieces.version}`;
     if (key !== lastKey) updateOccluders();
@@ -356,6 +377,24 @@ export function createWorld(board: Board, game: Game) {
       if (!ray.ray.intersectPlane(plane, hitPoint)) return null;
       const cell = toCell(hitPoint.x, hitPoint.z);
       return board.inside(cell) ? cell : null;
+    },
+    /** The creep drawn under a canvas-relative CSS pixel (its body, generously), or null. */
+    creepAt(px: number, py: number): number | null {
+      let best: number | null = null;
+      let bestD = Math.max(18, current.scale * 0.6) ** 2;
+      const p = new THREE.Vector3();
+      for (const c of pieces.creepPoints()) {
+        // Test the body's middle, so tall creeps are picked where they are seen.
+        p.set(c.x, c.height / 2, c.z).project(camera);
+        const [sx, sy] = [((p.x + 1) / 2) * viewport.w, ((1 - p.y) / 2) * viewport.h];
+        const d = (sx - px) ** 2 + (sy - py) ** 2;
+        if (d < bestD) [bestD, best] = [d, c.id];
+      }
+      return best;
+    },
+    /** Ring the selected creep, or nothing. */
+    markCreep(id: number | null) {
+      markedCreep = id;
     },
     /** Canvas-relative CSS pixel of a cell centre and the safe area, under the target (settled) view. */
     screenOf(cell: Cell, view: ViewState = target) {

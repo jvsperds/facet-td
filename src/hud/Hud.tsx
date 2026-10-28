@@ -4,7 +4,16 @@ import { useEffect, useRef } from 'preact/hooks';
 import type { Audio } from '../audio';
 import type { Feedback } from './feedback';
 import type { Cell } from '../sim/board';
-import { DRAFT_SIZE, LAST_LEVEL, isBasicGem, qualityOf, type Check, type Game } from '../sim/game';
+import {
+  AIM,
+  AIM_BOSS,
+  DRAFT_SIZE,
+  LAST_LEVEL,
+  isBasicGem,
+  qualityOf,
+  type Check,
+  type Game,
+} from '../sim/game';
 import type { RecipeKind } from '../sim/progression';
 import type { Cmd, Sim } from '../sim/sim';
 import { DamageMeter } from './DamageMeter';
@@ -13,7 +22,16 @@ import { GlyphDefs, ICONS, Icon } from './icons';
 import { TowerIcon } from './TowerIcon';
 import { QUALITY, code, compact, displayName, gemType, isTablet, roleOf } from './names';
 import { Ingredient, RecipeBook, recipesUsing } from './RecipeBook';
-import { announcement, rotateMode, selected, view, type CameraActions } from '../input/camera';
+import {
+  announcement,
+  rotateMode,
+  selected,
+  selectedCreep,
+  view,
+  type CameraActions,
+} from '../input/camera';
+import { CreepInspector } from './CreepInspector';
+import { Statuses } from './Statuses';
 
 // DOM overlay on the full-screen arena (references: the user's Facet prototype and GemTD):
 // - top bar: wave with a preview of the next wave, castle HP, gold, build level and XP;
@@ -489,6 +507,8 @@ function Inspector({ sim, send }: { sim: Sim; send: (cmd: Cmd) => void; tick: nu
     </button>
   );
   const cls = `panel info ${collapsed.value ? 'collapsed' : ''}`;
+  if (selectedCreep.value !== null)
+    return <CreepInspector sim={sim} id={selectedCreep.value} tick={sim.tick} />;
   if (!cell)
     return (
       <section class={cls} data-exclude aria-label="Selection">
@@ -657,6 +677,45 @@ function Inspector({ sim, send }: { sim: Sim; send: (cmd: Cmd) => void; tick: nu
             ))}
           </ul>
         )}
+        {gem && name && !isTablet(name) && (
+          <div class="aim">
+            <label for="aim-mode">Aim</label>
+            <select
+              id="aim-mode"
+              value={(gem.aim ?? 0) % AIM_BOSS}
+              onChange={(e) =>
+                send({
+                  type: 'aim',
+                  id: gem.id,
+                  mode:
+                    Number((e.target as HTMLSelectElement).value) +
+                    ((gem.aim ?? 0) >= AIM_BOSS ? AIM_BOSS : 0),
+                })
+              }
+            >
+              {AIM.map((label, i) => (
+                <option key={label} value={i}>
+                  {label}
+                </option>
+              ))}
+            </select>
+            <button
+              class="boss"
+              aria-pressed={(gem.aim ?? 0) >= AIM_BOSS}
+              title="Bosses and elite creeps are targeted first"
+              onClick={() =>
+                send({
+                  type: 'aim',
+                  id: gem.id,
+                  mode: ((gem.aim ?? 0) + AIM_BOSS) % (2 * AIM_BOSS),
+                })
+              }
+            >
+              Boss first
+            </button>
+          </div>
+        )}
+        {gem && <Statuses data={sim.data} list={game.towerStatuses(gem)} />}
         {buildsInto.length > 0 && (
           <>
             <h3 class="section-label">Builds into</h3>

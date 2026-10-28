@@ -18,7 +18,8 @@ export type Cmd =
   | { type: 'remove'; cell: Cell }
   | { type: 'keep'; id: number; upgrade: 0 | 1 | 2 }
   | { type: 'downgrade'; id: number; hammer?: boolean }
-  | { type: 'combine'; id: number; kind: RecipeKind; result: string; cell?: Cell };
+  | { type: 'combine'; id: number; kind: RecipeKind; result: string; cell?: Cell }
+  | { type: 'aim'; id: number; mode: number };
 export type LogEntry = { tick: number; player: number; cmd: Cmd };
 
 export interface Player {
@@ -84,6 +85,8 @@ export class Sim {
         return void (c.hammer ? this.game.hammer(c.id) : this.game.downgrade(c.id));
       case 'combine':
         return void this.game.combine(c.id, c.kind, c.result, c.cell);
+      case 'aim':
+        return void this.game.setAim(c.id, c.mode);
     }
   }
 

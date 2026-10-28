@@ -340,6 +340,14 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
     get version() {
       return version;
     },
+    /** Where each creep is drawn now (scene units) and how tall it stands, for picking. */
+    creepPoints: () =>
+      [...creeps].map(([id, v]) => ({
+        id,
+        x: v.obj.position.x,
+        z: v.obj.position.z,
+        height: v.height,
+      })),
     /** Stones and towers, for occluder fading. */
     objects: () => [...cells.values(), ...walls.values()].map((p) => p.obj),
     /** Call after every sim tick. */

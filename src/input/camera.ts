@@ -26,6 +26,8 @@ export const view = signal<ViewState>(PRESET);
 /** Fixed angle (drag pans) or Rotate (drag orbits). */
 export const rotateMode = signal(false);
 export const selected = signal<Cell | null>(null);
+/** The selected creep's id; selecting a cell clears it and the other way round. */
+export const selectedCreep = signal<number | null>(null);
 export const cursor = signal<Cell | null>(null);
 /** Polite screen-reader announcement; set to a new string to announce it once. */
 export const announcement = signal('');
@@ -86,6 +88,7 @@ export function createCameraInput(
     },
     select(cell: Cell | null) {
       selected.value = cell;
+      selectedCreep.value = null;
       if (cell) cursor.value = cell;
     },
   };
@@ -129,6 +132,15 @@ export function createCameraInput(
     if (!down.delete(e.pointerId)) return;
     if (down.size > 0 || travel >= DRAG_PX || world.moving) return;
     const r = canvas.getBoundingClientRect();
+    // A creep under the pointer wins over the cell beneath it.
+    const creep = world.creepAt(e.clientX - r.left, e.clientY - r.top);
+    if (creep !== null) {
+      selected.value = null;
+      selectedCreep.value = creep;
+      lastPick = null;
+      announcement.value = 'Selected a creep';
+      return;
+    }
     const cell = world.pick(e.clientX - r.left, e.clientY - r.top);
     const now = e.timeStamp;
     const again =
