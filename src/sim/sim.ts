@@ -3,6 +3,7 @@ import { hash } from '../data';
 import { Board, type Cell } from './board';
 import { Game, TICK_HZ as GAME_TICK_HZ } from './game';
 import { Rng } from './rng';
+import type { RecipeKind } from './progression';
 
 /** Fixed sim rate; the view interpolates between ticks. */
 export const TICK_HZ = GAME_TICK_HZ;
@@ -10,9 +11,14 @@ export const TICK_HZ = GAME_TICK_HZ;
 /** Player action. Every state change goes through one of these. */
 export type Cmd =
   | { type: 'noop' }
+  | { type: 'hero-loadout'; hero: string; abilities: Record<string, number> }
+  | { type: 'hero-move'; cell: Cell }
+  | { type: 'hero-cast'; action: string; target?: number; point?: Cell }
   | { type: 'build'; cell: Cell }
   | { type: 'remove'; cell: Cell }
-  | { type: 'keep'; id: number; upgrade: 0 | 1 | 2 };
+  | { type: 'keep'; id: number; upgrade: 0 | 1 | 2 }
+  | { type: 'downgrade'; id: number; hammer?: boolean }
+  | { type: 'combine'; id: number; kind: RecipeKind; result: string; cell?: Cell };
 export type LogEntry = { tick: number; player: number; cmd: Cmd };
 
 export interface Player {
@@ -62,12 +68,22 @@ export class Sim {
     switch (c.type) {
       case 'noop':
         return;
+      case 'hero-loadout':
+        return void this.game.configureHero(c.hero, c.abilities);
+      case 'hero-move':
+        return void this.game.moveHero(c.cell);
+      case 'hero-cast':
+        return void this.game.castHero(c.action, c.target, this.tick, c.point);
       case 'build':
         return void this.game.build(c.cell);
       case 'remove':
         return void this.game.remove(c.cell);
       case 'keep':
         return void this.game.keep(c.id, c.upgrade);
+      case 'downgrade':
+        return void (c.hammer ? this.game.hammer(c.id) : this.game.downgrade(c.id));
+      case 'combine':
+        return void this.game.combine(c.id, c.kind, c.result, c.cell);
     }
   }
 

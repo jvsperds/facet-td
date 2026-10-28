@@ -1,5 +1,5 @@
 import { signal } from '@preact/signals';
-import { TICK_HZ, type Game } from '../sim/game';
+import { LAST_LEVEL, TICK_HZ, type Game } from '../sim/game';
 
 export type Cue =
   'attack' | 'kill' | 'leak' | 'wave' | 'clear' | 'clear-leak' | 'won' | 'lost' | 'build';
@@ -33,14 +33,22 @@ export function createFeedback(game: Game) {
       const damage = game.events.reduce((sum, e) => sum + (e.type === 'leak' ? e.damage : 0), 0);
       if (warningTicks > 0 && --warningTicks === 0) notice.value = { text: status, danger: false };
       if (game.phase !== phase || game.level !== level) {
-        if (game.phase === 'wave') {
+        if (game.phase === 'wave' && level === LAST_LEVEL) {
+          status = `Victory! All ${LAST_LEVEL} waves cleared. Endless waves begin; hold as long as you can.`;
+          cue = 'won';
+        } else if (game.phase === 'wave') {
           status = `Wave ${game.level} started. Defend the castle.`;
           cue = 'wave';
         } else if (game.phase === 'build') {
           status = `Wave ${level} cleared. Place five gems for wave ${game.level}.`;
           cue = 'clear';
         } else {
-          status = game.phase === 'won' ? 'Victory! All 50 waves cleared.' : 'The castle fell.';
+          status =
+            game.phase === 'lost'
+              ? 'The castle fell.'
+              : game.level > LAST_LEVEL
+                ? `The castle fell on endless wave ${game.level}. Victory.`
+                : `Victory! All ${LAST_LEVEL} waves cleared.`;
           cue = game.phase;
         }
         notice.value = { text: status, danger: game.phase === 'lost' };

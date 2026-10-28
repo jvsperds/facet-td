@@ -256,3 +256,35 @@ button:disabled {
   padding: 24px;
   min-width: min(320px, calc(100vw - 32px));
 }
+.hero-panel {
+  color: inherit;
+  width: min(720px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  padding: 24px;
+}
+.hero-panel::backdrop {
+  background: rgb(0 0 0 / 0.55);
+}
+.hero-panel section {
+  margin: 16px 0;
+}
+.hero-skills {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 8px 24px;
+  margin-top: 16px;
+}
+.hero-panel label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.hero-panel select {
+  min-height: 44px;
+  font: inherit;
+  color: inherit;
+  background: #393e43;
+  border: 1px solid #8a939b;
+  border-radius: 6px;
+}

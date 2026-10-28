@@ -4,6 +4,43 @@ import { loadData } from '../src/data';
 import { Sim } from '../src/sim/sim';
 import { createPieces } from '../src/world/pieces';
 
+test('every combined tower, secret stone and tablet has a finite board model', () => {
+  const data = loadData('classic'),
+    game = new Sim(data, 1).game;
+  const lua = data.files['lua/addon_game_mode.json'] as Record<
+    string,
+    { value: Record<string, unknown> }
+  >;
+  const names = [
+    ...new Set([
+      ...Object.keys(lua.gemtd_merge.value),
+      ...Object.keys(lua.gemtd_merge_secret.value),
+      ...Object.keys(lua.shiban_ability_list.value),
+      'gemtd_zhenjiazhishi',
+    ]),
+  ];
+  game.stones.clear();
+  game.gems = names.map((name, i) => ({
+    id: i + 1,
+    name,
+    cell: { x: (i % 30) + 2, y: Math.floor(i / 30) + 12 },
+    cooldown: 0,
+    target: null,
+  }));
+  const scene = new THREE.Scene(),
+    pieces = createPieces(scene, game);
+  pieces.afterStep();
+  pieces.frame(1, 0);
+  expect(pieces.objects()).toHaveLength(names.length);
+  scene.updateMatrixWorld(true);
+  for (const object of pieces.objects())
+    object.traverse((child) => {
+      expect(child.matrixWorld.elements.every(Number.isFinite)).toBe(true);
+      if (child instanceof THREE.Mesh)
+        expect(child.geometry.getAttribute('position').array.every(Number.isFinite)).toBe(true);
+    });
+});
+
 test('lethal shots retain their endpoints, burst, expire and reuse fixed instance buffers', () => {
   const game = new Sim(loadData('classic'), 1).game;
   game.stones.clear();
