@@ -214,6 +214,8 @@ export function createWorld(board: Board, game: Game) {
     started = performance.now();
     duration = animate && !reducedMotion.matches ? TRANSITION_MS : 0;
     settled = false;
+    // An instant change takes effect now, so picks never see the old projection.
+    if (!duration) place(started);
   }
 
   function place(now: number) {
