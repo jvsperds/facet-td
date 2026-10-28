@@ -2,13 +2,15 @@ import * as THREE from 'three';
 import type { Board, Cell } from '../sim/board';
 import type { Game } from '../sim/game';
 import { TICK_HZ } from '../sim/game';
+import { createEnvironment } from './environment';
 import { createPieces } from './pieces';
 import { azimuth, elevation, frame, toCell, toScene, type Rect, type ViewState } from './view';
 
 // Draws the board and owns the orthographic camera. Reads sim state, never changes it.
 
 const PALETTE = {
-  backdrop: '#656D74',
+  // Deep cave rock beyond the voxel chamber.
+  backdrop: '#2B2F34',
   cellA: '#C7CAC9',
   cellB: '#BCC2C2',
   noBuild: '#A7AEB1',
@@ -19,6 +21,7 @@ const PALETTE = {
   focus: '#164FAD',
 };
 const TRANSITION_MS = 250;
+const CASTLE_MAX_HP = 100;
 const LABELS = ['S', '1', '2', '3', '4', '5', 'E'];
 const LABEL_MIN_PX = 22;
 
@@ -87,6 +90,9 @@ export function createWorld(board: Board, game: Game) {
   slab.position.y = -0.17; // top 2 cm under the ground: closer z-fights
   slab.receiveShadow = true;
   scene.add(ground, slab);
+
+  // The sunken voxel cave, its entrance above S and the crystal vault behind E (environment.ts).
+  const cave = createEnvironment(scene, board.waypoints[0].cell, board.waypoints.at(-1)!.cell);
 
   // Stones, towers and creeps follow the sim (pieces.ts).
   const pieces = createPieces(scene, game);
@@ -250,6 +256,7 @@ export function createWorld(board: Board, game: Game) {
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld();
     for (const s of labels) s.scale.setScalar(Math.max(0.8, LABEL_MIN_PX / current.scale));
+    cave.view(shown.e, shown.a);
   }
 
   // Fade walls between the camera and the cursor or selection (IMPLEMENTATION.md occluder rule).
@@ -289,11 +296,9 @@ export function createWorld(board: Board, game: Game) {
   let lastFrame = performance.now();
   renderer.setAnimationLoop((now) => {
     place(now);
-    pieces.frame(
-      Math.min(1, (now - lastStep) * (TICK_HZ / 1000)),
-      Math.min(0.1, (now - lastFrame) / 1000),
-      reducedMotion.matches,
-    );
+    const dt = Math.min(0.1, (now - lastFrame) / 1000);
+    pieces.frame(Math.min(1, (now - lastStep) * (TICK_HZ / 1000)), dt, reducedMotion.matches);
+    cave.frame(dt, reducedMotion.matches);
     lastFrame = now;
     const key = `${shown.e},${shown.a},${focusCells.map((c) => `${c.x}:${c.y}`)},${pieces.version}`;
     if (key !== lastKey) updateOccluders();
@@ -315,6 +320,8 @@ export function createWorld(board: Board, game: Game) {
     /** Call after every sim tick so pieces follow the sim. */
     afterStep() {
       pieces.afterStep();
+      const leaked = game.events.reduce((sum, e) => sum + (e.type === 'leak' ? e.damage : 0), 0);
+      cave.castle(game.castleHp / CASTLE_MAX_HP, leaked);
       if (routes.visible) syncRoute();
       lastStep = performance.now();
     },
