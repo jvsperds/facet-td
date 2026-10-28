@@ -10,6 +10,7 @@ import { COMBINED_TOWERS } from '../../docs/art/model-study/combined-towers.js';
 import type { Cell } from '../sim/board';
 import { isBasicGem, qualityOf, type Game } from '../sim/game';
 import { toScene } from './view';
+import { createAimer } from './aim';
 import { clearancePush, creepPartScale, creepRadius } from './clearance';
 import { createEffects } from './effects';
 import { createPedalEffects } from './pedals';
@@ -321,8 +322,10 @@ export function createPieces(scene: THREE.Scene, game: Game) {
       for (const g of game.gems) {
         const obj = cells.get(key(g.cell))?.obj;
         const t = g.target !== null ? creeps.get(g.target) : undefined;
-        if (t) obj?.userData.aimAt(t.obj.position.x, t.obj.position.z);
-        else obj?.userData.aimAt();
+        if (!obj) continue;
+        // Heads ease toward the target and turn smoothly onto the next one (issue #14).
+        const aimer = (obj.userData.aimer ??= createAimer(obj)) as ReturnType<typeof createAimer>;
+        aimer.update(t?.obj.position.x, t?.obj.position.z, dt, reducedMotion);
       }
       effects.frame(dt, reducedMotion);
       pedals.frame(dt, reducedMotion);
