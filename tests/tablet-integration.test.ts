@@ -51,3 +51,35 @@ test('acid applies armor on entry and removes it on exit', () => {
     false,
   );
 });
+
+test('remaining tablet families apply their VPK debuffs and stuns at runtime', () => {
+  const youbu = setup('gemtd_youbushiban');
+  youbu.creep.skills = ['enemy_momian'];
+  youbu.sim.step();
+  expect(youbu.game.creepStats(youbu.creep).stopped).toBe(true);
+
+  const cask = setup('gemtd_mabishiban_yin');
+  cask.game.creeps.push({ ...cask.creep, id: 3, x: 11, y: 10 });
+  cask.sim.step();
+  expect(cask.game.creeps.every((c) => cask.game.creepStats(c).stopped)).toBe(true);
+
+  const gale = setup('gemtd_zhangqishiban');
+  gale.sim.step();
+  expect(
+    Object.values(gale.creep.modifiers ?? {}).some(
+      (m) => m.properties?.MODIFIER_PROPERTY_MOVESPEED_BONUS_PERCENTAGE === -50,
+    ),
+  ).toBe(true);
+
+  const konghe = setup('gemtd_kongheshiban');
+  konghe.sim.step();
+  expect(
+    Object.values(konghe.creep.modifiers ?? {}).some(
+      (m) => m.properties?.MODIFIER_PROPERTY_INCOMING_DAMAGE_PERCENTAGE === 80,
+    ),
+  ).toBe(true);
+
+  const xuwu = setup('gemtd_xuwushiban');
+  xuwu.sim.step();
+  expect(xuwu.game.creepStats(xuwu.creep).magicResist).toBe(-60);
+});

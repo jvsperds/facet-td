@@ -306,7 +306,10 @@ export class Game {
       slow += m.slow;
       armor += m.armor;
       percent += m.properties?.MODIFIER_PROPERTY_MOVESPEED_BONUS_PERCENTAGE ?? 0;
-      magicResist += m.properties?.MODIFIER_PROPERTY_MAGICAL_RESISTANCE_BONUS ?? 0;
+      magicResist +=
+        m.properties?.MODIFIER_PROPERTY_MAGICAL_RESISTANCE_BONUS ??
+        m.properties?.MODIFIER_PROPERTY_MAGICAL_RESISTANCE_DECREPIFY_UNIQUE ??
+        0;
       stopped ||= (m.states ?? []).some(
         (s) => s === 'MODIFIER_STATE_STUNNED' || s === 'MODIFIER_STATE_ROOTED',
       );
@@ -1220,16 +1223,7 @@ export class Game {
           this.creeps,
           tick,
         );
-        if (
-          !plan.ok ||
-          !plan.plans.some(
-            (op) =>
-              op.modifier === 'modifier_howl_unit_datadriven' ||
-              op.modifier?.startsWith('modifier_acid_spray') ||
-              op.modifier === 'modifier_torrent_slow_debuff_datadriven',
-          )
-        )
-          continue;
+        if (!plan.ok) continue;
         this.tabletReady[g.id] = plan.cooldownUntil;
         for (const operation of plan.plans) {
           if (operation.modifier === 'modifier_howl_unit_datadriven') {
@@ -1259,6 +1253,23 @@ export class Game {
               sourceName: g.name,
               operation,
             });
+          } else if (operation.kind === 'targets' || operation.kind === 'bounce') {
+            this.tabletStun(g, { ...operation, target: operation.target ?? plan.target }, tick);
+          } else if (operation.kind === 'line') {
+            this.tabletFields.push({
+              expires: tick + operation.duration!,
+              source: g.id,
+              sourceName: g.name,
+              operation,
+              next: {},
+            });
+          } else if (operation.kind === 'area') {
+            for (const c of this.creeps)
+              if (
+                this.near({ x: operation.x!, y: operation.y! }, c, operation.radius!) &&
+                (!this.immune(c) || operation.magicImmune)
+              )
+                this.tabletModifier(c, g, operation, tick);
           }
         }
       }
@@ -1313,7 +1324,13 @@ export class Game {
       const op = field.operation;
       for (const c of this.creeps) {
         const key = `${op.modifier}:${source.id}`;
-        if (this.near({ x: op.x!, y: op.y! }, c, op.radius!)) {
+        const inField =
+          op.kind === 'line'
+            ? this.inTabletLine(source.cell, op, c)
+            : this.near({ x: op.x!, y: op.y! }, c, op.radius!);
+        if (inField) {
+          if (op.kind === 'line') this.tabletModifier(c, source, op, tick);
+          if (op.kind === 'line') continue;
           c.modifiers ??= {};
           c.modifiers[key] = { expires: tick + 1, slow: 0, armor: op.armor! };
           field.next[c.id] ??= tick + TICK_HZ;
@@ -1327,6 +1344,86 @@ export class Game {
         }
       }
     }
+  }
+
+  private inTabletLine(origin: Cell, op: TabletOperation, c: Creep) {
+    const dx = op.x! - origin.x,
+      dy = op.y! - origin.y;
+    const length = Math.sqrt(dx * dx + dy * dy) || 1;
+    const along = ((c.x - origin.x) * dx + (c.y - origin.y) * dy) / length;
+    return (
+      along >= 0 &&
+      along <= op.distance! &&
+      Math.abs((c.x - origin.x) * dy - (c.y - origin.y) * dx) / length <= op.radius!
+    );
+  }
+
+  private tabletModifier(c: Creep, source: Gem, op: TabletOperation, tick: number) {
+    this.applyEffect(
+      c,
+      source,
+      {
+        modifier: op.modifier!,
+        duration: op.duration! / TICK_HZ,
+        properties: {
+          ...(op.slowPct === undefined
+            ? {}
+            : { MODIFIER_PROPERTY_MOVESPEED_BONUS_PERCENTAGE: op.slowPct }),
+          ...(op.mr === undefined
+            ? {}
+            : { MODIFIER_PROPERTY_MAGICAL_RESISTANCE_DECREPIFY_UNIQUE: op.mr }),
+          ...(op.incomingDamagePct === undefined
+            ? {}
+            : { MODIFIER_PROPERTY_INCOMING_DAMAGE_PERCENTAGE: op.incomingDamagePct }),
+        },
+        states: [],
+        damage: 0,
+        interval: 0,
+        multiple: false,
+        pierces: !!op.magicImmune,
+      },
+      tick,
+    );
+  }
+
+  private tabletStun(source: Gem, op: TabletOperation, tick: number) {
+    const start = this.creeps.find((c) => c.id === op.target);
+    if (!start) return;
+    const targets: Creep[] = [];
+    let current = start;
+    while (current && targets.length < (op.kind === 'targets' ? op.limit! : op.bounces! + 1)) {
+      targets.push(current);
+      const candidates = this.creeps
+        .filter(
+          (c) =>
+            !targets.includes(c) &&
+            (op.kind === 'targets'
+              ? this.near({ x: op.x!, y: op.y! }, c, op.radius!)
+              : this.near(current, c, op.distance!)),
+        )
+        .sort(
+          (a, b) =>
+            sq(a.x - current.x) + sq(a.y - current.y) - sq(b.x - current.x) - sq(b.y - current.y) ||
+            a.id - b.id,
+        );
+      current = candidates[0]!;
+    }
+    for (const c of targets)
+      this.applyEffect(
+        c,
+        source,
+        {
+          modifier: op.modifier ?? 'modifier_new_cask',
+          duration: op.stun! / TICK_HZ,
+          properties: {},
+          states: ['MODIFIER_STATE_STUNNED'],
+          damage: 0,
+          interval: 0,
+          multiple: false,
+          pierces: !!op.magicImmune,
+        },
+        tick,
+      );
   }
 
   private attack(g: Gem, tick: number) {
@@ -1502,7 +1599,11 @@ export class Game {
         : type === 'magical'
           ? 1 - stats.magicResist / 100
           : 1;
-    let damage = Math.max(0, raw * factor);
+    const incoming = Object.values(c.modifiers ?? {}).reduce(
+      (sum, m) => sum + (m.properties?.MODIFIER_PROPERTY_INCOMING_DAMAGE_PERCENTAGE ?? 0),
+      0,
+    );
+    let damage = Math.max(0, raw * factor * (1 + incoming / 100));
     if (type === 'physical' && skills.includes('enemy_wumian')) damage *= 0.25;
     if (type === 'physical' && c.modifiers?.modifier_medusa_stone_gaze_stone) damage *= 2;
     if (type === 'physical' && skills.includes('mars_bulwark') && attacker) {
