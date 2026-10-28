@@ -159,6 +159,7 @@ export class Game {
     remaining: number;
     radius: number;
     visited: number[];
+    chainFrost?: boolean;
   }[] = [];
   private tabletCasts: {
     due: number;
@@ -1235,6 +1236,22 @@ export class Game {
       const c = this.creeps.find((c) => c.id === e.target);
       if (!source || !c) continue;
       this.hurt(c, e.damage, 'magical', source.id);
+      if (e.chainFrost)
+        this.applyEffect(
+          c,
+          source,
+          {
+            modifier: 'modifier_chain_frost_slow',
+            duration: 5,
+            properties: { MODIFIER_PROPERTY_MOVESPEED_BONUS_PERCENTAGE: -60 },
+            states: [],
+            damage: 0,
+            interval: 0,
+            multiple: false,
+            pierces: true,
+          },
+          tick,
+        );
       const visited = [...e.visited, c.id];
       if (e.remaining <= 1) continue;
       const next = this.creeps
@@ -1318,6 +1335,7 @@ export class Game {
                 this.tabletModifier(c, g, operation, tick);
           }
         }
+        this.triggerChainFrost(g, plan.target, plan.triggerChainFrost, tick);
       }
     const casts = this.tabletCasts.filter((cast) => cast.due <= tick);
     this.tabletCasts = this.tabletCasts.filter((cast) => cast.due > tick);
@@ -1470,6 +1488,39 @@ export class Game {
         },
         tick,
       );
+  }
+
+  /** TriggerShiban and chain_frost.lua: one nearby chain-frost tower wins the level roll. */
+  private triggerChainFrost(
+    tablet: Gem,
+    target: number,
+    trigger: { radius: number; chance: number },
+    tick: number,
+  ) {
+    let count = 1;
+    for (const tower of this.gems
+      .filter(
+        (g) =>
+          this.near(g.cell, tablet.cell, trigger.radius) &&
+          this.gemAbilities(g).some((a) => a.kind === 'trait' && a.name === 'tower_chain_frost'),
+      )
+      .sort((a, b) => a.id - b.id)) {
+      if (this.rng.int(1, 100 * count) <= trigger.chance) {
+        this.delayed.push({
+          due: tick,
+          source: tower.id,
+          sourceName: tower.name,
+          target,
+          damage: 12000,
+          remaining: 11,
+          radius: 1000 / CELL_UNITS,
+          visited: [],
+          chainFrost: true,
+        });
+        return;
+      }
+      count++;
+    }
   }
 
   private attack(g: Gem, tick: number) {

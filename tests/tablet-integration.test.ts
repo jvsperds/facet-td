@@ -3,8 +3,8 @@ import { loadData } from '../src/data';
 import { Sim } from '../src/sim/sim';
 import type { Creep } from '../src/sim/game';
 
-function setup(name: string) {
-  const sim = new Sim(loadData('classic'), 1);
+function setup(name: string, seed = 1) {
+  const sim = new Sim(loadData('classic'), seed);
   const game = sim.game;
   game.phase = 'wave';
   game.gems = [{ id: 1, name, cell: { x: 10, y: 10 }, cooldown: 0, target: null }];
@@ -82,4 +82,20 @@ test('remaining tablet families apply their VPK debuffs and stuns at runtime', (
   const xuwu = setup('gemtd_xuwushiban');
   xuwu.sim.step();
   expect(xuwu.game.creepStats(xuwu.creep).magicResist).toBe(-60);
+});
+
+test('a nearby chain-frost tower can trigger from a tablet cast and bounces with source values', () => {
+  const { sim, game, creep } = setup('gemtd_haojiaoshiban_jin', 2);
+  game.gems.push({
+    id: 3,
+    name: 'gemtd_haibao',
+    cell: { x: 11, y: 10 },
+    cooldown: 10000,
+    target: null,
+  });
+  expect(game.abilities('gemtd_haibao')).toContainEqual({ kind: 'trait', name: 'tower_chain_frost' });
+  sim.rng.int = (min) => min;
+  sim.step();
+  expect(creep.hp).toBeLessThan(creep.maxHp);
+  expect(Object.keys(creep.modifiers ?? {})).toContain('modifier_chain_frost_slow');
 });
