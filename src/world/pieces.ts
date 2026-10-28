@@ -10,14 +10,12 @@ import { COMBINED_TOWERS } from '../../docs/art/model-study/combined-towers.js';
 import type { Cell } from '../sim/board';
 import { isBasicGem, qualityOf, type Game } from '../sim/game';
 import { toScene } from './view';
+import { createEffects } from './effects';
 import { neighbourhood, wallMesh, wallRaster, type Occupancy } from './walls';
 
 // Everything on the board that the sim owns: stones, gem towers, creeps and combat effects.
 // Rebuilt from sim state after each tick; creeps interpolate between the last two ticks.
 
-const TRAVEL_SECONDS = 0.12;
-const IMPACT_SECONDS = 0.24;
-const MAX_EFFECTS = 128;
 // The art study draws thin tower footings (core half 0.22, plinth radius 0.31); the board stretches
 // them to fill their cell and drops their joining arms. Stones are board walls (walls.ts).
 const ALONG = 0.5 / 0.22;
@@ -146,38 +144,7 @@ export function createPieces(scene: THREE.Scene, game: Game) {
   scene.add(hero, beacon);
   const cells = new Map<number, Piece>();
   const creeps = new Map<number, CreepView>();
-  const effects: {
-    start: THREE.Vector3;
-    end: THREE.Vector3;
-    color: THREE.Color;
-    age: number;
-    lethal: boolean;
-  }[] = [];
-  // Two fixed instance buffers keep dense volleys bounded without per-frame GPU allocations.
-  const projectiles = new THREE.InstancedMesh(
-    new THREE.OctahedronGeometry(0.14),
-    new THREE.MeshBasicMaterial(),
-    MAX_EFFECTS,
-  );
-  const impacts = new THREE.InstancedMesh(
-    new THREE.RingGeometry(0.7, 1, 16),
-    new THREE.MeshBasicMaterial({
-      side: THREE.DoubleSide,
-      transparent: true,
-      opacity: 0.75,
-      depthWrite: false,
-    }),
-    MAX_EFFECTS,
-  );
-  projectiles.name = 'combat-projectiles';
-  impacts.name = 'combat-impacts';
-  for (const mesh of [projectiles, impacts]) {
-    mesh.count = 0;
-    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    mesh.frustumCulled = false; // instances move independently of the mesh origin
-    scene.add(mesh);
-  }
-  const pose = new THREE.Object3D();
+  const effects = createEffects(scene);
   let version = 0;
 
   // Walls are rebuilt from one shared footprint whenever any cell's occupant changes.
@@ -295,6 +262,11 @@ export function createPieces(scene: THREE.Scene, game: Game) {
         beacon.position.set(b.x, 1.2, b.z);
       }
       syncCells();
+      const tower = (g: (typeof game.gems)[number]) => {
+        const { x, z } = toScene(g.cell);
+        return { id: g.id, x, z, color: towerColor(g.name), abilities: game.abilities(g.name) };
+      };
+      effects.setTowers(game.gems.map(tower));
       // Capture endpoints before removing dead creeps, so lethal shots still arrive and burst.
       const killed = new Set(game.events.filter((e) => e.type === 'kill').map((e) => e.id));
       for (const e of game.events)
@@ -304,15 +276,13 @@ export function createPieces(scene: THREE.Scene, game: Game) {
           if (!gem) continue;
           const start = toScene(gem.cell);
           const end = toScene(e);
-          const color = towerColor(gem.name);
-          if (effects.length === MAX_EFFECTS) effects.shift();
-          effects.push({
-            start: new THREE.Vector3(start.x, 1.2, start.z),
-            end: new THREE.Vector3(end.x, (previous?.height ?? 0.8) - 0.25, end.z),
-            color: new THREE.Color(color),
-            age: 0,
-            lethal: killed.has(e.to),
-          });
+          effects.hit(
+            e.via,
+            tower(gem),
+            new THREE.Vector3(start.x, 1.2, start.z),
+            new THREE.Vector3(end.x, (previous?.height ?? 0.8) - 0.25, end.z),
+            killed.has(e.to),
+          );
         }
       syncCreeps();
     },
@@ -335,40 +305,7 @@ export function createPieces(scene: THREE.Scene, game: Game) {
         if (t) obj?.userData.aimAt(t.obj.position.x, t.obj.position.z);
         else obj?.userData.aimAt();
       }
-      let shots = 0;
-      let rings = 0;
-      for (let i = effects.length - 1; i >= 0; i--) {
-        const f = effects[i];
-        f.age += dt;
-        if (f.age >= TRAVEL_SECONDS + IMPACT_SECONDS) {
-          effects.splice(i, 1);
-          continue;
-        }
-        if (f.age < TRAVEL_SECONDS && !reducedMotion) {
-          pose.position.lerpVectors(f.start, f.end, f.age / TRAVEL_SECONDS);
-          pose.rotation.set(0, f.age * 12, 0);
-          pose.scale.setScalar(1);
-          pose.updateMatrix();
-          projectiles.setMatrixAt(shots, pose.matrix);
-          projectiles.setColorAt(shots++, f.color);
-        } else {
-          const t = Math.max(0, (f.age - TRAVEL_SECONDS) / IMPACT_SECONDS);
-          pose.position.copy(f.end);
-          pose.rotation.set(-Math.PI / 2, 0, 0);
-          pose.scale.setScalar(
-            reducedMotion ? 0.22 : (0.2 + t * (f.lethal ? 1.2 : 0.65)) * (1 - t),
-          );
-          pose.updateMatrix();
-          impacts.setMatrixAt(rings, pose.matrix);
-          impacts.setColorAt(rings++, f.color);
-        }
-      }
-      projectiles.count = shots;
-      impacts.count = rings;
-      for (const mesh of [projectiles, impacts]) {
-        mesh.instanceMatrix.needsUpdate = true;
-        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-      }
+      effects.frame(dt, reducedMotion);
     },
   };
 }
