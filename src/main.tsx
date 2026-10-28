@@ -3,6 +3,8 @@ import { render } from 'preact';
 import { createAudio } from './audio';
 import { loadData, type Mode } from './data';
 import { Hud } from './hud/Hud';
+import { pinned, pinnedIngredients } from './hud/RecipeBook';
+import type { Cell } from './sim/board';
 import { createFeedback } from './hud/feedback';
 import { createCameraInput, cursor, hovered, selected, selectedCreep } from './input/camera';
 import { Sim, TICK_HZ, type Cmd } from './sim/sim';
@@ -10,8 +12,11 @@ import { createWorld } from './world/world';
 import './style.css';
 
 const mode: Mode = 'classic';
+const params = new URLSearchParams(location.search);
+// `?title` shows the title screen over an idle board instead of a run.
+const title = params.has('title');
 // The seed is the only outside input; `?seed=` replays a game.
-const seed = Number(new URLSearchParams(location.search).get('seed')) || Date.now() >>> 0;
+const seed = Number(params.get('seed')) || Date.now() >>> 0;
 const sim = new Sim(loadData(mode), seed);
 const board = sim.board;
 const world = createWorld(board, sim.game);
@@ -20,7 +25,7 @@ const send = (cmd: Cmd) => sim.send(0, cmd);
 const actions = createCameraInput(world, board, send, (cell) => sim.game.canBuild(cell).ok);
 /** Bumped after sim steps so the HUD re-reads sim state. */
 const ticked = signal(0);
-const paused = signal(false);
+const paused = signal(title);
 /** Game speed: sim ticks per real tick (1x, 2x, 4x). */
 const speed = signal(1);
 const routeVisible = signal(false);
@@ -42,6 +47,7 @@ render(
     feedback={feedback}
     audio={audio}
     routeVisible={routeVisible}
+    title={title}
   />,
   hudRoot,
 );
@@ -80,6 +86,24 @@ effect(() => {
   world.setRange(gem ? gem.cell : null, gem ? sim.game.attackRange(gem) : 0);
 });
 effect(() => world.setRouteVisible(routeVisible.value));
+// Towers that can combine glow gold; draft gems that keep as a better gem, and the ingredients of
+// pinned recipes, glow blue.
+effect(() => {
+  void ticked.value;
+  const g = sim.game;
+  const pins = pinnedIngredients(sim.data, pinned.value);
+  const combine: Cell[] = [];
+  const better: Cell[] = [];
+  for (const gem of g.gems) {
+    if (g.combineOptions(gem.id).length) combine.push(gem.cell);
+    else if (
+      (g.draft.includes(gem.id) && (g.keepResult(gem.id, 1).ok || g.keepResult(gem.id, 2).ok)) ||
+      pins.has(gem.name)
+    )
+      better.push(gem.cell);
+  }
+  world.setHighlights(combine, better);
+});
 
 // Fixed-rate sim clock. Pausing stops stepping; queued commands apply on resume.
 world.afterStep();
@@ -111,7 +135,7 @@ setInterval(() => {
     g.draft.length,
     g.gems.length,
     g.stones.size,
-    g.gems.map((gem) => `${gem.name}:${gem.level ?? 0}`).join(),
+    g.gems.map((gem) => `${gem.name}:${gem.level ?? 0}:${gem.aim ?? 0}`).join(),
     JSON.stringify(g.hero),
     g.hero.selected ? Math.floor(sim.tick / 30) : 0,
   ].join();

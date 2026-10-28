@@ -4,6 +4,7 @@ import type { Game } from '../sim/game';
 import { TICK_HZ } from '../sim/game';
 import { createEnvironment } from './environment';
 import { createPieces } from './pieces';
+import { TURRET_TOP } from './walls';
 import { azimuth, elevation, frame, toCell, toScene, type Rect, type ViewState } from './view';
 
 // Draws the board and owns the orthographic camera. Reads sim state, never changes it.
@@ -207,6 +208,24 @@ export function createWorld(board: Board, game: Game) {
   const guideRow = guideStrip(true);
   const guideColumn = guideStrip(false);
 
+  // Highlights: a pulsing ring under towers that can combine (gold) or that keep as a better gem
+  // or belong to a pinned recipe (blue).
+  const HIGHLIGHTS = 48;
+  const glowRing = (color: string) => {
+    const mesh = new THREE.InstancedMesh(
+      new THREE.RingGeometry(0.42, 0.56, 8, 1, Math.PI / 8).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color, transparent: true, depthWrite: false }),
+      HIGHLIGHTS,
+    );
+    mesh.count = 0;
+    mesh.renderOrder = 9;
+    scene.add(mesh);
+    return mesh;
+  };
+  const combineRings = glowRing('#F2B84B');
+  const betterRings = glowRing('#6FB7FF');
+  const ringPose = new THREE.Matrix4();
+
   // The selected creep: a gold ring that follows it.
   const creepRing = new THREE.Group().add(
     new THREE.Mesh(
@@ -360,6 +379,10 @@ export function createWorld(board: Board, game: Game) {
     const dt = Math.min(0.1, (now - lastFrame) / 1000);
     pieces.frame(Math.min(1, (now - lastStep) * (TICK_HZ / 1000)), dt, reducedMotion.matches);
     cave.frame(dt, reducedMotion.matches);
+    // Highlight rings breathe, so they read as "act on me" without hiding the towers.
+    const breath = reducedMotion.matches ? 0.75 : 0.55 + 0.35 * Math.sin(now / 280);
+    (combineRings.material as THREE.MeshBasicMaterial).opacity = breath;
+    (betterRings.material as THREE.MeshBasicMaterial).opacity = breath * 0.8;
     const marked =
       markedCreep === null ? undefined : pieces.creepPoints().find((p) => p.id === markedCreep);
     creepRing.visible = !!marked;
@@ -429,6 +452,21 @@ export function createWorld(board: Board, game: Game) {
         if (d < bestD) [bestD, best] = [d, c.id];
       }
       return best;
+    },
+    /** Towers to highlight: those that can combine, and those that upgrade or are pinned. */
+    setHighlights(combine: Cell[], better: Cell[]) {
+      for (const [mesh, cells] of [
+        [combineRings, combine],
+        [betterRings, better],
+      ] as const) {
+        mesh.count = Math.min(HIGHLIGHTS, cells.length);
+        cells.slice(0, HIGHLIGHTS).forEach((c, i) => {
+          const { x, z } = toScene(c);
+          // On the turret's rim, where the tower rises out of the wall.
+          mesh.setMatrixAt(i, ringPose.makeTranslation(x, TURRET_TOP + 0.015, z));
+        });
+        mesh.instanceMatrix.needsUpdate = true;
+      }
     },
     /** Row and column guides through `cell`, or none. */
     setGuides(cell: Cell | null) {
