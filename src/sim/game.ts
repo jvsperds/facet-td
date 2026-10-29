@@ -107,6 +107,8 @@ export type GameEvent =
       via: HitVia;
     }
   | { type: 'kill'; id: number; gold: number }
+  /** A tablet (pedal) fired; its planned operations, for presentation. */
+  | { type: 'tablet'; from: number; target: number; operations: readonly TabletOperation[] }
   | { type: 'leak'; id: number; damage: number };
 export type Refusal = { ok: false; reason: string };
 export type Check = { ok: true } | Refusal;
@@ -1300,6 +1302,12 @@ export class Game {
         );
         if (!plan.ok) continue;
         this.tabletReady[g.id] = plan.cooldownUntil;
+        this.events.push({
+          type: 'tablet',
+          from: g.id,
+          target: plan.target,
+          operations: plan.plans,
+        });
         for (const operation of plan.plans) {
           if (operation.modifier === 'modifier_howl_unit_datadriven') {
             for (const ally of this.gems)

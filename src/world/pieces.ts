@@ -12,6 +12,7 @@ import { isBasicGem, qualityOf, type Game } from '../sim/game';
 import { toScene } from './view';
 import { clearancePush, creepPartScale, creepRadius } from './clearance';
 import { createEffects } from './effects';
+import { createPedalEffects } from './pedals';
 import { neighbourhood, wallMesh, wallRaster, type Occupancy } from './walls';
 
 // Everything on the board that the sim owns: stones, gem towers, creeps and combat effects.
@@ -147,6 +148,7 @@ export function createPieces(scene: THREE.Scene, game: Game) {
   const cells = new Map<number, Piece>();
   const creeps = new Map<number, CreepView>();
   const effects = createEffects(scene);
+  const pedals = createPedalEffects(scene);
   let version = 0;
 
   // Walls are rebuilt from one shared footprint whenever any cell's occupant changes.
@@ -287,6 +289,17 @@ export function createPieces(scene: THREE.Scene, game: Game) {
             new THREE.Vector3(end.x, (previous?.height ?? 0.8) - 0.25, end.z),
             killed.has(e.to),
           );
+        } else if (e.type === 'tablet') {
+          const gem = game.gems.find((g) => g.id === e.from);
+          if (!gem) continue;
+          const at = toScene(gem.cell);
+          pedals.trigger(
+            { x: at.x, z: at.z },
+            e.operations,
+            (x, y) => toScene({ x, y }),
+            game.creeps,
+            e.target,
+          );
         }
       syncCreeps();
     },
@@ -312,6 +325,7 @@ export function createPieces(scene: THREE.Scene, game: Game) {
         else obj?.userData.aimAt();
       }
       effects.frame(dt, reducedMotion);
+      pedals.frame(dt, reducedMotion);
     },
   };
 }
