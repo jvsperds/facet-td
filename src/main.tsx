@@ -29,6 +29,16 @@ const paused = signal(title);
 /** Game speed: sim ticks per real tick (1x, 2x, 4x). */
 const speed = signal(1);
 const routeVisible = signal(false);
+/** Tower aura rings on the board; a per-browser preference. */
+const aurasVisible = signal(
+  (() => {
+    try {
+      return localStorage.getItem('facet-td:auras') !== 'off';
+    } catch {
+      return true;
+    }
+  })(),
+);
 const feedback = createFeedback(sim.game);
 const audio = createAudio();
 addEventListener('pointerdown', () => audio.unlock());
@@ -47,6 +57,7 @@ render(
     feedback={feedback}
     audio={audio}
     routeVisible={routeVisible}
+    aurasVisible={aurasVisible}
     title={title}
   />,
   hudRoot,
@@ -86,6 +97,14 @@ effect(() => {
   world.setRange(gem ? gem.cell : null, gem ? sim.game.attackRange(gem) : 0);
 });
 effect(() => world.setRouteVisible(routeVisible.value));
+effect(() => {
+  world.setAurasVisible(aurasVisible.value);
+  try {
+    localStorage.setItem('facet-td:auras', aurasVisible.value ? 'on' : 'off');
+  } catch {
+    // Storage unavailable: the choice lasts for this session.
+  }
+});
 // Towers that can combine glow gold; draft gems that keep as a better gem, and the ingredients of
 // pinned recipes, glow blue.
 effect(() => {

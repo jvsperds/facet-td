@@ -51,6 +51,7 @@ type Props = {
   feedback: Feedback;
   audio: Audio;
   routeVisible: Signal<boolean>;
+  aurasVisible: Signal<boolean>;
   /** The title screen instead of a run. */
   title?: boolean;
 };
@@ -63,6 +64,7 @@ const typing = (e: KeyboardEvent) =>
 
 export function Hud(props: Props) {
   const { sim, ticked, paused, speed, send, actions, mode, feedback, audio, routeVisible } = props;
+  const aurasVisible = props.aurasVisible;
   // Passed down as a prop: signal-aware components skip re-renders when only their parent's signals change.
   const tick = ticked.value;
   const game = sim.game;
@@ -105,7 +107,10 @@ export function Hud(props: Props) {
       else if (k === 'd') meterOpen.value = !meterOpen.value;
       else if (k === 'h') heroOpen.value = true;
       else if (k === 't') actions.toggleMode();
-      else if (k === 'escape') {
+      else if (k === 'a') {
+        aurasVisible.value = !aurasVisible.value;
+        announcement.value = aurasVisible.value ? 'Auras shown' : 'Auras hidden';
+      } else if (k === 'escape') {
         // Close the book, else drop the selection, else open the menu (GemTD's Esc).
         if (recipesOpen.value) recipesOpen.value = false;
         else if (selected.value || selectedCreep.value !== null) {
@@ -204,6 +209,13 @@ export function Hud(props: Props) {
               onClick={() => (routeVisible.value = !routeVisible.value)}
             >
               Show routes
+            </button>
+            <button
+              aria-pressed={aurasVisible.value}
+              aria-keyshortcuts="A"
+              onClick={() => (aurasVisible.value = !aurasVisible.value)}
+            >
+              Show auras <kbd aria-hidden="true">A</kbd>
             </button>
             <button
               disabled={!audio.available.value}

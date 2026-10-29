@@ -44,11 +44,20 @@ const IMPACT_OF: Record<ShotStyle, ImpactStyle> = {
   bolt: 'ring',
 };
 const AURA_COLOR: Record<AuraFamily, string> = {
-  support: '#F2D27A',
+  // Opal-style attack speed auras are everywhere late on: grey and barely there.
+  support: '#9AA0A6',
   burn: '#F0803C',
   frost: '#8FD3F4',
   shred: '#3CC8B4',
 };
+/** Ring, fill and pulse opacity by family. */
+const AURA_OPACITY: Record<AuraFamily, [number, number, number]> = {
+  support: [0.14, 0.02, 0.12],
+  burn: [0.32, 0.04, 0.35],
+  frost: [0.32, 0.04, 0.35],
+  shred: [0.32, 0.04, 0.35],
+};
+const MAX_AURAS = 256;
 const AURA_PERIOD = { support: 2.6, burn: 1.4, frost: 3.2, shred: 2.2 };
 const FROST_TINT = new THREE.Color('#E4F6FF');
 // Saturated electric blue reads on the pale board; the tower colour tints it.
@@ -206,17 +215,59 @@ export function createEffects(scene: THREE.Scene) {
   bolts.renderOrder = 6;
   scene.add(bolts);
 
-  // Aura rings: one static ring and one pulse per ring, rebuilt when towers change.
+  // Aura rings: a faint fill, a rim and a travelling pulse per ring, all instanced by family
+  // (three draws per family in use), rebuilt when the towers change.
   const auraGroup = new THREE.Group();
   auraGroup.name = 'tower-auras';
   scene.add(auraGroup);
   const ringGeometry = new THREE.RingGeometry(0.96, 1, 64).rotateX(-Math.PI / 2);
   const discGeometry = new THREE.CircleGeometry(1, 48).rotateX(-Math.PI / 2);
   const pulseGeometry = new THREE.RingGeometry(0.97, 1, 48).rotateX(-Math.PI / 2);
-  const auraMaterial = (color: string, opacity: number) =>
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false });
-  let auras: { pulse: THREE.Mesh; family: AuraFamily; radius: number; phase: number }[] = [];
+  const auraLayer = (geometry: THREE.BufferGeometry, family: AuraFamily, layer: number) => {
+    const mesh = new THREE.InstancedMesh(
+      geometry,
+      new THREE.MeshBasicMaterial({
+        color: AURA_COLOR[family],
+        transparent: true,
+        opacity: AURA_OPACITY[family][layer],
+        depthWrite: false,
+      }),
+      MAX_AURAS,
+    );
+    mesh.count = 0;
+    mesh.visible = false;
+    mesh.renderOrder = 1;
+    mesh.frustumCulled = false;
+    auraGroup.add(mesh);
+    return mesh;
+  };
+  const FAMILIES: AuraFamily[] = ['support', 'burn', 'frost', 'shred'];
+  const layers = Object.fromEntries(
+    FAMILIES.map((f) => [
+      f,
+      {
+        ring: auraLayer(ringGeometry, f, 0),
+        disc: auraLayer(discGeometry, f, 1),
+        pulse: auraLayer(pulseGeometry, f, 2),
+      },
+    ]),
+  ) as unknown as Record<
+    AuraFamily,
+    { ring: THREE.InstancedMesh; disc: THREE.InstancedMesh; pulse: THREE.InstancedMesh }
+  >;
+  let auras: {
+    x: number;
+    z: number;
+    family: AuraFamily;
+    radius: number;
+    phase: number;
+    slot: number;
+  }[] = [];
   let auraKey = '';
+  const auraPose = new THREE.Matrix4();
+  const auraAt = new THREE.Vector3();
+  const auraScale = new THREE.Vector3();
+  const flat = new THREE.Quaternion();
   let clock = 0;
 
   const pose = new THREE.Object3D();
@@ -267,29 +318,34 @@ export function createEffects(scene: THREE.Scene) {
       const key = towers.map((t) => `${t.id}:${t.x}:${t.z}:${t.color}`).join();
       if (key === auraKey) return;
       auraKey = key;
-      for (const child of [...auraGroup.children]) {
-        child.removeFromParent();
-        ((child as THREE.Mesh).material as THREE.Material).dispose();
-      }
       auras = [];
+      const used: Record<AuraFamily, number> = { support: 0, burn: 0, frost: 0, shred: 0 };
       for (const t of towers)
         for (const { family, radius } of auraRings(t.abilities)) {
-          const color = AURA_COLOR[family];
-          const ring = new THREE.Mesh(ringGeometry, auraMaterial(color, 0.4));
-          const disc = new THREE.Mesh(discGeometry, auraMaterial(color, 0.05));
-          const pulse = new THREE.Mesh(pulseGeometry, auraMaterial(color, 0));
-          for (const [mesh, y] of [
-            [disc, 0.012],
-            [ring, 0.016],
-            [pulse, 0.02],
-          ] as const) {
-            mesh.position.set(t.x, y, t.z);
-            mesh.scale.setScalar(radius);
-            mesh.renderOrder = 1;
-            auraGroup.add(mesh);
-          }
-          auras.push({ pulse, family, radius, phase: (t.id * 0.37) % 1 });
+          const slot = used[family]++;
+          if (slot >= MAX_AURAS) continue;
+          auras.push({ x: t.x, z: t.z, family, radius, phase: (t.id * 0.37) % 1, slot });
+          const { ring, disc } = layers[family];
+          ring.setMatrixAt(
+            slot,
+            auraPose.compose(auraAt.set(t.x, 0.016, t.z), flat, auraScale.setScalar(radius)),
+          );
+          disc.setMatrixAt(
+            slot,
+            auraPose.compose(auraAt.set(t.x, 0.012, t.z), flat, auraScale.setScalar(radius)),
+          );
         }
+      for (const f of FAMILIES)
+        for (const mesh of Object.values(layers[f])) {
+          mesh.count = Math.min(MAX_AURAS, used[f]);
+          mesh.visible = mesh.count > 0;
+          mesh.instanceMatrix.needsUpdate = true;
+        }
+    },
+
+    /** Show or hide every aura ring. */
+    setAurasVisible(visible: boolean) {
+      auraGroup.visible = visible;
     },
 
     get auraCount() {
@@ -298,18 +354,21 @@ export function createEffects(scene: THREE.Scene) {
 
     frame(dt: number, reducedMotion: boolean) {
       clock += dt;
-      for (const a of auras) {
-        const material = a.pulse.material as THREE.MeshBasicMaterial;
-        if (reducedMotion) {
-          material.opacity = 0;
-          continue;
+      // Pulses: support and burn radiate outward; frost and shred draw inward toward the tower.
+      if (auraGroup.visible)
+        for (const a of auras) {
+          const pulse = layers[a.family].pulse;
+          const t = reducedMotion ? 0 : (clock / AURA_PERIOD[a.family] + a.phase) % 1;
+          const k = a.family === 'frost' || a.family === 'shred' ? 1 - t : t;
+          const size = reducedMotion
+            ? 0
+            : a.radius * (0.15 + 0.85 * k) * Math.min(1, Math.sin(Math.PI * t) * 3);
+          pulse.setMatrixAt(
+            a.slot,
+            auraPose.compose(auraAt.set(a.x, 0.02, a.z), flat, auraScale.setScalar(size)),
+          );
         }
-        // Support and burn radiate outward; frost and shred draw inward toward the tower.
-        const t = (clock / AURA_PERIOD[a.family] + a.phase) % 1;
-        const k = a.family === 'frost' || a.family === 'shred' ? 1 - t : t;
-        a.pulse.scale.setScalar(a.radius * (0.15 + 0.85 * k));
-        material.opacity = 0.45 * Math.sin(Math.PI * t);
-      }
+      for (const f of FAMILIES) layers[f].pulse.instanceMatrix.needsUpdate = true;
 
       const counts = new Map<THREE.InstancedMesh, number>();
       const put = (mesh: THREE.InstancedMesh, color: THREE.Color) => {

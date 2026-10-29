@@ -95,18 +95,28 @@ test('lightning strikes instantly; poison ticks puff; reduced motion skips trave
   expect(mesh(scene, 'combat-impacts-flake').count).toBe(1);
 });
 
-test('aura rings follow the tower set and stay still under reduced motion', () => {
+test('aura rings follow the tower set, are instanced, and stay still under reduced motion', () => {
   const scene = new THREE.Scene();
   const fx = createEffects(scene);
   fx.setTowers([tower('gemtd_e1'), { ...tower('gemtd_b1'), id: 2 }]);
   expect(fx.auraCount).toBe(1);
   const group = scene.getObjectByName('tower-auras')!;
-  expect(group.children).toHaveLength(3); // disc, ring, pulse
+  // One instanced disc, rim and pulse per family; only the opal's support family is drawn.
+  const shown = () => group.children.filter((c) => c.visible) as THREE.InstancedMesh[];
+  expect(shown()).toHaveLength(3);
+  expect(shown().every((m) => m.count === 1)).toBe(true);
+  const pulse = shown()[2];
+  const size = () => {
+    const m = new THREE.Matrix4();
+    pulse.getMatrixAt(0, m);
+    return new THREE.Vector3().setFromMatrixScale(m).x;
+  };
   fx.frame(0.5, false);
-  const pulse = group.children[2] as THREE.Mesh;
-  expect((pulse.material as THREE.MeshBasicMaterial).opacity).toBeGreaterThan(0);
+  expect(size()).toBeGreaterThan(0);
   fx.frame(0.5, true);
-  expect((pulse.material as THREE.MeshBasicMaterial).opacity).toBe(0);
+  expect(size()).toBe(0); // reduced motion: no travelling pulse
+  fx.setAurasVisible(false);
+  expect(group.visible).toBe(false);
   fx.setTowers([]);
-  expect(group.children).toHaveLength(0);
+  expect(shown()).toHaveLength(0);
 });

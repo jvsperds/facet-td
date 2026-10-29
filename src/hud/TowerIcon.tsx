@@ -92,27 +92,28 @@ function render(name: string) {
   Object.assign(camera, { left: -half, right: half, top: half, bottom: -half, near: 1, far: 60 });
   camera.updateProjectionMatrix();
   renderer.render(scene, camera);
-  const url = renderer.domElement.toDataURL('image/png');
   scene.remove(holder);
   holder.traverse((o) => {
     if (o instanceof THREE.Mesh) o.geometry.dispose();
   });
-  return url;
+  // An async read-back: toDataURL would stall the frame until the GPU caught up.
+  return new Promise<string>((resolve) =>
+    renderer.domElement.toBlob((blob) => resolve(blob ? URL.createObjectURL(blob) : '')),
+  );
 }
 
-function drain() {
-  scheduled = false;
-  const start = performance.now();
-  // A few icons per frame, so opening the recipe book never stalls the board.
-  while (queue.length && performance.now() - start < 12) {
-    const name = queue.shift()!;
+/** One icon per frame, so opening the recipe book never stalls the board. */
+async function drain() {
+  const name = queue.shift();
+  if (name !== undefined) {
     try {
-      cache.set(name, render(name));
+      cache.set(name, await render(name));
     } catch {
       cache.set(name, '');
     }
+    ready.value++;
   }
-  ready.value++;
+  scheduled = false;
   if (queue.length) schedule();
 }
 
@@ -122,7 +123,7 @@ function schedule() {
   requestAnimationFrame(drain);
 }
 
-/** The cached icon for a tower name: a data URL, '' if it cannot be drawn, undefined while queued. */
+/** The cached icon for a tower name: an image URL, '' if it cannot be drawn, undefined while queued. */
 export function iconOf(name: string): string | undefined {
   const hit = cache.get(name);
   if (hit !== undefined) return hit;
