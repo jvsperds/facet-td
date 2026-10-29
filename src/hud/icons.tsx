@@ -44,4 +44,23 @@ export const ICONS: Record<string, ComponentChildren> = {
   hero: <path d="M4 19h16 M5 16 4 7l5 4 3-6 3 6 5-4-1 9z" />,
   chevronDown: <path d="M6 9l6 6 6-6" />,
   chevronUp: <path d="M6 15l6-6 6 6" />,
+  close: <path d="M6 6l12 12M18 6 6 18" />,
+  book: (
+    <path d="M4 5.5C6 4.5 9 4.5 12 6c3-1.5 6-1.5 8-.5V19c-2-1-5-1-8 .5-3-1.5-6-1.5-8-.5z M12 6v13.5" />
+  ),
+  meter: <path d="M5 20V11 M10 20V5 M15 20v-7 M20 20V8" />,
+  route: (
+    <path d="M6 19a2 2 0 1 0 0-.01 M18 5a2 2 0 1 0 0-.01 M6 17V9a3 3 0 0 1 3-3h4 M18 7v8a3 3 0 0 1-3 3h-4" />
+  ),
+  heart: <path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z" />,
+  coin: <path d="M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16 M12 8v8 M9.5 10h5 M9.5 14h5" />,
 };
+
+/** Inline icon in currentColor for labels and buttons. */
+export function Icon({ name, class: cls = 'icon' }: { name: keyof typeof ICONS; class?: string }) {
+  return (
+    <svg class={cls} viewBox="0 0 24 24" aria-hidden="true">
+      {ICONS[name]}
+    </svg>
+  );
+}

@@ -21,6 +21,8 @@ const actions = createCameraInput(world, board, send, (cell) => sim.game.canBuil
 /** Bumped after sim steps so the HUD re-reads sim state. */
 const ticked = signal(0);
 const paused = signal(false);
+/** Game speed: sim ticks per real tick (1x, 2x, 4x). */
+const speed = signal(1);
 const routeVisible = signal(false);
 const feedback = createFeedback(sim.game);
 const audio = createAudio();
@@ -33,6 +35,7 @@ render(
     sim={sim}
     ticked={ticked}
     paused={paused}
+    speed={speed}
     send={send}
     actions={actions}
     mode={mode}
@@ -66,6 +69,13 @@ addEventListener('resize', measure);
 measure();
 
 effect(() => world.setMarks(selected.value, cursor.value));
+// The selected tower's attack range, refreshed when the selection or the towers change.
+effect(() => {
+  void ticked.value;
+  const cell = selected.value;
+  const gem = cell ? sim.game.gemAt(cell) : undefined;
+  world.setRange(gem ? gem.cell : null, gem ? sim.game.attackRange(gem) : 0);
+});
 effect(() => world.setRouteVisible(routeVisible.value));
 
 // Fixed-rate sim clock. Pausing stops stepping; queued commands apply on resume.
@@ -75,7 +85,7 @@ let acc = 0;
 let lastShown = '';
 setInterval(() => {
   const now = performance.now();
-  acc += Math.min(now - last, 250) / 1000;
+  acc += (Math.min(now - last, 250) / 1000) * speed.value;
   last = now;
   if (paused.value) acc = 0;
   let stepped = false;
