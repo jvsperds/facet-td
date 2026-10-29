@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { expect, test } from 'vitest';
 import { loadData } from '../src/data';
 import { Sim } from '../src/sim/sim';
-import { auraRings, createEffects, shotStyle, splashRadius } from '../src/world/effects';
+import { attackOf, auraRings, createEffects, shotStyle, splashRadius } from '../src/world/effects';
 
 // Issue #10: per-family projectiles and impacts, splash shockwaves and aura rings.
 
@@ -75,24 +75,63 @@ test('a splash attack lands a shell, then a shockwave sized to the splash radius
   expect(wave.count).toBe(0);
 });
 
-test('lightning strikes instantly; poison ticks puff; reduced motion skips travel and bolts', () => {
+test('lightning strikes instantly; poison ticks puff; reduced motion skips travel', () => {
   const scene = new THREE.Scene();
   const fx = createEffects(scene);
-  const bolts = scene.getObjectByName('combat-bolts') as THREE.LineSegments;
+  const strokes = scene.getObjectByName('combat-strokes') as THREE.Mesh;
   fx.hit('attack', tower('gemtd_jixueshi'), from, to, false);
   fx.hit('dot', tower('gemtd_g1'), to, to, false);
   fx.frame(0.02, false);
-  expect(bolts.geometry.drawRange.count).toBeGreaterThan(0);
+  expect(strokes.geometry.drawRange.count).toBeGreaterThan(0);
   expect(mesh(scene, 'combat-impacts-puff').count).toBe(1);
   fx.frame(1, false);
-  expect(bolts.geometry.drawRange.count).toBe(0);
+  expect(strokes.geometry.drawRange.count).toBe(0);
 
-  fx.hit('attack', tower('gemtd_jixueshi'), from, to, false);
   fx.hit('attack', tower('gemtd_b1'), from, to, false);
   fx.frame(0.02, true);
-  expect(bolts.geometry.drawRange.count).toBe(0);
   expect(mesh(scene, 'combat-projectiles-frost').count).toBe(0);
   expect(mesh(scene, 'combat-impacts-flake').count).toBe(1);
+});
+
+const named = (name: string, id = 1) => ({ ...tower(name), id, name });
+
+test('combined towers attack in their GemTD style and colour', () => {
+  expect(attackOf('gemtd_jixueshi')).toEqual(['zap', '#ff5a4a']); // Bloodstone
+  expect(attackOf('gemtd_baiyin')?.[0]).toBe('line'); // Silver
+  expect(attackOf('gemtd_jingangshikulinan')?.[0]).toBe('ray'); // Diamond Cullinan
+  expect(attackOf('gemtd_d1')).toBeNull();
+  const scene = new THREE.Scene();
+  const fx = createEffects(scene);
+  const strokes = scene.getObjectByName('combat-strokes') as THREE.Mesh;
+  // A Volcano lobs a glob (the shared projectile mesh) that pops as a ring.
+  fx.hit('attack', named('gemtd_xuehonghuoshan'), from, to, false);
+  fx.frame(0.05, false);
+  expect(mesh(scene, 'combat-projectiles-venom').count).toBe(1);
+  expect(fx.strokeCount).toBeGreaterThan(0); // its trail and glow
+  fx.frame(0.2, false);
+  expect(mesh(scene, 'combat-projectiles-venom').count).toBe(0);
+  expect(mesh(scene, 'combat-impacts').count).toBe(1);
+  fx.frame(1, false);
+  expect(strokes.geometry.drawRange.count).toBe(0);
+});
+
+test('one tower draws at most one attack per gap; zaps hold still under reduced motion', () => {
+  const scene = new THREE.Scene();
+  const fx = createEffects(scene);
+  const pink = named('gemtd_fenhongzuanshi');
+  fx.hit('attack', pink, from, to, false);
+  fx.hit('split', pink, from, to.clone().setZ(1), false); // same tick: part of the volley
+  fx.frame(0.02, true);
+  const volley = fx.strokeCount;
+  fx.hit('attack', pink, from, to, false); // 20 ms later: skipped
+  fx.frame(0.001, true);
+  expect(fx.strokeCount).toBe(volley);
+  const strokes = scene.getObjectByName('combat-strokes') as THREE.Mesh;
+  const shape = () =>
+    Array.from((strokes.geometry.attributes.position.array as Float32Array).slice(0, 36));
+  const before = shape();
+  fx.frame(0.001, true);
+  expect(shape()).toEqual(before);
 });
 
 test('aura rings follow the tower set, are instanced, and stay still under reduced motion', () => {

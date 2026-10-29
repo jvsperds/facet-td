@@ -15,6 +15,7 @@ import { mergeStatic, mergedCopy } from './merge';
 import { creepPartScale } from './clearance';
 import { createEffects } from './effects';
 import { createPedalEffects } from './pedals';
+import { pedalHead } from './pedal-models';
 import { TURRET_TOP, neighbourhood, wallMesh, wallRaster, type Occupancy } from './walls';
 
 // Everything on the board that the sim owns: stones, gem towers, creeps and combat effects.
@@ -66,20 +67,21 @@ function extraTower(name: string, options: Parameters<typeof createStone>[0]) {
   const head = new THREE.Group();
   const tablet = name.includes('shiban');
   if (tablet) base.children[0].scale.y = 0.12;
-  const metal = new THREE.MeshStandardMaterial({ color: towerColor(name), roughness: 0.65 });
-  const body = new THREE.Mesh(
-    new THREE.BoxGeometry(0.62, tablet ? 0.08 : 0.16, 0.62),
-    new THREE.MeshStandardMaterial({ color: '#60646d', roughness: 1 }),
-  );
-  body.position.y = tablet ? 0.08 : 0.2;
-  head.add(body);
-  const core = new THREE.Mesh(
-    tablet ? new THREE.TorusGeometry(0.2, 0.035, 4, 8) : new THREE.OctahedronGeometry(0.26),
-    metal,
-  );
-  core.position.y = tablet ? 0.13 : 0.5;
-  if (tablet) core.rotation.x = -Math.PI / 2;
-  head.add(core);
+  if (tablet) head.add(pedalHead(name));
+  else {
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(0.62, 0.16, 0.62),
+      new THREE.MeshStandardMaterial({ color: '#60646d', roughness: 1 }),
+    );
+    body.position.y = 0.2;
+    head.add(body);
+    const core = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.26),
+      new THREE.MeshStandardMaterial({ color: towerColor(name), roughness: 0.65 }),
+    );
+    core.position.y = 0.5;
+    head.add(core);
+  }
   if (name.endsWith('_yin') || name.endsWith('_jin')) {
     const rim = new THREE.Mesh(
       new THREE.TorusGeometry(0.29, 0.025, 4, name.endsWith('_jin') ? 12 : 8),
@@ -441,7 +443,14 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
       if (wallsDirty) rebuildWalls();
       const tower = (g: (typeof game.gems)[number]) => {
         const { x, z } = toScene(g.cell);
-        return { id: g.id, x, z, color: towerColor(g.name), abilities: game.abilities(g.name) };
+        return {
+          id: g.id,
+          x,
+          z,
+          color: towerColor(g.name),
+          abilities: game.abilities(g.name),
+          name: g.name,
+        };
       };
       effects.setTowers(game.gems.map(tower));
       // Capture endpoints before removing dead creeps, so lethal shots still arrive and burst.
@@ -515,7 +524,7 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
         const aimer = obj.userData.aimer as ReturnType<typeof createAimer>;
         aimer.update(t?.obj.position.x, t?.obj.position.z, dt, reducedMotion);
       }
-      effects.frame(dt, reducedMotion);
+      effects.frame(dt, reducedMotion, camera);
       pedals.frame(dt, reducedMotion);
     },
   };

@@ -125,13 +125,13 @@ test('lethal shots retain their endpoints, burst, expire and reuse fixed instanc
   }));
   pieces.afterStep();
   pieces.frame(1, 0.01);
-  expect(shots.count).toBe(128);
+  expect(shots.count).toBe(160);
   pieces.frame(1, 1);
   expect(shots.count + rings.count).toBe(0);
   pieces.afterStep();
   pieces.frame(1, 0.01, true);
   expect(shots.count).toBe(0);
-  expect(rings.count).toBe(128);
+  expect(rings.count).toBe(160);
   rings.getMatrixAt(0, matrix);
   const before = matrix.clone();
   pieces.frame(1, 0.1, true);
