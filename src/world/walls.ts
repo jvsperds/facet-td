@@ -6,8 +6,8 @@ import { BOARD_SIZE, type Cell } from '../sim/board';
 // - orthogonal neighbours join edge to edge, so straight runs and solid blocks merge;
 // - cells that touch only diagonally (both orthogonal cells free) are joined by a 45° band, so
 //   diagonal mazes read as one wall running along the diagonal instead of corner-touching blocks;
-// - corners no neighbour fills are bevelled: flush with a diagonal band's edge where the cell has
-//   one (a straight wall turns diagonal without a step), a small bevel otherwise.
+// - corners no neighbour fills are bevelled by a quarter cell, flush with any diagonal band's edge,
+//   so a straight wall turns diagonal without a step; diagonal and straight walls share a width.
 // The footprint is rasterised onto a quarter-cell lattice of triangles (each 0.25 square split by
 // both diagonals); every footprint edge lies on that lattice, so each triangle is fully in or out.
 // Faces and merlons sit only on edges between filled and free triangles: the outer faces of the
@@ -21,14 +21,29 @@ const SUB = 4; // lattice steps per cell
 const STEP = 1 / SUB;
 const N = BOARD_SIZE * SUB;
 const ORIGIN = 0.5; // board x of lattice column 0 (west edge of cell 1)
-const HALF_BAND = 0.5 / Math.SQRT2; // diagonal band half-width: the band meets the cell corners
+/**
+ * Diagonal band half-width. Straight walls fill their cell (1.0 wide); a band whose edges lie on
+ * the quarter-cell lattice closest to that is 0.75 / sqrt(2) each side, 1.06 wide, so diagonal and
+ * straight walls read as the same wall. (The narrower 0.71-wide band looked thin beside them.)
+ */
+export const HALF_BAND = 0.75 / Math.SQRT2;
 export const WALL_TOP = 0.29;
+/** A tower cell is a turret in the wall, one course taller; the tower's shaft rises from it. */
+export const TURRET_TOP = 0.39;
 const MERLON = { height: 0.09, depth: 0.08, axis: 0.14, diagonal: 0.18 };
 /** Chamfer on every outer top edge, in cells: just enough to catch the light. */
 export const CHAMFER = 0.025;
 const MERLON_CHAMFER = 0.012;
-// Footing, three brick courses, coping; the chamfer rises from the coping to the walkway.
-const COURSES = [0, 0.03, 0.115, 0.2, 0.27, WALL_TOP - CHAMFER];
+/** Course heights of a face up to `top`: footing, brick courses, coping, then the chamfer. */
+const coursesTo = (top: number) => [
+  0,
+  0.03,
+  0.115,
+  0.2,
+  ...(top > WALL_TOP ? [0.285] : []),
+  top - CHAMFER - 0.02,
+  top - CHAMFER,
+];
 const TONES = {
   footing: '#55595B',
   bricks: ['#6E7272', '#686C6C', '#737676', '#636767'],
@@ -72,10 +87,10 @@ function footprint(occ: Occupancy, c: Cell): Poly[] {
   const { orthogonal, diagonal } = joins(occ, c);
   const [east, north, west, south] = orthogonal;
   const { x, y } = c;
-  // Core: the cell square with bevelled corners. Beside a diagonal band the bevel reaches the
-  // band's edge (a diamond), so a straight wall turns into a diagonal without a step; otherwise a
-  // small bevel softens outer corners and ends. Orthogonal arms fill the corners they touch.
-  const cut = diagonal.length ? 0.5 : CORNER_CUT;
+  // Core: the cell square with its corners bevelled by a quarter cell. That bevel is exactly a
+  // diagonal band's edge, so a straight wall turns diagonal without a step, and it softens outer
+  // corners and wall ends elsewhere. Orthogonal arms and bands fill the corners they touch.
+  const cut = CORNER_CUT;
   const core: Point[] = [];
   for (const [sx, sy] of [
     [-1, -1],
@@ -245,9 +260,11 @@ export function insetAt(r: WallRaster, x: number, y: number): Point {
 
 /** What one stone cell draws, in board units: walkway triangles, outer faces and merlons. */
 export interface WallParts {
-  walk: { i: number; j: number; points: [Point, Point, Point] }[];
-  /** Boundary edges of the footprint with their outward unit normal. */
-  faces: { from: Point; to: Point; nx: number; ny: number }[];
+  walk: { i: number; j: number; points: [Point, Point, Point]; top: number }[];
+  /** Boundary edges of the footprint with their outward unit normal and the wall top there. */
+  faces: { from: Point; to: Point; nx: number; ny: number; top: number }[];
+  /** Where a turret rises above the wall walk beside it: a face from `low` up to `high`. */
+  steps: { from: Point; to: Point; nx: number; ny: number; low: number; high: number }[];
   /** Merlon centre on the outer face line, its direction along the face, outward normal, length. */
   merlons: {
     x: number;
@@ -257,14 +274,14 @@ export interface WallParts {
     nx: number;
     ny: number;
     length: number;
+    top: number;
   }[];
 }
 
 export function wallParts(r: WallRaster, cell: Cell): WallParts {
   const k = cellKey(cell);
-  const parts: WallParts = { walk: [], faces: [], merlons: [] };
-  // A tower's plinth covers its cell's walkway, so merlons there would poke through it.
-  const onTower = (x: number, y: number) => r.occ.get(cellKey(cellAt(x, y))) === 'tower';
+  const parts: WallParts = { walk: [], faces: [], steps: [], merlons: [] };
+  const topOf = (t: number) => (r.occ.get(r.owner[t]) === 'tower' ? TURRET_TOP : WALL_TOP);
   const i0 = Math.max(0, (cell.x - 2) * SUB);
   const j0 = Math.max(0, (cell.y - 2) * SUB);
   for (let j = j0; j < Math.min(N, j0 + SUB * 3); j++)
@@ -273,7 +290,8 @@ export function wallParts(r: WallRaster, cell: Cell): WallParts {
         const t = (j * N + i) * 4 + q;
         if (!r.filled[t] || r.owner[t] !== k) continue;
         const { a, b, c } = corners(i, j, q);
-        parts.walk.push({ i, j, points: [a, b, c] });
+        const top = topOf(t);
+        parts.walk.push({ i, j, points: [a, b, c], top });
         // The outer edge borders the next lattice square; the two inner edges border this one's
         // neighbouring triangles.
         const across = [
@@ -282,28 +300,45 @@ export function wallParts(r: WallRaster, cell: Cell): WallParts {
           [i, j + 1, 0],
           [i - 1, j, 1],
         ][q];
-        const edges: { from: Point; to: Point; open: boolean }[] = [
-          { from: a, to: b, open: !filledAt(r, across[0], across[1], across[2]) },
-          { from: c, to: b, open: !filledAt(r, i, j, (q + 1) % 4) },
-          { from: c, to: a, open: !filledAt(r, i, j, (q + 3) % 4) },
+        const inside = (ii: number, jj: number, qq: number) =>
+          ii >= 0 && jj >= 0 && ii < N && jj < N ? (jj * N + ii) * 4 + qq : -1;
+        const edges: { from: Point; to: Point; next: number }[] = [
+          { from: a, to: b, next: inside(across[0], across[1], across[2]) },
+          { from: c, to: b, next: inside(i, j, (q + 1) % 4) },
+          { from: c, to: a, next: inside(i, j, (q + 3) % 4) },
         ];
         const [gx, gy] = centroid(i, j, q);
-        for (const { from, to, open } of edges) {
-          if (!open) continue;
+        for (const { from, to, next } of edges) {
+          const open = next < 0 || !r.filled[next];
+          const lower = !open && topOf(next) < top;
+          if (!open && !lower) continue;
           const [mx, my] = [(from[0] + to[0]) / 2, (from[1] + to[1]) / 2];
           // Outward normal: perpendicular to the edge, away from this triangle.
           let [nx, ny] = [to[1] - from[1], from[0] - to[0]];
           const len = Math.hypot(nx, ny);
           [nx, ny] = [nx / len, ny / len];
           if (nx * (mx - gx) + ny * (my - gy) < 0) [nx, ny] = [-nx, -ny];
-          parts.faces.push({ from, to, nx, ny });
-          if (onTower(mx - nx * 0.05, my - ny * 0.05)) continue;
+          if (lower) {
+            parts.steps.push({ from, to, nx, ny, low: topOf(next), high: top });
+            continue;
+          }
+          parts.faces.push({ from, to, nx, ny, top });
           const [dx, dy] = [to[0] - from[0], to[1] - from[1]];
           // One merlon per lattice edge, centred on it; a diagonal pair of half-edges shares one,
           // emitted by the half that reaches the lattice square's west corner.
-          if (!dx || !dy) parts.merlons.push({ x: mx, y: my, dx, dy, nx, ny, length: MERLON.axis });
+          if (!dx || !dy)
+            parts.merlons.push({ x: mx, y: my, dx, dy, nx, ny, length: MERLON.axis, top });
           else if (Math.min(from[0], to[0]) < c[0] - 1e-9)
-            parts.merlons.push({ x: c[0], y: c[1], dx, dy, nx, ny, length: MERLON.diagonal });
+            parts.merlons.push({
+              x: c[0],
+              y: c[1],
+              dx,
+              dy,
+              nx,
+              ny,
+              length: MERLON.diagonal,
+              top,
+            });
         }
       }
   return parts;
@@ -335,14 +370,17 @@ export function wallMesh(r: WallRaster, cell: Cell, material: THREE.Material) {
   };
 
   // Walkway: one flagstone tone per lattice square.
-  for (const { i, j, points } of parts.walk) {
+  for (const { i, j, points, top } of parts.walk) {
     pick(TONES.walk, hash(i, j, 7));
-    const [a, b, c] = points.map(([x, y]) => P(...insetAt(r, x, y), WALL_TOP));
+    const [a, b, c] = points.map(([x, y]) => P(...insetAt(r, x, y), top));
     tri(a, b, c, UP);
   }
 
   // Outer faces: footing, three brick courses in running bond, coping.
-  for (const { from, to, nx, ny } of parts.faces) {
+  const brickTone = (s: number, course: number, line: number) =>
+    pick(TONES.bricks, hash(Math.floor((s - (course % 2) * 0.125) / 0.25), course, line));
+  for (const { from, to, nx, ny, top } of parts.faces) {
+    const courses = coursesTo(top);
     const horizontalish = Math.abs(to[0] - from[0]) >= Math.abs(to[1] - from[1]);
     const along = (p: Point) => (horizontalish ? p[0] : p[1]);
     const line = Math.round(
@@ -357,27 +395,33 @@ export function wallMesh(r: WallRaster, cell: Cell, material: THREE.Material) {
             [mid, to],
           ]
         : [[from, to]];
-    centre = P(mid[0] - nx, mid[1] - ny, WALL_TOP / 2);
+    centre = P(mid[0] - nx, mid[1] - ny, top / 2);
     for (const [p, q] of pieces)
-      for (let level = 0; level < COURSES.length - 1; level++) {
+      for (let level = 0; level < courses.length - 1; level++) {
         const s = (along(p) + along(q)) / 2;
-        const course = level - 1;
         if (level === 0) COLOR.set(TONES.footing);
-        else if (level === COURSES.length - 2) COLOR.set(TONES.coping);
-        else pick(TONES.bricks, hash(Math.floor((s - (course % 2) * 0.125) / 0.25), course, line));
-        const [h0, h1] = [COURSES[level], COURSES[level + 1]];
+        else if (level === courses.length - 2) COLOR.set(TONES.coping);
+        else brickTone(s, level - 1, line);
+        const [h0, h1] = [courses[level], courses[level + 1]];
         quad(P(p[0], p[1], h0), P(q[0], q[1], h0), P(q[0], q[1], h1), P(p[0], p[1], h1));
       }
     // Chamfer: from the top of the coping up and in to the walkway's inset edge.
     const [fi, ti] = [insetAt(r, ...from), insetAt(r, ...to)];
-    const h = WALL_TOP - CHAMFER;
+    const h = top - CHAMFER;
     COLOR.set(TONES.coping);
-    quad(
-      P(from[0], from[1], h),
-      P(to[0], to[1], h),
-      P(ti[0], ti[1], WALL_TOP),
-      P(fi[0], fi[1], WALL_TOP),
-    );
+    quad(P(from[0], from[1], h), P(to[0], to[1], h), P(ti[0], ti[1], top), P(fi[0], fi[1], top));
+  }
+
+  // Turret steps: brick faces from the wall walk up to a turret's top, on the walk's inset line.
+  for (const { from, to, nx, ny, low, high } of parts.steps) {
+    const [fi, ti] = [insetAt(r, ...from), insetAt(r, ...to)];
+    const mid: Point = [(fi[0] + ti[0]) / 2, (fi[1] + ti[1]) / 2];
+    centre = P(mid[0] - nx, mid[1] - ny, (low + high) / 2);
+    brickTone(Math.abs(nx) > Math.abs(ny) ? mid[1] : mid[0], 3, Math.round(mid[0] * 8));
+    const h = high - CHAMFER;
+    quad(P(fi[0], fi[1], low), P(ti[0], ti[1], low), P(ti[0], ti[1], h), P(fi[0], fi[1], h));
+    COLOR.set(TONES.coping);
+    quad(P(fi[0], fi[1], h), P(ti[0], ti[1], h), P(ti[0], ti[1], high), P(fi[0], fi[1], high));
   }
 
   // Merlons: boxes standing on the walkway just behind the chamfer, their own tops chamfered.
@@ -407,7 +451,7 @@ export function wallMesh(r: WallRaster, cell: Cell, material: THREE.Material) {
       x + ux * steps[n][0] + vx * steps[n][1],
       y + uy * steps[n][0] + vy * steps[n][1],
     ]);
-    const [h0, h1] = [WALL_TOP, WALL_TOP + MERLON.height];
+    const [h0, h1] = [m.top, m.top + MERLON.height];
     const h = h1 - MERLON_CHAMFER;
     pick(TONES.merlon, hash(Math.round(m.x * 8), Math.round(m.y * 8), 3));
     centre = P(cx, cy, (h0 + h1) / 2);

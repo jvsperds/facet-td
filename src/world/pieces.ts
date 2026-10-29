@@ -11,10 +11,10 @@ import type { Cell } from '../sim/board';
 import { isBasicGem, qualityOf, type Game } from '../sim/game';
 import { toScene } from './view';
 import { createAimer } from './aim';
-import { clearancePush, creepPartScale, creepRadius } from './clearance';
+import { creepPartScale } from './clearance';
 import { createEffects } from './effects';
 import { createPedalEffects } from './pedals';
-import { WALL_TOP, neighbourhood, wallMesh, wallRaster, type Occupancy } from './walls';
+import { TURRET_TOP, neighbourhood, wallMesh, wallRaster, type Occupancy } from './walls';
 
 // Everything on the board that the sim owns: stones, gem towers, creeps and combat effects.
 // Rebuilt from sim state after each tick; creeps interpolate between the last two ticks.
@@ -22,6 +22,7 @@ import { WALL_TOP, neighbourhood, wallMesh, wallRaster, type Occupancy } from '.
 // The art study's tower plinth has radius 0.31; the board grows towers to fill their cell. Every
 // stone and tower cell is a block of the board wall (walls.ts) and towers stand on top of it.
 const PLINTH = 0.5 / 0.31;
+const PLINTH_HEIGHT = 0.12;
 const BAR = { width: 0.5, height: 0.07, back: '#25282C', fill: '#7ED07A', low: '#FFB3AF' };
 
 type Piece = { sig: string; obj: THREE.Object3D };
@@ -31,8 +32,6 @@ type CreepView = {
   prev: { x: number; y: number };
   cur: { x: number; y: number };
   height: number;
-  /** Collision radius in cells; 0 for flying creeps, which pass above the walls. */
-  radius: number;
 };
 
 const key = (c: Cell) => c.y * 64 + c.x;
@@ -96,6 +95,7 @@ function extraTower(name: string, options: Parameters<typeof createStone>[0]) {
   });
   base.add(head);
   base.userData.aimAt = () => {};
+  base.userData.extraTower = true;
   return base;
 }
 
@@ -111,19 +111,23 @@ function dispose(o: THREE.Object3D) {
 
 /** Stretch a tower's stone base to fill its cell and keep the tower itself evenly scaled. */
 /**
- * Stand a tower on its cell's wall block: drop the art-study footing (the board wall replaces it)
- * and scale the tower evenly, seated on the wall top.
+ * Build a tower into its cell's turret: drop the art-study footing (the board wall replaces it),
+ * scale the tower evenly, and sink its octagonal plinth into the turret so only the shaft rises
+ * from the brickwork.
  */
 function seatTower(obj: THREE.Object3D) {
   // Children: footing core, one group per joining arm, then the tower itself.
   obj.children.slice(0, -1).forEach(dispose);
   const t = obj.children.at(-1)!;
   // Quality still sets the size, compressed so even a chipped tower fills most of its cell.
-  t.scale.setScalar(PLINTH * (0.7 + 0.3 * t.scale.y));
+  const scale = PLINTH * (0.7 + 0.3 * t.scale.y);
+  t.scale.setScalar(scale);
   t.position.y = 0;
   obj.updateMatrixWorld(true);
   const bottom = new THREE.Box3().setFromObject(t).min.y - obj.position.y;
-  t.position.y = WALL_TOP - bottom;
+  // The art-study plinth is 0.12 tall at the bottom of the tower; named stones have none.
+  const plinth = obj.userData.extraTower ? 0 : PLINTH_HEIGHT * scale;
+  t.position.y = TURRET_TOP - bottom - plinth;
 }
 
 /** A pedal lies on the floor: its flat slab stretched to fill the cell. */
@@ -267,7 +271,6 @@ export function createPieces(scene: THREE.Scene, game: Game) {
           prev: { x: c.x, y: c.y },
           cur: { x: c.x, y: c.y },
           height: new THREE.Box3().setFromObject(obj).max.y + 0.15,
-          radius: c.fly ? 0 : creepRadius(scale, partScale),
         };
         creeps.set(c.id, v);
       }
@@ -335,12 +338,11 @@ export function createPieces(scene: THREE.Scene, game: Game) {
     },
     /** Call every frame; `alpha` is the fraction of the current tick that has elapsed. */
     frame(alpha: number, dt: number, reducedMotion = false) {
-      const isWall = (x: number, y: number) => occupancy.has(key({ x, y }));
       for (const v of creeps.values()) {
         const x = v.prev.x + (v.cur.x - v.prev.x) * alpha;
         const y = v.prev.y + (v.cur.y - v.prev.y) * alpha;
-        const push = v.radius ? clearancePush(x, y, v.radius, isWall) : { x: 0, y: 0 };
-        const s = toScene({ x: x + push.x, y: y + push.y });
+        // Creeps follow the sim's path through cell centres exactly.
+        const s = toScene({ x, y });
         // The creep factory already lifts flying bodies; the group stays on the ground with the shadow.
         v.obj.position.set(s.x, 0, s.z);
         const [dx, dy] = [v.cur.x - v.prev.x, v.cur.y - v.prev.y];
