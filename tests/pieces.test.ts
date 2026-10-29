@@ -44,7 +44,8 @@ test('every combined tower, secret stone and tablet has a finite board model', (
 test('lethal shots retain their endpoints, burst, expire and reuse fixed instance buffers', () => {
   const game = new Sim(loadData('classic'), 1).game;
   game.stones.clear();
-  game.gems.push({ id: 1, name: 'gemtd_b1', cell: { x: 12, y: 12 }, cooldown: 0, target: null });
+  // A diamond has no ability, so it fires the default shard and ring.
+  game.gems.push({ id: 1, name: 'gemtd_d1', cell: { x: 12, y: 12 }, cooldown: 0, target: null });
   game.creeps.push({
     id: 2,
     name: 'test',
@@ -67,7 +68,7 @@ test('lethal shots retain their endpoints, burst, expire and reuse fixed instanc
   const buffer = shots.instanceMatrix;
   game.creeps = [];
   game.events = [
-    { type: 'attack', from: 1, to: 2, damage: 10, x: 13, y: 12 },
+    { type: 'attack', from: 1, to: 2, damage: 10, x: 13, y: 12, via: 'attack' },
     { type: 'kill', id: 2, gold: 5 },
   ];
   pieces.afterStep();
@@ -85,7 +86,7 @@ test('lethal shots retain their endpoints, burst, expire and reuse fixed instanc
   expect(shots.instanceMatrix).toBe(buffer);
 
   game.events = [
-    { type: 'attack', from: 1, to: 99, damage: 10, x: 14, y: 12 },
+    { type: 'attack', from: 1, to: 99, damage: 10, x: 14, y: 12, via: 'attack' },
     { type: 'kill', id: 99, gold: 5 },
   ];
   pieces.afterStep();
@@ -118,6 +119,7 @@ test('lethal shots retain their endpoints, burst, expire and reuse fixed instanc
     damage: 1,
     x: 13,
     y: 12,
+    via: 'attack' as const,
   }));
   pieces.afterStep();
   pieces.frame(1, 0.01);

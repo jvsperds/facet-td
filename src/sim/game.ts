@@ -92,8 +92,20 @@ export interface Creep {
     }
   >;
 }
+/** `attack` is a tower's own landed attack; `split` an extra target of the same volley; `splash`
+ * area damage around it; `dot` periodic damage (poison, fields); `effect` everything else. */
+export type HitVia = 'attack' | 'split' | 'splash' | 'dot' | 'effect';
 export type GameEvent =
-  | { type: 'attack'; from: number; to: number; damage: number; x: number; y: number }
+  | {
+      type: 'attack';
+      from: number;
+      to: number;
+      damage: number;
+      x: number;
+      y: number;
+      /** How the damage arrived; presentation only (projectiles, splash, ticks). */
+      via: HitVia;
+    }
   | { type: 'kill'; id: number; gold: number }
   | { type: 'leak'; id: number; damage: number };
 export type Refusal = { ok: false; reason: string };
@@ -1399,7 +1411,7 @@ export class Game {
           c.modifiers[key] = { expires: tick + 1, slow: 0, armor: op.armor! };
           field.next[c.id] ??= tick + TICK_HZ;
           if (field.next[c.id] <= tick) {
-            this.hurt(c, op.damage!, 'physical', source.id);
+            this.hurt(c, op.damage!, 'physical', source.id, 'dot');
             field.next[c.id] += TICK_HZ;
           }
         } else {
@@ -1590,7 +1602,7 @@ export class Game {
             .sort((a, b) => dist2(a) - dist2(b) || a.id - b.id)
             .slice(0, additional.count)
         : [];
-    const landed = this.hurt(target, raw, 'physical', g.id, true);
+    const landed = this.hurt(target, raw, 'physical', g.id, 'attack');
     const link = g.buffs?.gemtd_hero_lianjie;
     if (landed && link && link.expires > tick) {
       const farthest = this.creeps
@@ -1619,13 +1631,14 @@ export class Game {
         ((num(u, 'AttackDamageMin') + num(u, 'AttackDamageMax')) / 2) * (1 + bonus / 100),
         'physical',
         g.id,
+        'split',
       );
     for (const a of this.gemAbilities(g))
       if (a.kind === 'splash') {
         if (!landed) continue;
         for (const c of [...this.creeps])
           if (sq(c.x - target.x) + sq(c.y - target.y) <= sq(a.radius))
-            this.hurt(c, raw * a.amount, 'pure', g.id);
+            this.hurt(c, raw * a.amount, 'pure', g.id, 'splash');
       }
     for (const a of this.gemAbilities(g)) {
       if (!landed) break;
@@ -1671,8 +1684,9 @@ export class Game {
     raw: number,
     type: 'physical' | 'magical' | 'pure',
     source: number,
-    attack = false,
+    via: HitVia = 'effect',
   ): boolean {
+    const attack = via === 'attack';
     if (!this.creeps.includes(c)) return false;
     const attacker = this.gems.find((g) => g.id === source);
     const skills = this.enemySkills(c);
@@ -1716,7 +1730,7 @@ export class Game {
       else if (facing >= 0) damage *= 0.7;
     }
     c.hp -= damage;
-    this.events.push({ type: 'attack', from: source, to: c.id, damage, x: c.x, y: c.y });
+    this.events.push({ type: 'attack', from: source, to: c.id, damage, x: c.x, y: c.y, via });
     this.waveDamage[source] = (this.waveDamage[source] ?? 0) + damage;
     if (skills.includes('tidehunter_blubber')) {
       if (!c.cleanse || this.time - c.cleanse.last > 10 * TICK_HZ)
@@ -1782,7 +1796,7 @@ export class Game {
     for (const c of [...this.creeps]) {
       for (const [name, m] of Object.entries(c.modifiers ?? {})) {
         if (m.poison && m.poison.next <= tick && m.poison.next <= m.expires) {
-          this.hurt(c, m.poison.damage, 'magical', m.poison.source);
+          this.hurt(c, m.poison.damage, 'magical', m.poison.source, 'dot');
           m.poison.next += m.poison.interval;
         }
         if (m.expires <= tick) delete c.modifiers![name];
