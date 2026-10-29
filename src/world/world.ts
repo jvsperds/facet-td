@@ -398,7 +398,16 @@ export function createWorld(board: Board, game: Game) {
   let shadowFrames = 0;
   let lastFrame = performance.now();
   // Frame cost by stage (ms, smoothed) and the last frame's draw calls, for profiling.
-  const perf = { place: 0, pieces: 0, cave: 0, occluders: 0, render: 0, calls: 0, triangles: 0 };
+  const perf = {
+    place: 0,
+    pieces: 0,
+    cave: 0,
+    occluders: 0,
+    render: 0,
+    calls: 0,
+    triangles: 0,
+    programs: 0,
+  };
   const smooth = (key: keyof typeof perf, since: number) =>
     (perf[key] += (performance.now() - since - perf[key]) * 0.1);
   renderer.setAnimationLoop((now) => {
@@ -441,6 +450,7 @@ export function createWorld(board: Board, game: Game) {
     smooth('render', t);
     perf.calls = renderer.info.render.calls;
     perf.triangles = renderer.info.render.triangles;
+    perf.programs = renderer.info.programs?.length ?? 0;
   });
 
   const ndc = new THREE.Vector2();
