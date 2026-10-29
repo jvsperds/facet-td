@@ -4,7 +4,7 @@ import type { Sim } from '../../src/sim/sim';
 test('offline loadout freely selects hero and skill level without spending gold', async ({
   page,
 }) => {
-  await page.goto('/?seed=17');
+  await page.goto('/?seed=17&wip'); // the hero is hidden for now; ?wip shows it
   await page.waitForFunction(() => window.facet);
   await page.getByRole('button', { name: 'Hero', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Offline hero' });

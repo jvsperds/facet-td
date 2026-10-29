@@ -16,14 +16,14 @@ type Facet = {
 };
 
 /** Five gems in a row on the north side, the first kept: the wave starts. */
-async function startWave(page: Page) {
+async function startWave(page: Page, extra = '') {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto('/?seed=5');
+  await page.goto(`/?seed=5${extra}`);
   await page.waitForFunction(() => (window as unknown as { facet?: Facet }).facet);
   await page.evaluate(async () => {
     const { sim } = (window as unknown as { facet: Facet }).facet;
     for (const x of [20, 22, 24, 26, 28]) sim.send(0, { type: 'build', cell: { x, y: 30 } });
-    await new Promise((r) => setTimeout(r, 300));
+    while (sim.game.draft.length < 5) await new Promise((r) => setTimeout(r, 50));
     sim.send(0, { type: 'keep', id: sim.game.draft[0], upgrade: 0 });
   });
 }
@@ -53,7 +53,7 @@ test('clicking a creep shows its health, defences and abilities; it clears when 
 });
 
 test('a tower takes an aim mode and boss priority, and shows its MVP card', async ({ page }) => {
-  await startWave(page);
+  await startWave(page, '&wip'); // aim modes are hidden for now; ?wip shows them
   await page.keyboard.press('p');
   const tower = await page.evaluate(() => {
     const { sim } = (window as unknown as { facet: Facet }).facet;

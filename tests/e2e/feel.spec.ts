@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { openMenu } from './menu';
 import type { Sim } from '../../src/sim/sim';
 
 type Runtime = { sim: Sim };
@@ -11,7 +12,7 @@ test('sound preference, route toggle and wave/kill/castle feedback work through 
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/?seed=5');
   await page.waitForFunction(() => window.facet);
-  await page.getByRole('button', { name: 'Camera controls' }).click();
+  await openMenu(page);
   const routes = page.getByRole('button', { name: 'Show routes', exact: true });
   await routes.click();
   await expect(routes).toHaveAttribute('aria-pressed', 'true');
@@ -21,7 +22,7 @@ test('sound preference, route toggle and wave/kill/castle feedback work through 
     'false',
   );
   await page.reload();
-  await page.getByRole('button', { name: 'Camera controls' }).click();
+  await openMenu(page);
   await expect(page.getByRole('button', { name: 'Sound off', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Sound off', exact: true }).click();
   await page.keyboard.press('Escape');
@@ -59,6 +60,8 @@ test('sound preference, route toggle and wave/kill/castle feedback work through 
     Object.assign(g, { toSpawn: 0, creeps: [] });
   });
   await expect(page.getByRole('status')).toContainText('Wave 1 cleared');
+  // The tower that dealt the wave's damage is its MVP, shown at the bottom right.
+  await expect(page.getByRole('region', { name: 'Wave MVP' })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -68,7 +71,7 @@ test('missing audio and reduced motion keep the board and settings usable', asyn
     Object.defineProperty(window, 'AudioContext', { value: undefined }),
   );
   await page.goto('/?seed=5');
-  await page.getByRole('button', { name: 'Camera controls' }).click();
+  await openMenu(page);
   await expect(page.getByRole('button', { name: 'Sound unavailable' })).toBeDisabled();
   await page.getByRole('button', { name: 'Show routes', exact: true }).click();
   await page.getByRole('button', { name: 'Switch to top view' }).click();

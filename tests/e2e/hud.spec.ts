@@ -1,32 +1,31 @@
 import { expect, test } from '@playwright/test';
+import { closeMenu, openMenu } from './menu';
 
-// IMPLEMENTATION.md "HUD and input": toolbar keyboard path, flyout focus return, collapsible
-// inspector and deselect.
+// IMPLEMENTATION.md "HUD and input": the settings menu's focus return, collapsible inspector and
+// deselect.
 
-test('toolbar arrows move focus, Escape closes the camera flyout and returns focus', async ({
+test('one hamburger menu holds every setting; Escape closes it and returns focus', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/?seed=5');
   await page.waitForFunction(() => window.facet);
-  const view = page.getByRole('button', { name: 'Switch to top view' });
-  await view.focus();
-  await page.keyboard.press('ArrowRight');
-  await expect(page.getByRole('button', { name: /Rotate board/ })).toBeFocused();
-  await page.keyboard.press('ArrowRight');
-  const camera = page.getByRole('button', { name: 'Camera controls' });
-  await expect(camera).toBeFocused();
-  await page.keyboard.press('ArrowRight'); // camera controls is last: wraps to the first tool
-  await expect(page.getByRole('button', { name: 'Pause' })).toBeFocused();
-  await page.keyboard.press('ArrowLeft');
-  await expect(camera).toBeFocused();
-
-  await camera.click();
-  await expect(camera).toHaveAttribute('aria-expanded', 'true');
-  await page.getByRole('button', { name: 'Zoom in' }).focus();
+  const menu = page.getByRole('button', { name: 'Menu', exact: true });
+  const settings = page.getByRole('group', { name: 'Settings' });
+  await expect(settings).toHaveCount(0);
+  await menu.click();
+  await expect(menu).toHaveAttribute('aria-expanded', 'true');
+  for (const name of ['Pause', 'Double speed', 'Switch to top view', 'Recipes', 'Show routes'])
+    await expect(settings.getByRole('button', { name, exact: true })).toBeVisible();
+  await settings.getByRole('button', { name: 'Zoom in' }).focus();
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('group', { name: 'Camera' })).toHaveCount(0);
-  await expect(camera).toBeFocused();
+  await expect(settings).toHaveCount(0);
+  await expect(menu).toBeFocused();
+
+  // A press outside closes it too.
+  await menu.click();
+  await page.mouse.click(720, 450);
+  await expect(settings).toHaveCount(0);
 });
 
 test('the inspector collapses on tablets and Deselect clears the selection', async ({ page }) => {
@@ -50,7 +49,7 @@ test('the inspector collapses on tablets and Deselect clears the selection', asy
 
   await page.getByRole('button', { name: 'Deselect' }).click();
   await expect(info).not.toContainText('Cell 12, 12');
-  await expect(page.locator('canvas')).toBeFocused();
+  await expect(page.getByRole('img', { name: /^Game board/ })).toBeFocused();
 });
 
 test('speed, recipe book, damage meter and shortcuts work from the toolbar and keyboard', async ({
@@ -60,6 +59,7 @@ test('speed, recipe book, damage meter and shortcuts work from the toolbar and k
   await page.goto('/?seed=5');
   await page.waitForFunction(() => window.facet);
 
+  await openMenu(page);
   await page.getByRole('button', { name: 'Double speed' }).click();
   await expect(page.getByRole('button', { name: 'Double speed' })).toHaveAttribute(
     'aria-pressed',
@@ -84,16 +84,18 @@ test('speed, recipe book, damage meter and shortcuts work from the toolbar and k
   await expect(book.getByRole('listitem').first()).toBeVisible();
   await book.getByRole('button', { name: 'Close recipes' }).click();
   await expect(book).toHaveCount(0);
-  await page.keyboard.press('r');
+  await closeMenu(page);
+  await page.keyboard.press('g');
   await expect(book).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(book).toHaveCount(0);
 
+  await openMenu(page);
   await page.keyboard.press('p');
   await expect(page.getByRole('button', { name: 'Pause' })).toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('p');
 
-  // The top bar previews the next wave's creep.
+  // The round clock previews the next wave's creep.
   await expect(page.locator('.next')).toContainText('×');
 });
 
@@ -104,24 +106,27 @@ test('T toggles the view; Esc with nothing selected opens the menu; recipes pin 
   await page.goto('/?seed=5');
   await page.waitForFunction(() => window.facet);
 
-  // With nothing selected the command card shows the hero and the loadout key.
+  // With nothing selected the command card shows the builder; the hero waits behind ?wip.
   await expect(page.getByLabel('Selection')).toContainText('Build lv');
-  await expect(page.getByRole('button', { name: 'Hero', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Hero', exact: true })).toHaveCount(0);
 
+  await openMenu(page);
   await page.keyboard.press('t');
   await expect(page.getByRole('button', { name: 'Switch to isometric view' })).toBeVisible();
   await page.keyboard.press('t');
   await expect(page.getByRole('button', { name: 'Switch to top view' })).toBeVisible();
 
+  await closeMenu(page);
   await page.keyboard.press('Escape');
   const menu = page.getByRole('dialog', { name: 'Menu' });
   await expect(menu).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Pause' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByLabel('Round', { exact: true })).toContainText('Paused');
   await menu.getByRole('button', { name: 'New run' }).click();
   await expect(menu).toContainText('progress is lost');
   await menu.getByRole('button', { name: 'Back' }).click();
   await menu.getByRole('button', { name: /^Resume/ }).click();
   await expect(menu).toHaveCount(0);
+  await openMenu(page);
   await expect(page.getByRole('button', { name: 'Pause' })).toHaveAttribute(
     'aria-pressed',
     'false',
@@ -135,4 +140,46 @@ test('T toggles the view; Esc with nothing selected opens the menu; recipes pin 
   await expect(pinnedPanel).toContainText('Malachite');
   await pinnedPanel.getByRole('button', { name: 'Unpin Malachite' }).click();
   await expect(pinnedPanel).toHaveCount(0);
+});
+
+test('Q arms placing so the next picked cell gets a gem; W removes a stone; Esc cancels', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/?seed=5');
+  await page.waitForFunction(() => window.facet);
+  await page.waitForFunction(() => !window.facet.world.moving);
+  const game = () =>
+    page.evaluate(() => {
+      const g = (window.facet as unknown as { sim: { game: Game } }).sim.game;
+      return { draft: g.draft.length, stones: g.stones.size };
+    });
+  type Game = { draft: number[]; stones: Map<number, unknown> };
+  type Cell = { x: number; y: number };
+
+  const place = page.getByLabel('Selection').getByRole('button', { name: 'Place gem' });
+  await page.keyboard.press('q');
+  await expect(place).toHaveAttribute('aria-pressed', 'true');
+  const p = await page.evaluate(() => window.facet.world.screenOf({ x: 12, y: 12 }));
+  await page.mouse.click(p.x, p.y);
+  await expect.poll(async () => (await game()).draft).toBe(1);
+  // One cast per press, as in Dota: the next click selects again.
+  await expect(place).toHaveAttribute('aria-pressed', 'false');
+
+  await page.keyboard.press('q');
+  await expect(place).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('Escape');
+  await expect(place).toHaveAttribute('aria-pressed', 'false');
+
+  // W on a stone removes it.
+  const stone = await page.evaluate(() => {
+    const g = (window.facet as unknown as { sim: { game: { stones: Map<number, Cell> } } }).sim
+      .game;
+    return [...g.stones.values()][0];
+  });
+  const before = (await game()).stones;
+  await page.keyboard.press('w');
+  const s = await page.evaluate((c) => window.facet.world.screenOf(c), stone);
+  await page.mouse.click(s.x, s.y);
+  await expect.poll(async () => (await game()).stones).toBe(before - 1);
 });

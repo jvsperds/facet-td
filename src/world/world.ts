@@ -254,6 +254,19 @@ export function createWorld(board: Board, game: Game) {
   const combineRings = glowRing('#F2B84B');
   const betterRings = glowRing('#6FB7FF');
   const ringPose = new THREE.Matrix4();
+  // The last wave's MVP: two red arcs that circle its tower until the next wave starts (Dota's
+  // MVP swirl). Drawn over the walls so the tower reads from any angle.
+  const mvpRing = new THREE.Group();
+  for (const start of [0, Math.PI]) {
+    const arc = new THREE.Mesh(
+      new THREE.RingGeometry(0.5, 0.6, 24, 1, start, Math.PI * 0.7).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: '#E2453C', transparent: true, depthTest: false }),
+    );
+    arc.renderOrder = 10;
+    mvpRing.add(arc);
+  }
+  mvpRing.visible = false;
+  scene.add(mvpRing);
 
   // The selected creep: a gold ring that follows it.
   const creepRing = new THREE.Group().add(
@@ -430,6 +443,7 @@ export function createWorld(board: Board, game: Game) {
     const breath = reducedMotion.matches ? 0.75 : 0.55 + 0.35 * Math.sin(now / 280);
     (combineRings.material as THREE.MeshBasicMaterial).opacity = breath;
     (betterRings.material as THREE.MeshBasicMaterial).opacity = breath * 0.8;
+    if (mvpRing.visible && !reducedMotion.matches) mvpRing.rotation.y = now / 600;
     const marked =
       markedCreep === null ? undefined : pieces.creepPoints().find((p) => p.id === markedCreep);
     creepRing.visible = !!marked;
@@ -534,6 +548,13 @@ export function createWorld(board: Board, game: Game) {
         });
         mesh.instanceMatrix.needsUpdate = true;
       }
+    },
+    /** Circle the last wave's MVP tower, or nothing. */
+    setMvp(cell: Cell | null) {
+      mvpRing.visible = cell !== null;
+      if (!cell) return;
+      const { x, z } = toScene(cell);
+      mvpRing.position.set(x, TURRET_TOP + 0.03, z);
     },
     /** Show or hide the towers' aura rings. */
     setAurasVisible(visible: boolean) {

@@ -1,39 +1,44 @@
 import { useSignal, type Signal } from '@preact/signals';
-import type { ComponentChildren, Ref } from 'preact';
+import type { ComponentChildren } from 'preact';
 import { useEffect, useRef } from 'preact/hooks';
 import type { Audio } from '../audio';
 import type { Feedback } from './feedback';
 import type { Cell } from '../sim/board';
-import { DRAFT_SIZE, LAST_LEVEL, type Game } from '../sim/game';
+import { DRAFT_SIZE, LAST_LEVEL, TICK_HZ, type Game } from '../sim/game';
 import type { RecipeKind } from '../sim/progression';
 import type { Cmd, Sim } from '../sim/sim';
-import { CommandCard, SKILL_KEYS, heroTarget } from './CommandCard';
+import { CommandCard, SKILL_KEYS, arm, heroSkills, heroTarget } from './CommandCard';
 import { DamageMeter } from './DamageMeter';
 import { HeroPanel } from './HeroPanel';
 import { GlyphDefs, ICONS, Icon } from './icons';
+import { WIP } from './flags';
 import { GameMenu, TitleScreen } from './Menu';
 import { TowerIcon } from './TowerIcon';
 import { code, compact, displayName } from './names';
 import { PinnedRecipes, RecipeBook } from './RecipeBook';
+import { Showcase } from './Showcase';
 import {
   announcement,
   rotateMode,
   selected,
   selectedCreep,
+  targeting,
   view,
   type CameraActions,
 } from '../input/camera';
 
-// DOM overlay on the full-screen cave, laid out after GemTD's HUD:
-// - top bar: wave and the coming creep, castle HP, gold, build level and XP, and the menu;
-// - top left: this round's five gems, compact;
+// DOM overlay on the full-screen cave, laid out after Gem TD's Dota 2 HUD:
+// - top left: one hamburger menu holding every setting, and the DPS list (the round's status
+//   line is announced to assistive technology only);
+// - top centre: the round, its clock and the creeps left;
+// - top right: the run's stats (mode, kills/misses, maze length, enemies, progress);
 // - bottom centre: the command card (hero and skills, or the selection) with its hotkeys;
-// - right edge: a small vertical tool strip; beside it pinned recipes, the recipe book and the
-//   damage meter.
+// - bottom right: the showcase (Showcase.tsx), a live model of the wave's creep or the MVP tower,
+//   over castle HP and gold;
+// - floating above the command card while placing: this round's five gems.
+// Pinned recipes and the recipe book open on the right, under the stats.
 // Panels marked data-exclude are measured and kept clear of playable cells by the camera fit.
 
-const XP_LEVELS = [0, 250, 650, 1200, 1900];
-const CASTLE_MAX = 100;
 const SPEEDS = [
   [1, 'Normal speed'],
   [2, 'Double speed'],
@@ -74,6 +79,7 @@ export function Hud(props: Props) {
   const recipesOpen = useSignal(false);
   const meterOpen = useSignal(matchMedia('(min-width: 1101px)').matches);
   const cameraButton = useRef<HTMLButtonElement>(null);
+  const toolsRef = useRef<HTMLDivElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
   const v = view.value;
   const closeFlyout = () => {
@@ -93,6 +99,15 @@ export function Hud(props: Props) {
     paused.value = true;
   };
 
+  // A press outside the settings closes them.
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => {
+      if (flyout.value && !toolsRef.current?.contains(e.target as Node)) flyout.value = false;
+    };
+    addEventListener('pointerdown', onDown, true);
+    return () => removeEventListener('pointerdown', onDown, true);
+  }, []);
+
   // Global shortcuts; the board canvas keeps its own arrows, Enter, B and zoom keys.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -103,26 +118,32 @@ export function Hud(props: Props) {
       else if (k === '1' || k === '2' || k === '3') {
         const [s, label] = SPEEDS[Number(k) - 1];
         setSpeed(s, label);
-      } else if (k === 'r') recipesOpen.value = !recipesOpen.value;
-      else if (k === 'd') meterOpen.value = !meterOpen.value;
-      else if (k === 'h') heroOpen.value = true;
+      } else if (k === 'g') recipesOpen.value = !recipesOpen.value;
+      else if (k === 'm') meterOpen.value = !meterOpen.value;
+      else if (k === 'q') arm('build');
+      else if (k === 'w') arm('remove');
+      else if (k === 'h' && WIP) heroOpen.value = true;
       else if (k === 't') actions.toggleMode();
       else if (k === 'a') {
         aurasVisible.value = !aurasVisible.value;
         announcement.value = aurasVisible.value ? 'Auras shown' : 'Auras hidden';
       } else if (k === 'escape') {
-        // Close the book, else drop the selection, else open the menu (GemTD's Esc).
-        if (recipesOpen.value) recipesOpen.value = false;
+        // Cancel targeting, else close the settings or the book, else drop the selection, else open
+        // the menu.
+        if (targeting.value) {
+          targeting.value = null;
+          announcement.value = 'Cancelled';
+        } else if (flyout.value) {
+          closeFlyout();
+        } else if (recipesOpen.value) recipesOpen.value = false;
         else if (selected.value || selectedCreep.value !== null) {
           selected.value = null;
           selectedCreep.value = null;
           announcement.value = 'Selection cleared';
         } else openMenu();
-      } else if (SKILL_KEYS.includes(e.key.toUpperCase())) {
+      } else if (WIP && SKILL_KEYS.includes(e.key.toUpperCase())) {
         const g = sim.game;
-        const skill = g.heroActions().filter((a) => a.supported)[
-          SKILL_KEYS.indexOf(e.key.toUpperCase())
-        ];
+        const skill = heroSkills(g)[SKILL_KEYS.indexOf(e.key.toUpperCase())];
         if (!skill) return;
         const { point, target } = heroTarget(g);
         send({ type: 'hero-cast', action: skill.name, target, point });
@@ -155,26 +176,161 @@ export function Hud(props: Props) {
   return (
     <>
       <GlyphDefs />
-      <TopBar
-        sim={sim}
-        paused={paused.value}
-        mode={mode}
-        menuButton={menuButton}
-        openMenu={openMenu}
-      />
-      <PhaseCard sim={sim} tick={tick} feedback={feedback} paused={paused.value} />
-      <CommandCard sim={sim} send={send} tick={tick} openHero={() => (heroOpen.value = true)} />
-      <div class="side">
-        <PinnedRecipes data={sim.data} game={game} />
-        {recipesOpen.value ? (
-          <RecipeBook data={sim.data} game={game} close={() => (recipesOpen.value = false)} />
-        ) : (
-          meterOpen.value &&
+      <div class="top-left">
+        <div
+          class="tools"
+          data-exclude
+          ref={toolsRef}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape' && flyout.value) {
+              e.stopPropagation();
+              closeFlyout();
+            }
+          }}
+        >
+          <button
+            class="tool menu-button"
+            ref={cameraButton}
+            aria-label="Menu"
+            aria-expanded={flyout.value}
+            aria-controls="settings"
+            onClick={() => (flyout.value = !flyout.value)}
+          >
+            <Icon name="menu" />
+          </button>
+          {flyout.value && (
+            <div class="panel settings" id="settings" role="group" aria-label="Settings">
+              <p class="section-label">Game</p>
+              <div class="settings-row">
+                <MenuToggle label="Pause" hint="P" pressed={paused.value} onClick={togglePause}>
+                  {paused.value ? ICONS.play : ICONS.pause}
+                </MenuToggle>
+                <div class="segmented" role="group" aria-label="Game speed">
+                  {SPEEDS.map(([s, label], i) => (
+                    <button
+                      class="tabular"
+                      aria-label={label}
+                      aria-keyshortcuts={`${i + 1}`}
+                      title={`${label} (${i + 1})`}
+                      aria-pressed={speed.value === s}
+                      onClick={() => setSpeed(s, label)}
+                    >
+                      {s}×
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <p class="section-label">Camera</p>
+              <div class="settings-grid">
+                <MenuToggle
+                  label={v.mode === 'iso' ? 'Switch to top view' : 'Switch to isometric view'}
+                  text={v.mode === 'iso' ? 'Top view' : 'Isometric view'}
+                  hint="T"
+                  onClick={actions.toggleMode}
+                >
+                  {v.mode === 'iso' ? ICONS.top : ICONS.iso}
+                </MenuToggle>
+                <MenuToggle
+                  label="Rotate board: drag turns instead of pans"
+                  text="Drag rotates"
+                  pressed={rotateMode.value}
+                  onClick={actions.toggleRotate}
+                >
+                  {rotateMode.value ? ICONS.rotate : ICONS.lock}
+                </MenuToggle>
+                <button onClick={() => actions.turn(-90)}>Turn left</button>
+                <button onClick={() => actions.turn(90)}>Turn right</button>
+                <button onClick={() => actions.zoomBy(1.25)}>Zoom in</button>
+                <button onClick={() => actions.zoomBy(1 / 1.25)}>Zoom out</button>
+                <button onClick={actions.reset}>Reset view</button>
+              </div>
+              <p class="section-label">Show</p>
+              <div class="settings-grid">
+                <MenuToggle
+                  label="Recipes"
+                  hint="G"
+                  pressed={recipesOpen.value}
+                  onClick={() => (recipesOpen.value = !recipesOpen.value)}
+                >
+                  {ICONS.book}
+                </MenuToggle>
+                <MenuToggle
+                  label="Damage"
+                  text="DPS list"
+                  hint="M"
+                  pressed={meterOpen.value}
+                  onClick={() => (meterOpen.value = !meterOpen.value)}
+                >
+                  {ICONS.meter}
+                </MenuToggle>
+                <MenuToggle
+                  label="Show routes"
+                  text="Routes"
+                  pressed={routeVisible.value}
+                  onClick={() => (routeVisible.value = !routeVisible.value)}
+                >
+                  {ICONS.route}
+                </MenuToggle>
+                <MenuToggle
+                  label="Show auras"
+                  text="Auras"
+                  hint="A"
+                  pressed={aurasVisible.value}
+                  onClick={() => (aurasVisible.value = !aurasVisible.value)}
+                >
+                  {ICONS.target}
+                </MenuToggle>
+                <button
+                  disabled={!audio.available.value}
+                  aria-pressed={audio.enabled.value}
+                  onClick={() => audio.toggle()}
+                >
+                  {audio.available.value
+                    ? `Sound ${audio.enabled.value ? 'on' : 'off'}`
+                    : 'Sound unavailable'}
+                </button>
+                {WIP && (
+                  <button aria-haspopup="dialog" onClick={() => (heroOpen.value = true)}>
+                    Hero loadout <kbd aria-hidden="true">H</kbd>
+                  </button>
+                )}
+              </div>
+              <small class="muted legend">Routes: ground solid · flying dashed</small>
+              <button
+                class="run-button"
+                ref={menuButton}
+                aria-haspopup="dialog"
+                aria-keyshortcuts="Escape"
+                onClick={openMenu}
+              >
+                New run, restart or exit <kbd aria-hidden="true">Esc</kbd>
+              </button>
+            </div>
+          )}
+        </div>
+        <Quest game={game} feedback={feedback} tick={tick} />
+        {game.phase === 'build' && <DraftSlots sim={sim} tick={tick} />}
+        {meterOpen.value &&
           (game.phase === 'wave' || Object.keys(game.damageThisWave).length > 0) && (
             <DamageMeter data={sim.data} game={game} />
-          )
+          )}
+      </div>
+      <RoundClock sim={sim} feedback={feedback} paused={paused.value} tick={tick} />
+      <StatsPanel sim={sim} mode={mode} feedback={feedback} tick={tick} />
+      <div class="side">
+        <PinnedRecipes data={sim.data} game={game} />
+        {recipesOpen.value && (
+          <RecipeBook data={sim.data} game={game} close={() => (recipesOpen.value = false)} />
         )}
       </div>
+      {targeting.value && (
+        <p class="targeting">
+          {targeting.value === 'build' ? 'Place gem: pick a cell' : 'Remove stone: pick a stone'}
+          <span class="muted"> · Shift keeps it · Esc cancels</span>
+        </p>
+      )}
+      <CommandCard sim={sim} send={send} tick={tick} openHero={() => (heroOpen.value = true)} />
+      <Showcase sim={sim} feedback={feedback} tick={tick} />
       {heroOpen.value && <HeroPanel sim={sim} send={send} close={() => (heroOpen.value = false)} />}
       {menuOpen.value && (
         <GameMenu
@@ -182,128 +338,10 @@ export function Hud(props: Props) {
           close={() => {
             menuOpen.value = false;
             paused.value = false;
-            menuButton.current?.focus();
+            (menuButton.current ?? cameraButton.current)?.focus();
           }}
         />
       )}
-
-      <div
-        class="tools"
-        data-exclude
-        onKeyDown={(e) => {
-          if (e.key === 'Escape' && flyout.value) {
-            e.stopPropagation();
-            closeFlyout();
-          }
-        }}
-      >
-        {flyout.value && (
-          <div class="panel flyout" id="camera-flyout" role="group" aria-label="Camera">
-            <button onClick={() => actions.turn(-90)}>Turn left</button>
-            <button onClick={() => actions.turn(90)}>Turn right</button>
-            <button onClick={() => actions.zoomBy(1.25)}>Zoom in</button>
-            <button onClick={() => actions.zoomBy(1 / 1.25)}>Zoom out</button>
-            <button onClick={actions.reset}>Reset view</button>
-            <button
-              aria-pressed={routeVisible.value}
-              onClick={() => (routeVisible.value = !routeVisible.value)}
-            >
-              Show routes
-            </button>
-            <button
-              aria-pressed={aurasVisible.value}
-              aria-keyshortcuts="A"
-              onClick={() => (aurasVisible.value = !aurasVisible.value)}
-            >
-              Show auras <kbd aria-hidden="true">A</kbd>
-            </button>
-            <button
-              disabled={!audio.available.value}
-              aria-pressed={audio.enabled.value}
-              onClick={() => audio.toggle()}
-            >
-              {audio.available.value
-                ? `Sound ${audio.enabled.value ? 'on' : 'off'}`
-                : 'Sound unavailable'}
-            </button>
-            <small class="muted legend">Routes: ground solid · flying dashed</small>
-          </div>
-        )}
-        <div
-          class="strip panel"
-          role="toolbar"
-          aria-label="Tools"
-          aria-orientation="vertical"
-          onKeyDown={rovingFocus}
-        >
-          <Tool label="Pause" hint="P" pressed={paused.value} onClick={togglePause}>
-            {paused.value ? ICONS.play : ICONS.pause}
-          </Tool>
-          {SPEEDS.map(([s, label], i) => (
-            <button
-              class="tool speed tabular"
-              aria-label={label}
-              aria-keyshortcuts={`${i + 1}`}
-              data-tip={`${label} (${i + 1})`}
-              aria-pressed={speed.value === s}
-              onClick={() => setSpeed(s, label)}
-            >
-              {s}×
-            </button>
-          ))}
-          <span class="sep" aria-hidden="true" />
-          <Tool
-            label="Recipes"
-            hint="R"
-            pressed={recipesOpen.value}
-            onClick={() => (recipesOpen.value = !recipesOpen.value)}
-          >
-            {ICONS.book}
-          </Tool>
-          <Tool
-            label="Damage"
-            hint="D"
-            pressed={meterOpen.value && !recipesOpen.value}
-            onClick={() => {
-              recipesOpen.value = false;
-              meterOpen.value = !meterOpen.value;
-            }}
-          >
-            {ICONS.meter}
-          </Tool>
-          <Tool
-            label="Routes"
-            pressed={routeVisible.value}
-            onClick={() => (routeVisible.value = !routeVisible.value)}
-          >
-            {ICONS.route}
-          </Tool>
-          <span class="sep" aria-hidden="true" />
-          <Tool
-            label={v.mode === 'iso' ? 'Switch to top view' : 'Switch to isometric view'}
-            hint="T"
-            onClick={actions.toggleMode}
-          >
-            {v.mode === 'iso' ? ICONS.iso : ICONS.top}
-          </Tool>
-          <Tool
-            label="Rotate board: drag turns instead of pans"
-            pressed={rotateMode.value}
-            onClick={actions.toggleRotate}
-          >
-            {rotateMode.value ? ICONS.rotate : ICONS.lock}
-          </Tool>
-          <Tool
-            label="Camera controls"
-            expanded={flyout.value}
-            controls="camera-flyout"
-            ref={cameraButton}
-            onClick={() => (flyout.value = !flyout.value)}
-          >
-            {ICONS.camera}
-          </Tool>
-        </div>
-      </div>
 
       {(game.phase === 'lost' || game.phase === 'won') && <EndCard game={game} tick={tick} />}
 
@@ -314,184 +352,74 @@ export function Hud(props: Props) {
   );
 }
 
-function rovingFocus(e: KeyboardEvent) {
-  const step = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[e.key];
-  if (!step) return;
-  const buttons = [...(e.currentTarget as HTMLElement).querySelectorAll('button')];
-  const i = buttons.indexOf(document.activeElement as HTMLButtonElement);
-  if (i < 0) return;
-  buttons[(i + step + buttons.length) % buttons.length].focus();
-  e.preventDefault();
+/** m:ss, or h:mm:ss past an hour. */
+function clock(seconds: number) {
+  const t = Math.max(0, Math.floor(seconds));
+  const [h, m, sec] = [Math.floor(t / 3600), Math.floor((t % 3600) / 60), t % 60];
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return h ? `${h}:${pad(m)}:${pad(sec)}` : `${pad(m)}:${pad(sec)}`;
 }
 
-function TopBar({
-  sim,
-  paused,
-  mode,
-  menuButton,
-  openMenu,
-}: {
-  sim: Sim;
-  paused: boolean;
-  mode: string;
-  menuButton: Ref<HTMLButtonElement>;
-  openMenu: () => void;
-}) {
-  const game = sim.game;
-  const hp = Math.max(0, game.castleHp);
-  const level = game.heroLevel;
-  const [from, to] = [XP_LEVELS[level - 1] ?? 0, XP_LEVELS[level]];
-  const xpShare = to ? Math.min(1, (game.xp - from) / (to - from)) : 1;
-  const wave = game.wavePreview;
-  const creep = wave.names.map((n) => displayName(sim.data, n)).join(' or ');
-  return (
-    <header class="topbar" data-exclude>
-      <strong class="brand">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M12 2.5 20 8l-3 11.5H7L4 8z M4 8h16 M12 2.5 9 8l3 11.5L15 8z" />
-        </svg>
-        Facet TD
-      </strong>
-      <span class="tag">{mode === 'classic' ? 'Classic' : 'Facet'}</span>
-      <span class="wave tabular">
-        <span class="label">Wave</span>
-        <b>{game.level > LAST_LEVEL ? `∞${game.level}` : game.level}</b>
-        {game.level <= LAST_LEVEL && <span class="of">/{LAST_LEVEL}</span>}
-      </span>
-      <span class="next" title={creep}>
-        <span class="label">{game.phase === 'wave' ? 'Now' : 'Next'}</span>
-        <span class="next-name">{creep}</span>
-        <span class="tabular muted">×{wave.count}</span>
-      </span>
-      {(paused || game.enraged) && (
-        <span class={`flag ${game.enraged && !paused ? 'danger' : ''}`}>
-          {paused ? 'Paused' : 'Enraged'}
-        </span>
-      )}
-      <span class="spacer" />
-      <span
-        class={`castle tabular ${hp <= 25 ? 'danger' : ''}`}
-        aria-label={`Castle ${game.castleHp} of ${CASTLE_MAX} HP`}
-      >
-        <Icon name="heart" />
-        <span class="blocks" aria-hidden="true">
-          {Array.from({ length: 10 }, (_, i) => (
-            <i class={hp > i * 10 ? (hp >= (i + 1) * 10 ? 'on' : 'part') : ''} />
-          ))}
-        </span>
-        {game.castleHp}
-      </span>
-      <span class="gold tabular" aria-label={`Gold ${game.gold}`}>
-        <Icon name="coin" />
-        {compact(game.gold)}
-      </span>
-      <span
-        class="level tabular"
-        title={level < 5 ? `${game.xp} of ${to} XP to the next build level` : 'Highest build level'}
-      >
-        <span class="label">Lv</span>
-        <b>{level}</b>
-        <span class="meter xp" aria-hidden="true">
-          <span style={{ width: `${xpShare * 100}%` }} />
-        </span>
-      </span>
-      <button
-        class="menu-button"
-        ref={menuButton}
-        aria-haspopup="dialog"
-        aria-keyshortcuts="Escape"
-        onClick={openMenu}
-      >
-        <Icon name="menu" />
-        Menu
-        <kbd aria-hidden="true">Esc</kbd>
-      </button>
-    </header>
-  );
+/** Creeps still to come this wave: on the board plus those yet to spawn. */
+function creepsLeft(game: Game) {
+  if (game.phase !== 'wave') return game.wavePreview.count;
+  return game.creeps.length + (game.spawning?.count ?? 0);
 }
 
-/** The five gems placed this round (IMPLEMENTATION.md "HUD and input"); a filled slot selects its gem. */
-function PhaseCard({
+/** Top centre: the round, the run's clock over the round's clock, and the creeps left. */
+function RoundClock({
   sim,
   feedback,
   paused,
 }: {
   sim: Sim;
-  tick: number;
   feedback: Feedback;
   paused: boolean;
+  tick: number;
 }) {
   const game = sim.game;
-  const draft = game.draft.map((id) => game.gems.find((g) => g.id === id)!);
-  const reward = feedback.reward.value;
-  const picking = game.phase === 'build' && draft.length === DRAFT_SIZE;
-  const chip = paused
-    ? 'Paused'
-    : game.phase === 'wave'
-      ? 'Wave'
-      : picking
-        ? 'Picking'
-        : game.phase === 'build'
-          ? 'Building'
-          : 'Over';
+  const wave = game.wavePreview;
+  const creep = wave.names.map((n) => displayName(sim.data, n)).join(' or ');
+  const round = (feedback.ticks - feedback.roundStart.value) / TICK_HZ;
+  const left = creepsLeft(game);
   return (
-    <section class="panel summary" data-exclude aria-label="This round">
-      <div class="panel-head">
-        <span class={`chip phase-chip ${game.phase === 'wave' ? 'wave' : ''}`}>{chip}</span>
-        <p class="reward tabular" aria-label="Wave rewards" title="Kills and gold this wave">
-          {reward.kills} kills · +{reward.gold} gold
-        </p>
-      </div>
-      <h2 class="panel-title">
-        {game.phase === 'wave' ? (
-          `Wave ${game.level}`
-        ) : picking ? (
-          'Keep one gem or combine'
-        ) : (
-          <>
-            Place gems <span class="tabular">({draft.length}/5)</span>
-          </>
-        )}
-      </h2>
-      {game.phase === 'wave' ? (
-        <p class="wave-line tabular">
-          {game.creeps.length} {game.creeps.length === 1 ? 'creep' : 'creeps'} on the board
-        </p>
-      ) : (
-        <div class="slots">
-          {Array.from({ length: DRAFT_SIZE }, (_, i) => {
-            const g = draft[i];
-            if (!g)
-              return (
-                <button class="slot" disabled aria-label={`Gem ${i + 1} of 5: not placed`}>
-                  <span class="slot-n">{i + 1}</span>
-                  <span class="slot-code">—</span>
-                </button>
-              );
-            const name = displayName(sim.data, g.name);
-            const label = `Gem ${i + 1} of 5: ${name}, cell ${g.cell.x}, ${g.cell.y}`;
-            const active = selected.value !== null && same(selected.value, g.cell);
-            const combines = game.combineOptions(g.id).length > 0;
-            return (
-              <button
-                class={`slot gem-${g.name[6]}`}
-                aria-label={label}
-                title={combines ? `${label}. Can combine.` : label}
-                aria-pressed={active}
-                onClick={() => {
-                  selected.value = { ...g.cell };
-                  announcement.value = `Selected ${name}`;
-                }}
-              >
-                <span class="slot-n">{i + 1}</span>
-                <TowerIcon name={g.name} />
-                <span class="slot-code">{code(g.name)}</span>
-                {combines && <span class="combine-dot" aria-hidden="true" />}
-              </button>
-            );
-          })}
-        </div>
+    <section class="round-clock" data-exclude aria-label="Round">
+      <span class="clock-cell">
+        <span class="label">Round</span>
+        <span class="clock-value tabular">
+          <Icon name="flag" />
+          {game.level > LAST_LEVEL ? `∞${game.level}` : game.level}
+        </span>
+      </span>
+      <span class="clock-cell clock-main">
+        <span class="label tabular" title="Run time">
+          {clock(sim.tick / TICK_HZ)}
+        </span>
+        <span class="clock-value big tabular" title="Round time">
+          {clock(round)}
+        </span>
+      </span>
+      <span class="clock-cell next" title={creep}>
+        <span class="label">{game.phase === 'wave' ? 'Left' : 'Next'}</span>
+        <span class="clock-value tabular">
+          <Icon name="paw" />×{left}
+        </span>
+      </span>
+      <span class="next-name">{creep}</span>
+      {(paused || game.enraged) && (
+        <span class={`flag ${game.enraged && !paused ? 'danger' : ''}`}>
+          {paused ? 'Paused' : 'Enraged'}
+        </span>
       )}
+    </section>
+  );
+}
+
+/** Top left, under the tools: the round's status line and, during a wave, its rewards. */
+function Quest({ game, feedback }: { game: Game; feedback: Feedback; tick: number }) {
+  const reward = feedback.reward.value;
+  return (
+    <div class="quest sr-only">
       <p
         class={`notice ${feedback.notice.value.danger ? 'danger' : ''}`}
         role="status"
@@ -500,6 +428,110 @@ function PhaseCard({
       >
         {feedback.notice.value.text}
       </p>
+      {(game.phase === 'wave' || reward.kills > 0) && (
+        <p class="reward tabular" aria-label="Wave rewards" title="Kills and gold this wave">
+          {reward.kills} kills · +{reward.gold} gold
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Top right: the run's numbers. */
+function StatsPanel({
+  sim,
+  mode,
+  feedback,
+}: {
+  sim: Sim;
+  mode: string;
+  feedback: Feedback;
+  tick: number;
+}) {
+  const game = sim.game;
+  const totals = feedback.totals.value;
+  const count = game.wavePreview.count;
+  const progress =
+    game.phase === 'wave' && count ? Math.round(((count - creepsLeft(game)) / count) * 100) : 0;
+  return (
+    <section class="stats-panel" data-exclude aria-label="Game stats">
+      <dl class="run-stats tabular">
+        <div>
+          <dt>Mode</dt>
+          <dd>{mode === 'classic' ? 'Classic' : 'Facet'}</dd>
+        </div>
+        <div title="Creeps killed / creeps that reached the castle">
+          <dt>K/M</dt>
+          <dd>
+            {totals.kills} / {totals.leaks}
+          </dd>
+        </div>
+        <div title="Ground route length in cells">
+          <dt>Length</dt>
+          <dd>{Math.max(0, game.route.length - 1)}</dd>
+        </div>
+        <div>
+          <dt>Enemy</dt>
+          <dd>{game.creeps.length}</dd>
+        </div>
+        <div title="Share of this wave's creeps dealt with">
+          <dt>Progress</dt>
+          <dd>{progress}%</dd>
+        </div>
+      </dl>
+    </section>
+  );
+}
+
+/** The five gems placed this round, floating over the command card while placing; a filled slot selects its gem. */
+function DraftSlots({ sim }: { sim: Sim; tick: number }) {
+  const game = sim.game;
+  const draft = game.draft.map((id) => game.gems.find((g) => g.id === id)!);
+  const picking = draft.length === DRAFT_SIZE;
+  return (
+    <section class="draft" aria-label="This round">
+      <h2 class="draft-title">
+        {picking ? (
+          'Keep one gem or combine'
+        ) : (
+          <>
+            Place gems <span class="tabular">({draft.length}/5)</span>
+          </>
+        )}
+      </h2>
+      <div class="slots">
+        {Array.from({ length: DRAFT_SIZE }, (_, i) => {
+          const g = draft[i];
+          if (!g)
+            return (
+              <button class="slot" disabled aria-label={`Gem ${i + 1} of 5: not placed`}>
+                <span class="slot-n">{i + 1}</span>
+                <span class="slot-code">—</span>
+              </button>
+            );
+          const name = displayName(sim.data, g.name);
+          const label = `Gem ${i + 1} of 5: ${name}, cell ${g.cell.x}, ${g.cell.y}`;
+          const active = selected.value !== null && same(selected.value, g.cell);
+          const combines = game.combineOptions(g.id).length > 0;
+          return (
+            <button
+              class={`slot gem-${g.name[6]}`}
+              aria-label={label}
+              title={combines ? `${label}. Can combine.` : label}
+              aria-pressed={active}
+              onClick={() => {
+                selected.value = { ...g.cell };
+                announcement.value = `Selected ${name}`;
+              }}
+            >
+              <span class="slot-n">{i + 1}</span>
+              <TowerIcon name={g.name} />
+              <span class="slot-code">{code(g.name)}</span>
+              {combines && <span class="combine-dot" aria-hidden="true" />}
+            </button>
+          );
+        })}
+      </div>
     </section>
   );
 }
@@ -534,34 +566,30 @@ function EndCard({ game }: { game: Game; tick: number }) {
   );
 }
 
-function Tool(p: {
+/** A settings button with its icon, name and shortcut; pressed when it toggles something on. */
+function MenuToggle(p: {
   label: string;
-  /** Keyboard shortcut, shown in the tooltip and exposed to assistive technology. */
+  /** Visible text when shorter than the accessible label. */
+  text?: string;
+  /** Keyboard shortcut, shown and exposed to assistive technology. */
   hint?: string;
   pressed?: boolean;
-  expanded?: boolean;
-  controls?: string;
-  haspopup?: 'dialog';
-  ref?: Ref<HTMLButtonElement>;
   onClick: () => void;
   children: ComponentChildren;
 }) {
   return (
     <button
-      ref={p.ref}
-      class="tool"
+      class="menu-toggle"
       aria-label={p.label}
       aria-keyshortcuts={p.hint}
-      data-tip={p.hint ? `${p.label} (${p.hint})` : p.label}
       aria-pressed={p.pressed}
-      aria-expanded={p.expanded}
-      aria-controls={p.expanded ? p.controls : undefined}
-      aria-haspopup={p.haspopup}
       onClick={p.onClick}
     >
       <svg viewBox="0 0 24 24" aria-hidden="true">
         {p.children}
       </svg>
+      <span>{p.text ?? p.label}</span>
+      {p.hint && <kbd aria-hidden="true">{p.hint}</kbd>}
     </button>
   );
 }
