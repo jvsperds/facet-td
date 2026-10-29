@@ -336,9 +336,7 @@ img.glyph.mini {
 }
 /* Tool and item names on hover and focus, below the icon. */
 .tool[data-tip]:hover::after,
-.tool[data-tip]:focus-visible::after,
-.item[data-tip]:hover::after,
-.item[data-tip]:focus-visible::after {
+.tool[data-tip]:focus-visible::after {
   content: attr(data-tip);
   position: absolute;
   top: calc(100% + 8px);
@@ -355,27 +353,79 @@ img.glyph.mini {
   pointer-events: none;
   z-index: 5;
 }
-.item[data-tip]:hover::after,
-.item[data-tip]:focus-visible::after {
-  top: auto;
-  bottom: calc(100% + 8px);
-  left: auto;
-  right: 0;
-  transform: none;
-}
-.flyout {
+
+.settings {
   position: absolute;
   top: calc(100% + 8px);
-  right: 0;
+  left: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  width: 168px;
-  padding: 8px;
+  gap: 6px;
+  width: 280px;
+  max-height: calc(100dvh - 80px);
+  overflow: auto;
+  padding: 10px;
 }
-.flyout button {
+.settings .section-label {
+  margin-top: 4px;
+}
+.settings-row {
+  display: flex;
+  gap: 6px;
+}
+.settings-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+.settings button {
   min-height: 32px;
   font-size: 13px;
+}
+.menu-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  text-align: left;
+}
+.menu-toggle svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+}
+.menu-toggle span {
+  flex: 1;
+}
+.settings-row .menu-toggle {
+  flex: 1;
+}
+.segmented {
+  display: flex;
+}
+.segmented button {
+  min-width: 40px;
+  font-weight: 900;
+  border-radius: 0;
+}
+.segmented button:first-child {
+  border-radius: 3px 0 0 3px;
+}
+.segmented button:last-child {
+  border-radius: 0 3px 3px 0;
+}
+.run-button {
+  margin-top: 4px;
+}
+.menu-button svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
 }
 .legend {
   font-size: 11px;
@@ -493,9 +543,12 @@ img.glyph.mini {
   text-align: center;
   color: var(--ink-3);
 }
+/* Hangs under the clock, outside its measured box, so pausing never refits the board. */
 .flag {
-  grid-column: 1 / -1;
-  justify-self: center;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
   padding: 1px 8px;
   font-size: 11px;
   font-weight: 900;
@@ -524,7 +577,7 @@ img.glyph.mini {
   border-radius: 3px;
 }
 
-/* Top right: the run's stats and the player card. */
+/* Top right: the run's stats. */
 .stats-panel {
   position: fixed;
   top: var(--edge-gap);
@@ -563,69 +616,10 @@ img.glyph.mini {
   margin: 0;
   font-weight: 800;
 }
-.player {
-  display: flex;
-  gap: 6px;
-  padding: 4px;
-  background: linear-gradient(180deg, #2b3036, #15181c);
-  border: 2px solid var(--stone-edge);
-  border-radius: 3px;
-  box-shadow: var(--bevel);
-}
-.player-art {
-  display: grid;
-  place-items: center;
-  flex: none;
-  width: 52px;
-  height: 52px;
-  background: linear-gradient(135deg, #1f4fae, #10285c);
-  border: 1px solid var(--stone-edge);
-}
-.player-art svg {
-  width: 32px;
-  height: 32px;
-  fill: none;
-  stroke: var(--amber);
-  stroke-width: 1.5;
-}
-.player-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.player-name {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  overflow: hidden;
-  font-size: 13px;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.player-name .muted {
-  font-size: 11px;
-}
-.player-badges {
-  display: flex;
-  gap: 8px;
-  font-size: 12px;
-  font-weight: 800;
-}
-.player-badges > span {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-.player-badges .icon {
-  width: 14px;
-  height: 14px;
-}
 .gold .icon {
   color: var(--gold);
 }
-.player-hp,
+/* Dota resource bars: green health, blue mana, numbers centred. */
 .bar {
   position: relative;
   display: block;
@@ -634,20 +628,17 @@ img.glyph.mini {
   background: #0c0e10;
   border: 1px solid #000;
 }
-.player-hp i,
 .bar i {
   position: absolute;
   inset: 0 auto 0 0;
   background: linear-gradient(180deg, #5fcf4a, #2f8a24);
 }
-.player-hp.danger i,
 .bar.hp.low i {
   background: linear-gradient(180deg, #e0605a, #9c2f2a);
 }
 .bar.mana i {
   background: linear-gradient(180deg, #4b7ee8, #1d3f9c);
 }
-.player-hp span,
 .bar span {
   position: relative;
   display: block;
@@ -663,11 +654,11 @@ img.glyph.mini {
 /* Under the stats: pinned recipes and the recipe book. */
 .side {
   position: fixed;
-  top: 150px;
+  top: 84px;
   right: var(--safe-r);
   z-index: 2;
   width: 300px;
-  max-height: calc(100dvh - 150px - 210px);
+  max-height: calc(100dvh - 84px - 210px);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -756,10 +747,10 @@ img.glyph.mini {
   z-index: 2;
   transform: translateX(-50%);
   box-sizing: border-box;
-  width: min(900px, calc(100vw - 2 * (var(--showcase-w) + var(--edge-gap) + 8px)));
+  width: min(760px, calc(100vw - 2 * (var(--showcase-w) + var(--edge-gap) + 8px)));
   height: 178px;
   display: grid;
-  grid-template-columns: 150px minmax(0, 1fr) auto;
+  grid-template-columns: 150px minmax(0, 1fr);
   gap: 10px;
   padding: 8px 10px calc(6px + env(safe-area-inset-bottom));
   color: var(--ink);
@@ -892,14 +883,8 @@ img.glyph.mini {
 .card-effects {
   display: contents;
 }
-.card-subtitle {
+.card-head .spacer {
   flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  font-size: 12px;
-  text-align: right;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .card-head .icon-button {
   width: 24px;
@@ -991,6 +976,16 @@ img.glyph.mini {
 .cmd-icon .glyph {
   width: 44px;
   height: 44px;
+}
+.cmd-icon .effect-icon {
+  width: 28px;
+  height: 28px;
+  fill: none;
+  stroke: var(--amber-1);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 4px rgb(242 184 75 / 0.45));
 }
 .cmd-letter {
   font-size: 20px;
@@ -1096,50 +1091,21 @@ img.glyph.mini {
 .hint {
   font-size: 12px;
 }
-/* The 3 × 2 item grid on the right. */
-.items {
-  display: grid;
-  grid-template-columns: repeat(3, 46px);
-  grid-auto-rows: 40px;
-  align-content: end;
-  gap: 4px;
-  padding-bottom: 2px;
-}
-.item {
-  position: relative;
-  display: grid;
-  place-items: center;
-  box-sizing: border-box;
-  min-height: 0;
-  padding: 0;
-  background: radial-gradient(circle at 50% 30%, #3d434a, #1a1d21);
-  border: 1px solid #000;
-  border-radius: 2px;
-}
-.item.empty {
-  background: #0e1012;
-  box-shadow: inset 0 2px 6px rgb(0 0 0 / 0.8);
-}
-.item svg {
-  width: 22px;
-  height: 22px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-}
-.item kbd {
-  position: absolute;
-  top: 1px;
-  left: 1px;
-  font-size: 9px;
-  line-height: 11px;
-}
-.item.aim {
-  grid-column: span 3;
+.aim {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 0 4px;
+}
+.aim button {
+  min-height: 28px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+.hero-button {
+  align-self: flex-start;
+  min-height: 26px;
+  padding: 0 8px;
+  font-size: 12px;
 }
 .aim label {
   font-size: 10px;
@@ -1155,7 +1121,8 @@ img.glyph.mini {
   font-size: 12px;
 }
 
-/* Bottom right: the showcase, a model on its plinth, over castle HP and gold. */
+/* Bottom right: the showcase, a live model on its plinth, over castle HP and gold. The backdrop
+   fades out at its edges instead of ending in a box. */
 .showcase {
   position: fixed;
   right: var(--safe-r);
@@ -1164,50 +1131,61 @@ img.glyph.mini {
   width: 196px;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(180deg, rgb(10 12 15 / 0), rgb(10 12 15 / 0.85) 40%);
+}
+.showcase::before {
+  content: '';
+  position: absolute;
+  inset: -24px -12px -8px -36px;
+  z-index: -1;
+  background: radial-gradient(
+    ellipse 70% 65% at 60% 62%,
+    rgb(10 12 15 / 0.85),
+    rgb(10 12 15 / 0.5) 55%,
+    transparent 78%
+  );
+  pointer-events: none;
 }
 .showcase-stage {
   position: relative;
-  height: 150px;
-  display: grid;
-  place-items: center;
+  height: 160px;
 }
 .showcase-model {
-  position: relative;
+  position: absolute;
+  inset: 0;
   z-index: 1;
+  width: 100%;
+  height: 100%;
 }
-img.showcase-model {
-  width: 128px;
-  height: 128px;
-}
-.showcase-model:not(img) {
-  width: 64px;
-  height: 64px;
+.showcase-icon {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 112px;
+  height: 112px;
+  transform: translate(-50%, -55%);
 }
 .showcase-plinth {
   position: absolute;
-  bottom: 18px;
+  bottom: 22px;
   left: 50%;
-  width: 110px;
-  height: 22px;
+  width: 116px;
+  height: 26px;
   transform: translateX(-50%);
-  background: radial-gradient(ellipse at 50% 40%, #4a5560, #1a1f24 70%);
+  background: radial-gradient(ellipse at 50% 45%, rgb(90 102 114 / 0.8), transparent 70%);
   border-radius: 50%;
-}
-.showcase.mvp .showcase-plinth {
-  box-shadow: 0 0 22px rgb(226 69 60 / 0.6);
 }
 .showcase-tag {
   position: absolute;
   top: 6px;
   left: 6px;
+  z-index: 2;
   padding: 0 6px;
   font-size: 10px;
   font-weight: 900;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-2);
-  background: rgb(0 0 0 / 0.6);
+  background: rgb(0 0 0 / 0.5);
   border-radius: 2px;
 }
 .showcase.mvp .showcase-tag {
@@ -1219,13 +1197,14 @@ img.showcase-model {
   right: 8px;
   bottom: 0;
   left: 8px;
+  z-index: 2;
   overflow: hidden;
   font-size: 14px;
   font-weight: 700;
   text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
-  text-shadow: 0 1px 2px #000;
+  text-shadow: 0 1px 3px #000;
 }
 .showcase-foot {
   display: flex;
@@ -1233,8 +1212,8 @@ img.showcase-model {
   padding: 4px 10px;
   font-size: 16px;
   font-weight: 800;
-  background: rgb(0 0 0 / 0.6);
-  border-top: 1px solid rgb(255 255 255 / 0.1);
+  background: linear-gradient(90deg, transparent, rgb(0 0 0 / 0.55) 30%, rgb(0 0 0 / 0.55));
+  border-radius: 0 0 6px 6px;
 }
 .showcase-foot span {
   display: flex;
@@ -1645,10 +1624,6 @@ button.big {
   .showcase-stage {
     height: 116px;
   }
-  img.showcase-model {
-    width: 96px;
-    height: 96px;
-  }
   .stats-panel {
     width: 200px;
   }
@@ -1702,24 +1677,7 @@ button.big {
     width: 46px;
     height: 46px;
   }
-  .items {
-    grid-column: 1 / -1;
-    display: flex;
-    flex-wrap: wrap;
-  }
-  .items .item {
-    width: 44px;
-    height: 36px;
-  }
-  .items .item.aim {
-    width: auto;
-    flex: 1 1 180px;
-  }
-  .items .item.empty {
-    display: none;
-  }
-  .card.collapsed .card-body,
-  .card.collapsed .items {
+  .card.collapsed .card-body {
     display: none;
   }
   .card.collapsed .card-portrait {
@@ -1742,9 +1700,9 @@ button.big {
     display: none;
   }
   .side {
-    top: 92px;
+    top: 84px;
     width: min(300px, calc(100vw - 32px));
-    max-height: calc(100dvh - 92px - 48dvh);
+    max-height: calc(100dvh - 84px - 48dvh);
   }
   .tip {
     left: 0;
@@ -1812,10 +1770,6 @@ button.big {
   .stats-panel {
     top: 78px;
     width: 140px;
-  }
-  .player-art,
-  .player-name .muted {
-    display: none;
   }
   .slot {
     width: 36px;

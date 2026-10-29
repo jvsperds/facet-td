@@ -1,21 +1,22 @@
 import { useSignal, type Signal } from '@preact/signals';
-import type { ComponentChildren, Ref } from 'preact';
+import type { ComponentChildren } from 'preact';
 import { useEffect, useRef } from 'preact/hooks';
 import type { Audio } from '../audio';
 import type { Feedback } from './feedback';
 import type { Cell } from '../sim/board';
 import { DRAFT_SIZE, LAST_LEVEL, TICK_HZ, type Game } from '../sim/game';
-import { readHeroCatalog } from '../sim/hero';
 import type { RecipeKind } from '../sim/progression';
 import type { Cmd, Sim } from '../sim/sim';
 import { CommandCard, SKILL_KEYS, arm, heroSkills, heroTarget } from './CommandCard';
 import { DamageMeter } from './DamageMeter';
 import { HeroPanel } from './HeroPanel';
 import { GlyphDefs, ICONS, Icon } from './icons';
+import { WIP } from './flags';
 import { GameMenu, TitleScreen } from './Menu';
-import { CreepIcon, TowerIcon } from './TowerIcon';
-import { code, compact, displayName, skillName } from './names';
+import { TowerIcon } from './TowerIcon';
+import { code, compact, displayName } from './names';
 import { PinnedRecipes, RecipeBook } from './RecipeBook';
+import { Showcase } from './Showcase';
 import {
   announcement,
   rotateMode,
@@ -27,18 +28,17 @@ import {
 } from '../input/camera';
 
 // DOM overlay on the full-screen cave, laid out after Gem TD's Dota 2 HUD:
-// - top left: the menu and tool icons, the round's status line, and the DPS list;
+// - top left: one hamburger menu holding every setting, and the DPS list (the round's status
+//   line is announced to assistive technology only);
 // - top centre: the round, its clock and the creeps left;
-// - top right: the run's stats (mode, kills/misses, maze length, enemies, progress) over the
-//   player's card with the castle's health;
+// - top right: the run's stats (mode, kills/misses, maze length, enemies, progress);
 // - bottom centre: the command card (hero and skills, or the selection) with its hotkeys;
-// - bottom right: the showcase, the wave's creep while it runs and the MVP tower after it, over
-//   castle HP and gold;
+// - bottom right: the showcase (Showcase.tsx), a live model of the wave's creep or the MVP tower,
+//   over castle HP and gold;
 // - floating above the command card while placing: this round's five gems.
 // Pinned recipes and the recipe book open on the right, under the stats.
 // Panels marked data-exclude are measured and kept clear of playable cells by the camera fit.
 
-const CASTLE_MAX = 100;
 const SPEEDS = [
   [1, 'Normal speed'],
   [2, 'Double speed'],
@@ -79,6 +79,7 @@ export function Hud(props: Props) {
   const recipesOpen = useSignal(false);
   const meterOpen = useSignal(matchMedia('(min-width: 1101px)').matches);
   const cameraButton = useRef<HTMLButtonElement>(null);
+  const toolsRef = useRef<HTMLDivElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
   const v = view.value;
   const closeFlyout = () => {
@@ -98,6 +99,15 @@ export function Hud(props: Props) {
     paused.value = true;
   };
 
+  // A press outside the settings closes them.
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => {
+      if (flyout.value && !toolsRef.current?.contains(e.target as Node)) flyout.value = false;
+    };
+    addEventListener('pointerdown', onDown, true);
+    return () => removeEventListener('pointerdown', onDown, true);
+  }, []);
+
   // Global shortcuts; the board canvas keeps its own arrows, Enter, B and zoom keys.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -112,23 +122,26 @@ export function Hud(props: Props) {
       else if (k === 'm') meterOpen.value = !meterOpen.value;
       else if (k === 'q') arm('build');
       else if (k === 'w') arm('remove');
-      else if (k === 'h') heroOpen.value = true;
+      else if (k === 'h' && WIP) heroOpen.value = true;
       else if (k === 't') actions.toggleMode();
       else if (k === 'a') {
         aurasVisible.value = !aurasVisible.value;
         announcement.value = aurasVisible.value ? 'Auras shown' : 'Auras hidden';
       } else if (k === 'escape') {
-        // Cancel targeting, else close the book, else drop the selection, else open the menu.
+        // Cancel targeting, else close the settings or the book, else drop the selection, else open
+        // the menu.
         if (targeting.value) {
           targeting.value = null;
           announcement.value = 'Cancelled';
+        } else if (flyout.value) {
+          closeFlyout();
         } else if (recipesOpen.value) recipesOpen.value = false;
         else if (selected.value || selectedCreep.value !== null) {
           selected.value = null;
           selectedCreep.value = null;
           announcement.value = 'Selection cleared';
         } else openMenu();
-      } else if (SKILL_KEYS.includes(e.key.toUpperCase())) {
+      } else if (WIP && SKILL_KEYS.includes(e.key.toUpperCase())) {
         const g = sim.game;
         const skill = heroSkills(g)[SKILL_KEYS.indexOf(e.key.toUpperCase())];
         if (!skill) return;
@@ -167,6 +180,7 @@ export function Hud(props: Props) {
         <div
           class="tools"
           data-exclude
+          ref={toolsRef}
           onKeyDown={(e) => {
             if (e.key === 'Escape' && flyout.value) {
               e.stopPropagation();
@@ -176,116 +190,121 @@ export function Hud(props: Props) {
         >
           <button
             class="tool menu-button"
-            ref={menuButton}
+            ref={cameraButton}
             aria-label="Menu"
-            aria-haspopup="dialog"
-            aria-keyshortcuts="Escape"
-            data-tip="Menu (Esc)"
-            onClick={openMenu}
+            aria-expanded={flyout.value}
+            aria-controls="settings"
+            onClick={() => (flyout.value = !flyout.value)}
           >
-            <Icon name="gear" />
+            <Icon name="menu" />
           </button>
-          <div
-            class="strip"
-            role="toolbar"
-            aria-label="Tools"
-            aria-orientation="horizontal"
-            onKeyDown={rovingFocus}
-          >
-            <Tool label="Pause" hint="P" pressed={paused.value} onClick={togglePause}>
-              {paused.value ? ICONS.play : ICONS.pause}
-            </Tool>
-            {SPEEDS.map(([s, label], i) => (
-              <button
-                class="tool speed tabular"
-                aria-label={label}
-                aria-keyshortcuts={`${i + 1}`}
-                data-tip={`${label} (${i + 1})`}
-                aria-pressed={speed.value === s}
-                onClick={() => setSpeed(s, label)}
-              >
-                {s}×
-              </button>
-            ))}
-            <span class="sep" aria-hidden="true" />
-            <Tool
-              label="Recipes"
-              hint="G"
-              pressed={recipesOpen.value}
-              onClick={() => (recipesOpen.value = !recipesOpen.value)}
-            >
-              {ICONS.book}
-            </Tool>
-            <Tool
-              label="Damage"
-              hint="M"
-              pressed={meterOpen.value}
-              onClick={() => (meterOpen.value = !meterOpen.value)}
-            >
-              {ICONS.meter}
-            </Tool>
-            <Tool
-              label="Routes"
-              pressed={routeVisible.value}
-              onClick={() => (routeVisible.value = !routeVisible.value)}
-            >
-              {ICONS.route}
-            </Tool>
-            <span class="sep" aria-hidden="true" />
-            <Tool
-              label={v.mode === 'iso' ? 'Switch to top view' : 'Switch to isometric view'}
-              hint="T"
-              onClick={actions.toggleMode}
-            >
-              {v.mode === 'iso' ? ICONS.iso : ICONS.top}
-            </Tool>
-            <Tool
-              label="Rotate board: drag turns instead of pans"
-              pressed={rotateMode.value}
-              onClick={actions.toggleRotate}
-            >
-              {rotateMode.value ? ICONS.rotate : ICONS.lock}
-            </Tool>
-            <Tool
-              label="Camera controls"
-              expanded={flyout.value}
-              controls="camera-flyout"
-              ref={cameraButton}
-              onClick={() => (flyout.value = !flyout.value)}
-            >
-              {ICONS.camera}
-            </Tool>
-          </div>
           {flyout.value && (
-            <div class="panel flyout" id="camera-flyout" role="group" aria-label="Camera">
-              <button onClick={() => actions.turn(-90)}>Turn left</button>
-              <button onClick={() => actions.turn(90)}>Turn right</button>
-              <button onClick={() => actions.zoomBy(1.25)}>Zoom in</button>
-              <button onClick={() => actions.zoomBy(1 / 1.25)}>Zoom out</button>
-              <button onClick={actions.reset}>Reset view</button>
-              <button
-                aria-pressed={routeVisible.value}
-                onClick={() => (routeVisible.value = !routeVisible.value)}
-              >
-                Show routes
-              </button>
-              <button
-                aria-pressed={aurasVisible.value}
-                aria-keyshortcuts="A"
-                onClick={() => (aurasVisible.value = !aurasVisible.value)}
-              >
-                Show auras <kbd aria-hidden="true">A</kbd>
-              </button>
-              <button
-                disabled={!audio.available.value}
-                aria-pressed={audio.enabled.value}
-                onClick={() => audio.toggle()}
-              >
-                {audio.available.value
-                  ? `Sound ${audio.enabled.value ? 'on' : 'off'}`
-                  : 'Sound unavailable'}
-              </button>
+            <div class="panel settings" id="settings" role="group" aria-label="Settings">
+              <p class="section-label">Game</p>
+              <div class="settings-row">
+                <MenuToggle label="Pause" hint="P" pressed={paused.value} onClick={togglePause}>
+                  {paused.value ? ICONS.play : ICONS.pause}
+                </MenuToggle>
+                <div class="segmented" role="group" aria-label="Game speed">
+                  {SPEEDS.map(([s, label], i) => (
+                    <button
+                      class="tabular"
+                      aria-label={label}
+                      aria-keyshortcuts={`${i + 1}`}
+                      title={`${label} (${i + 1})`}
+                      aria-pressed={speed.value === s}
+                      onClick={() => setSpeed(s, label)}
+                    >
+                      {s}×
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <p class="section-label">Camera</p>
+              <div class="settings-grid">
+                <MenuToggle
+                  label={v.mode === 'iso' ? 'Switch to top view' : 'Switch to isometric view'}
+                  text={v.mode === 'iso' ? 'Top view' : 'Isometric view'}
+                  hint="T"
+                  onClick={actions.toggleMode}
+                >
+                  {v.mode === 'iso' ? ICONS.top : ICONS.iso}
+                </MenuToggle>
+                <MenuToggle
+                  label="Rotate board: drag turns instead of pans"
+                  text="Drag rotates"
+                  pressed={rotateMode.value}
+                  onClick={actions.toggleRotate}
+                >
+                  {rotateMode.value ? ICONS.rotate : ICONS.lock}
+                </MenuToggle>
+                <button onClick={() => actions.turn(-90)}>Turn left</button>
+                <button onClick={() => actions.turn(90)}>Turn right</button>
+                <button onClick={() => actions.zoomBy(1.25)}>Zoom in</button>
+                <button onClick={() => actions.zoomBy(1 / 1.25)}>Zoom out</button>
+                <button onClick={actions.reset}>Reset view</button>
+              </div>
+              <p class="section-label">Show</p>
+              <div class="settings-grid">
+                <MenuToggle
+                  label="Recipes"
+                  hint="G"
+                  pressed={recipesOpen.value}
+                  onClick={() => (recipesOpen.value = !recipesOpen.value)}
+                >
+                  {ICONS.book}
+                </MenuToggle>
+                <MenuToggle
+                  label="Damage"
+                  text="DPS list"
+                  hint="M"
+                  pressed={meterOpen.value}
+                  onClick={() => (meterOpen.value = !meterOpen.value)}
+                >
+                  {ICONS.meter}
+                </MenuToggle>
+                <MenuToggle
+                  label="Show routes"
+                  text="Routes"
+                  pressed={routeVisible.value}
+                  onClick={() => (routeVisible.value = !routeVisible.value)}
+                >
+                  {ICONS.route}
+                </MenuToggle>
+                <MenuToggle
+                  label="Show auras"
+                  text="Auras"
+                  hint="A"
+                  pressed={aurasVisible.value}
+                  onClick={() => (aurasVisible.value = !aurasVisible.value)}
+                >
+                  {ICONS.target}
+                </MenuToggle>
+                <button
+                  disabled={!audio.available.value}
+                  aria-pressed={audio.enabled.value}
+                  onClick={() => audio.toggle()}
+                >
+                  {audio.available.value
+                    ? `Sound ${audio.enabled.value ? 'on' : 'off'}`
+                    : 'Sound unavailable'}
+                </button>
+                {WIP && (
+                  <button aria-haspopup="dialog" onClick={() => (heroOpen.value = true)}>
+                    Hero loadout <kbd aria-hidden="true">H</kbd>
+                  </button>
+                )}
+              </div>
               <small class="muted legend">Routes: ground solid · flying dashed</small>
+              <button
+                class="run-button"
+                ref={menuButton}
+                aria-haspopup="dialog"
+                aria-keyshortcuts="Escape"
+                onClick={openMenu}
+              >
+                New run, restart or exit <kbd aria-hidden="true">Esc</kbd>
+              </button>
             </div>
           )}
         </div>
@@ -319,7 +338,7 @@ export function Hud(props: Props) {
           close={() => {
             menuOpen.value = false;
             paused.value = false;
-            menuButton.current?.focus();
+            (menuButton.current ?? cameraButton.current)?.focus();
           }}
         />
       )}
@@ -331,16 +350,6 @@ export function Hud(props: Props) {
       </div>
     </>
   );
-}
-
-function rovingFocus(e: KeyboardEvent) {
-  const step = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[e.key];
-  if (!step) return;
-  const buttons = [...(e.currentTarget as HTMLElement).querySelectorAll('button')];
-  const i = buttons.indexOf(document.activeElement as HTMLButtonElement);
-  if (i < 0) return;
-  buttons[(i + step + buttons.length) % buttons.length].focus();
-  e.preventDefault();
 }
 
 /** m:ss, or h:mm:ss past an hour. */
@@ -410,7 +419,7 @@ function RoundClock({
 function Quest({ game, feedback }: { game: Game; feedback: Feedback; tick: number }) {
   const reward = feedback.reward.value;
   return (
-    <div class="quest">
+    <div class="quest sr-only">
       <p
         class={`notice ${feedback.notice.value.danger ? 'danger' : ''}`}
         role="status"
@@ -428,7 +437,7 @@ function Quest({ game, feedback }: { game: Game; feedback: Feedback; tick: numbe
   );
 }
 
-/** Top right: the run's numbers over the player's card and castle health. */
+/** Top right: the run's numbers. */
 function StatsPanel({
   sim,
   mode,
@@ -440,14 +449,10 @@ function StatsPanel({
   tick: number;
 }) {
   const game = sim.game;
-  const hp = Math.max(0, game.castleHp);
   const totals = feedback.totals.value;
   const count = game.wavePreview.count;
   const progress =
     game.phase === 'wave' && count ? Math.round(((count - creepsLeft(game)) / count) * 100) : 0;
-  const catalog = readHeroCatalog(sim.data);
-  const unit = catalog.heroes[game.hero.selected];
-  const hero = unit ? skillName(sim.data, unit).replace(/^Npc dota hero /i, '') : 'Builder';
   return (
     <section class="stats-panel" data-exclude aria-label="Game stats">
       <dl class="run-stats tabular">
@@ -474,84 +479,6 @@ function StatsPanel({
           <dd>{progress}%</dd>
         </div>
       </dl>
-      <div class="player">
-        <span class="player-art" aria-hidden="true">
-          <svg viewBox="0 0 24 24">{ICONS.hero}</svg>
-        </span>
-        <span class="player-main">
-          <span class="player-name">
-            <b>Player 1</b>
-            <span class="muted">{hero}</span>
-          </span>
-          <span class="player-badges tabular">
-            <span title={`Build level ${game.heroLevel}`}>
-              <Icon name="flag" />
-              {game.heroLevel}
-            </span>
-            <span class="gold" aria-label={`Gold ${game.gold}`}>
-              <Icon name="coin" />
-              {compact(game.gold)}
-            </span>
-            <span title="Towers">
-              <Icon name="tower" />
-              {game.gems.length}
-            </span>
-          </span>
-          <span
-            class={`player-hp ${hp <= 25 ? 'danger' : ''}`}
-            role="meter"
-            aria-label={`Castle ${game.castleHp} of ${CASTLE_MAX} HP`}
-            aria-valuemin={0}
-            aria-valuemax={CASTLE_MAX}
-            aria-valuenow={hp}
-          >
-            <i style={{ width: `${(hp / CASTLE_MAX) * 100}%` }} />
-            <span class="tabular">{Math.round((hp / CASTLE_MAX) * 100)}%</span>
-          </span>
-        </span>
-      </div>
-    </section>
-  );
-}
-
-/**
- * Bottom right: the showcase. While a wave runs it shows the wave's creep; after the wave, the MVP
- * tower (also circled on the board); otherwise the next wave's creep. Castle HP and gold below.
- */
-function Showcase({ sim, feedback }: { sim: Sim; feedback: Feedback; tick: number }) {
-  const game = sim.game;
-  const mvp =
-    game.phase === 'build' ? game.gems.find((g) => g.id === feedback.mvp.value) : undefined;
-  const creep = game.wavePreview.names[0];
-  const hp = Math.max(0, game.castleHp);
-  return (
-    <section
-      class={`showcase ${mvp ? 'mvp' : ''}`}
-      data-exclude
-      aria-label={mvp ? 'Wave MVP' : game.phase === 'wave' ? 'Wave creep' : 'Next creep'}
-    >
-      <div class="showcase-stage">
-        {mvp ? (
-          <TowerIcon name={mvp.name} class="glyph showcase-model" />
-        ) : (
-          creep && <CreepIcon name={creep} class="glyph showcase-model" />
-        )}
-        <span class="showcase-plinth" aria-hidden="true" />
-        <span class="showcase-tag">{mvp ? 'MVP' : game.phase === 'wave' ? 'Wave' : 'Next'}</span>
-        <span class="showcase-name">
-          {mvp ? displayName(sim.data, mvp.name) : creep ? displayName(sim.data, creep) : ''}
-        </span>
-      </div>
-      <div class="showcase-foot tabular">
-        <span class={`castle ${hp <= 25 ? 'danger' : ''}`} aria-label={`Castle ${hp}%`}>
-          <Icon name="castle" />
-          {hp}%
-        </span>
-        <span class="gold" aria-label={`Gold ${game.gold}`}>
-          <Icon name="coin" />
-          {compact(game.gold)}
-        </span>
-      </div>
     </section>
   );
 }
@@ -639,34 +566,30 @@ function EndCard({ game }: { game: Game; tick: number }) {
   );
 }
 
-function Tool(p: {
+/** A settings button with its icon, name and shortcut; pressed when it toggles something on. */
+function MenuToggle(p: {
   label: string;
-  /** Keyboard shortcut, shown in the tooltip and exposed to assistive technology. */
+  /** Visible text when shorter than the accessible label. */
+  text?: string;
+  /** Keyboard shortcut, shown and exposed to assistive technology. */
   hint?: string;
   pressed?: boolean;
-  expanded?: boolean;
-  controls?: string;
-  haspopup?: 'dialog';
-  ref?: Ref<HTMLButtonElement>;
   onClick: () => void;
   children: ComponentChildren;
 }) {
   return (
     <button
-      ref={p.ref}
-      class="tool"
+      class="menu-toggle"
       aria-label={p.label}
       aria-keyshortcuts={p.hint}
-      data-tip={p.hint ? `${p.label} (${p.hint})` : p.label}
       aria-pressed={p.pressed}
-      aria-expanded={p.expanded}
-      aria-controls={p.expanded ? p.controls : undefined}
-      aria-haspopup={p.haspopup}
       onClick={p.onClick}
     >
       <svg viewBox="0 0 24 24" aria-hidden="true">
         {p.children}
       </svg>
+      <span>{p.text ?? p.label}</span>
+      {p.hint && <kbd aria-hidden="true">{p.hint}</kbd>}
     </button>
   );
 }

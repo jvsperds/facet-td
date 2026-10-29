@@ -106,6 +106,9 @@ export const ICONS: Record<string, ComponentChildren> = {
   stone: <path d="M5 17.5 7 9l5-3.5 5.5 2.5L19.5 17 12 19.5z M7 9l5 2.5 5.5-3.5 M12 11.5v8" />,
   menu: <path d="M4.5 7h15 M4.5 12h15 M4.5 17h15" />,
   pin: <path d="M9 4h6l-1 6 3 3H7l3-3z M12 13v7" />,
+  check: <path d="M5 12.5 10 17.5 19 7" />,
+  down: <path d="M12 5v13 M6.5 12.5 12 18l5.5-5.5" />,
+  hammer: <path d="M4 20 13 11 M11 5l3-2 7 7-2 3z M9.5 7.5l7 7" />,
   gear: (
     <path d="M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6 M12 3v3 M12 18v3 M3 12h3 M18 12h3 M5.6 5.6l2.1 2.1 M16.3 16.3l2.1 2.1 M18.4 5.6l-2.1 2.1 M7.7 16.3l-2.1 2.1" />
   ),

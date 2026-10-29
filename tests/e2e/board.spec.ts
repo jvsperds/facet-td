@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { closeMenu, openMenu } from './menu';
 
 // IMPLEMENTATION.md "Implementation gate": fit, picking and view toggles at the five reference viewports.
 const VIEWPORTS = [
@@ -65,16 +66,21 @@ for (const [width, height] of VIEWPORTS)
     await pickMatches(page, { x: 5, y: 19 });
     await expect(page.getByLabel('Selection')).toContainText('Checkpoint 1');
 
+    await openMenu(page);
     await page.getByRole('button', { name: 'Switch to top view' }).click();
+    await closeMenu(page);
     await cornersClear(page);
     await pickMatches(page, { x: 30, y: 8 });
 
-    await page.getByRole('button', { name: 'Camera controls' }).click();
+    await openMenu(page);
     await page.getByRole('button', { name: 'Turn right' }).click();
+    await closeMenu(page);
     await cornersClear(page);
     await pickMatches(page, { x: 2, y: 36 });
 
+    await openMenu(page);
     await page.getByRole('button', { name: 'Switch to isometric view' }).click();
+    await closeMenu(page);
     await cornersClear(page);
     await pickMatches(page, { x: 19, y: 19 });
     expect(errors).toEqual([]);
@@ -88,6 +94,7 @@ test('toggling views keeps selection and camera state, and the keyboard cursor m
   await page.waitForFunction(() => window.facet);
   await pickMatches(page, { x: 1, y: 1 });
   const before = await screenOf(page, { x: 1, y: 1 });
+  await openMenu(page);
   for (let i = 0; i < 4; i++) await page.getByRole('button', { name: /Switch to/ }).click();
   await settle(page);
   expect(await screenOf(page, { x: 1, y: 1 })).toEqual(before);
@@ -95,7 +102,8 @@ test('toggling views keeps selection and camera state, and the keyboard cursor m
 
   // Top view, rotation 0: up arrow is board north (+y).
   await page.getByRole('button', { name: 'Switch to top view' }).click();
-  await page.locator('canvas').focus();
+  await closeMenu(page);
+  await page.getByRole('img', { name: /^Game board/ }).focus();
   await page.keyboard.press('ArrowUp');
   await page.keyboard.press('ArrowRight');
   await settle(page); // activation is refused while the view is still moving
@@ -111,6 +119,7 @@ test('rotate mode drag turns the board instead of panning, and reset restores th
   await page.waitForFunction(() => window.facet);
   await settle(page);
   const start = await screenOf(page, { x: 1, y: 1 });
+  await openMenu(page);
   await page.getByRole('button', { name: /Rotate board/ }).click();
   await expect(page.getByRole('button', { name: /Rotate board/ })).toHaveAttribute(
     'aria-pressed',
@@ -122,9 +131,9 @@ test('rotate mode drag turns the board instead of panning, and reset restores th
   await page.mouse.up();
   await expect(page.getByLabel('Selection')).not.toContainText('Cell'); // a drag never picks
   expect(await screenOf(page, { x: 1, y: 1 })).not.toEqual(start);
-  await page.getByRole('button', { name: 'Camera controls' }).click();
+  await openMenu(page);
   await page.getByRole('button', { name: 'Reset view' }).click();
-  await page.keyboard.press('Escape'); // the open flyout is a HUD panel and changes the fit
+  await closeMenu(page);
   await settle(page);
   expect(await screenOf(page, { x: 1, y: 1 })).toEqual(start);
 });

@@ -27,14 +27,15 @@ import {
   skillName,
   skillText,
 } from './names';
-import { Statuses } from './Statuses';
+import { EFFECT_ICONS, Statuses, iconForText } from './Statuses';
+import { WIP } from './flags';
 import { CreepIcon, TowerIcon } from './TowerIcon';
 
 // The command card: Dota 2's bottom bar, as Gem TD shows it. A portrait with the unit's name over
 // it, its stats down the right edge and its level in the corner; then the buffs and debuffs, one
-// line of abilities and actions with their hotkeys above, the health and mana bars, and a 3 × 2
-// item grid. It shows the hero (Q places a gem, W removes a stone, E D F R are the hero's skills)
-// when nothing is selected, and otherwise the selected cell, gem, tower or creep.
+// line of abilities and actions with their hotkeys above, and the health and mana bars. It shows
+// the builder (Q places a gem, W removes a stone; with `?wip`, E D F R are the hero's skills) when
+// nothing is selected, and otherwise the selected cell, gem, tower or creep.
 
 const WAYPOINT_NAMES = [
   'Spawn (S)',
@@ -52,9 +53,16 @@ export const SKILL_KEYS = ['E', 'D', 'F', 'R'];
 const COMMAND_ICONS: Partial<Record<Cmd['type'], keyof typeof ICONS>> = {
   build: 'stone',
   remove: 'close',
-  keep: 'chevronDown',
-  downgrade: 'chevronDown',
+  keep: 'check',
+  downgrade: 'down',
 };
+
+/** An effect-style icon (Statuses.tsx) for a passive ability. */
+const effectIcon = (key: string) => (
+  <svg class="effect-icon" viewBox="0 0 24 24" aria-hidden="true">
+    {EFFECT_ICONS[key] ?? EFFECT_ICONS.other}
+  </svg>
+);
 
 /** The hero's castable skills, in hotkey order. */
 export const heroSkills = (game: Game) =>
@@ -71,7 +79,7 @@ export function arm(type: 'build' | 'remove') {
       ? 'Place gem: pick a cell'
       : 'Remove stone: pick a stone'
     : 'Cancelled';
-  if (targeting.value) document.querySelector('canvas')?.focus();
+  if (targeting.value) document.querySelector<HTMLCanvasElement>('body > canvas')?.focus();
 }
 const same = (a: Cell, b: Cell) => a.x === b.x && a.y === b.y;
 /** A tablet waiting for its cell: it stays pending while the player selects where to put it. */
@@ -211,7 +219,7 @@ function ResourceBar({ bar }: { bar: Bar }) {
 /**
  * The bottom bar's frame, after Dota's: the portrait (name over it, stats down its right edge,
  * level in its corner), then the effects row, the abilities and actions in one line with their
- * hotkeys above, the health and mana bars, and a 3 × 2 item grid on the right.
+ * hotkeys above, and the health and mana bars.
  */
 function Card(p: {
   portrait: ComponentChildren;
@@ -227,17 +235,12 @@ function Card(p: {
   effects?: ComponentChildren;
   abilities?: ComponentChildren;
   bars?: Bar[];
-  /** Item slots; the rest of the six are drawn empty. */
-  items?: ComponentChildren[];
-  /** Grid cells the items take, when one spans several. */
-  itemsUsed?: number;
   kind?: string;
 }) {
   // Short screens start with the card collapsed to its abilities so the board keeps room.
   const collapsed = useSignal(
     matchMedia('(max-width: 600px) and (max-height: 700px), (max-height: 500px)').matches,
   );
-  const items = p.items ?? [];
   return (
     <section
       class={`card ${p.kind ?? ''} ${collapsed.value ? 'collapsed' : ''}`}
@@ -270,7 +273,8 @@ function Card(p: {
       <div class="card-main">
         <div class="card-head">
           <div class="card-effects">{p.effects}</div>
-          {p.subtitle && <p class="card-subtitle muted tabular">{p.subtitle}</p>}
+          {p.subtitle && <p class="sr-only">{p.subtitle}</p>}
+          <span class="spacer" />
           <button
             class="icon-button collapse"
             aria-label={collapsed.value ? 'Show details' : 'Hide details'}
@@ -296,12 +300,6 @@ function Card(p: {
           {p.children}
         </div>
       </div>
-      <div class="items" role="group" aria-label="Items">
-        {items}
-        {Array.from({ length: Math.max(0, 6 - (p.itemsUsed ?? items.length)) }, (_, i) => (
-          <span key={i} class="item empty" aria-hidden="true" />
-        ))}
-      </div>
     </section>
   );
 }
@@ -310,31 +308,41 @@ const clearSelection = () => {
   selected.value = null;
   selectedCreep.value = null;
   announcement.value = 'Selection cleared';
-  document.querySelector('canvas')?.focus();
+  document.querySelector<HTMLCanvasElement>('body > canvas')?.focus();
 };
 
-/** Ability cards for a tower: a short name, then the ability in full. */
-function abilityCards(game: Game, name: string): [string, string][] {
-  const cards: [string, string][] = [];
+/** Ability cards for a tower: a short name, the ability in full, and its icon. */
+function abilityCards(game: Game, name: string): [string, string, string][] {
+  const cards: [string, string, string][] = [];
   for (const a of game.abilities(name)) {
     if (a.kind === 'slow')
-      cards.push(['Slow', `On hit: ${a.amount} movement speed for ${a.duration}s`]);
+      cards.push(['Slow', `On hit: ${a.amount} movement speed for ${a.duration}s`, 'slow']);
     else if (a.kind === 'armor')
-      cards.push(['Shred', `On hit: ${a.amount} armor for ${a.duration}s`]);
-    else if (a.kind === 'speed') cards.push(['Swift', `+${a.amount} attack speed`]);
+      cards.push(['Shred', `On hit: ${a.amount} armor for ${a.duration}s`, 'shred']);
+    else if (a.kind === 'speed') cards.push(['Swift', `+${a.amount} attack speed`, 'speed']);
     else if (a.kind === 'aura')
-      cards.push(['Aura', `Aura: +${a.amount} attack speed within ${a.radius.toFixed(2)} cells`]);
-    else if (a.kind === 'damage') cards.push(['Might', `+${a.amount}% base attack damage`]);
-    else if (a.kind === 'split') cards.push(['Split', `${a.count} additional targets`]);
+      cards.push([
+        'Aura',
+        `Aura: +${a.amount} attack speed within ${a.radius.toFixed(2)} cells`,
+        'aura',
+      ]);
+    else if (a.kind === 'damage')
+      cards.push(['Might', `+${a.amount}% base attack damage`, 'damage']);
+    else if (a.kind === 'split') cards.push(['Split', `${a.count} additional targets`, 'split']);
     else if (a.kind === 'splash')
-      cards.push(['Splash', `${a.amount * 100}% pure splash within ${a.radius.toFixed(2)} cells`]);
+      cards.push([
+        'Splash',
+        `${a.amount * 100}% pure splash within ${a.radius.toFixed(2)} cells`,
+        'splash',
+      ]);
     else if (a.kind === 'poison')
       cards.push([
         'Poison',
         `Stacking poison: ${a.amount} magic damage every ${a.interval}s for ${a.duration}s`,
+        'poison',
       ]);
     else if (a.kind === 'critical')
-      cards.push(['Critical', `${a.chance}% chance of ×${a.multiplier} damage`]);
+      cards.push(['Critical', `${a.chance}% chance of ×${a.multiplier} damage`, 'critical']);
   }
   return cards;
 }
@@ -449,11 +457,12 @@ function HeroCard({
       abilities={
         <>
           <BuildCommands game={game} />
-          {game.hero.selected ? (
-            <HeroSkills sim={sim} send={send} empty />
-          ) : (
-            SKILL_KEYS.map((k) => <Empty key={k} hint={k} />)
-          )}
+          {WIP &&
+            (game.hero.selected ? (
+              <HeroSkills sim={sim} send={send} empty />
+            ) : (
+              SKILL_KEYS.map((k) => <Empty key={k} hint={k} />)
+            ))}
         </>
       }
       bars={[
@@ -472,25 +481,17 @@ function HeroCard({
           text: `${game.draft.length} / ${DRAFT_SIZE}`,
         },
       ]}
-      items={[
+    >
+      {WIP && (
         <button
-          key="hero"
-          class="item"
+          class="hero-button"
           aria-label="Hero"
           aria-haspopup="dialog"
           aria-keyshortcuts="H"
-          data-tip={game.hero.selected ? 'Hero & skills (H)' : 'Choose hero (H)'}
           onClick={openHero}
         >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            {ICONS.hero}
-          </svg>
-          <kbd aria-hidden="true">H</kbd>
-        </button>,
-      ]}
-    >
-      {!game.hero.selected && (
-        <p class="muted hint">Pick an offline hero (H) for skills on E, D, F and R.</p>
+          {game.hero.selected ? 'Hero & skills' : 'Choose hero'} <kbd aria-hidden="true">H</kbd>
+        </button>
       )}
     </Card>
   );
@@ -551,6 +552,7 @@ function CreepCard({ sim, id }: { sim: Sim; id: number; tick: number }) {
               key={k}
               name={skillName(sim.data, k)}
               text={skillText(sim.data, k) || 'Creep ability'}
+              icon={effectIcon(iconForText(`${skillName(sim.data, k)} ${skillText(sim.data, k)}`))}
             />
           ))
         ) : (
@@ -589,7 +591,7 @@ function CellCard({
   let subtitle = '';
   let detail = '';
   const stats: Stat[] = [];
-  const cards: [string, string][] = [];
+  const cards: [string, string, string][] = [];
   const buttons: [string, Check, Cmd, string?, string?][] = [];
   const name = gem?.name;
   let waveTotal = 0;
@@ -707,8 +709,8 @@ function CellCard({
     </>
   ) : (
     <>
-      {cards.map(([k, v]) => (
-        <Passive key={k} name={k} text={v} />
+      {cards.map(([k, v, icon]) => (
+        <Passive key={k} name={k} text={v} icon={effectIcon(icon)} />
       ))}
       {cards.length > 0 && (combines.length > 0 || buttons.length > 0) && (
         <span class="slot-sep" aria-hidden="true" />
@@ -744,64 +746,53 @@ function CellCard({
           onClick={() => send(cmd)}
         />
       ))}
-      <HeroSkills sim={sim} send={send} />
+      {aims && gem && (
+        <Command
+          label={gem.holdFire ? 'Holding fire' : 'Hold fire'}
+          hint="S"
+          pressed={!!gem.holdFire}
+          icon={<Icon name={gem.holdFire ? 'play' : 'pause'} />}
+          text="Stop or resume attacking, e.g. to steer the wave's MVP to another tower."
+          onClick={() => send({ type: 'hold', id: gem.id, hold: !gem.holdFire })}
+        />
+      )}
+      {WIP && <HeroSkills sim={sim} send={send} />}
     </>
   );
-  const items =
-    aims && gem && !pending.value
-      ? [
-          <div key="aim" class="item aim">
-            <label for="aim-mode">Aim</label>
-            <select
-              id="aim-mode"
-              value={(gem.aim ?? 0) % AIM_BOSS}
-              onChange={(e) =>
-                send({
-                  type: 'aim',
-                  id: gem.id,
-                  mode:
-                    Number((e.target as HTMLSelectElement).value) +
-                    ((gem.aim ?? 0) >= AIM_BOSS ? AIM_BOSS : 0),
-                })
-              }
-            >
-              {AIM.map((label, i) => (
-                <option key={label} value={i}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </div>,
-          <button
-            key="boss"
-            class="item"
-            aria-label="Boss first"
-            aria-pressed={(gem.aim ?? 0) >= AIM_BOSS}
-            data-tip="Boss first: bosses and elite creeps are targeted first"
-            onClick={() =>
-              send({ type: 'aim', id: gem.id, mode: ((gem.aim ?? 0) + AIM_BOSS) % (2 * AIM_BOSS) })
-            }
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              {ICONS.hero}
-            </svg>
-          </button>,
-          <button
-            key="hold"
-            class="item"
-            aria-label={gem.holdFire ? 'Holding fire' : 'Hold fire'}
-            aria-pressed={!!gem.holdFire}
-            aria-keyshortcuts="S"
-            data-tip="Stop or resume attacking, e.g. to steer the MVP to another tower (S)"
-            onClick={() => send({ type: 'hold', id: gem.id, hold: !gem.holdFire })}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              {gem.holdFire ? ICONS.play : ICONS.pause}
-            </svg>
-            <kbd aria-hidden="true">S</kbd>
-          </button>,
-        ]
-      : [];
+  const aim = WIP && aims && gem && !pending.value && (
+    <div class="aim">
+      <label for="aim-mode">Aim</label>
+      <select
+        id="aim-mode"
+        value={(gem.aim ?? 0) % AIM_BOSS}
+        onChange={(e) =>
+          send({
+            type: 'aim',
+            id: gem.id,
+            mode:
+              Number((e.target as HTMLSelectElement).value) +
+              ((gem.aim ?? 0) >= AIM_BOSS ? AIM_BOSS : 0),
+          })
+        }
+      >
+        {AIM.map((label, i) => (
+          <option key={label} value={i}>
+            {label}
+          </option>
+        ))}
+      </select>
+      <button
+        class="boss"
+        aria-pressed={(gem.aim ?? 0) >= AIM_BOSS}
+        title="Bosses and elite creeps are targeted first"
+        onClick={() =>
+          send({ type: 'aim', id: gem.id, mode: ((gem.aim ?? 0) + AIM_BOSS) % (2 * AIM_BOSS) })
+        }
+      >
+        Boss first
+      </button>
+    </div>
+  );
   const mvpLevel = gem?.level ?? 0;
   return (
     <Card
@@ -841,9 +832,8 @@ function CellCard({
             ]
           : undefined
       }
-      items={items}
-      itemsUsed={items.length ? items.length + 2 : 0}
     >
+      {aim}
       {detail && <p>{detail}</p>}
       {pending.value && (
         <p>Select an empty cell for {displayName(sim.data, pending.value.result)}.</p>
