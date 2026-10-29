@@ -16,8 +16,24 @@ export type Plan =
     }
   | { ok: false; reason: string };
 
+const recipeCache = new WeakMap<GameData, { list: Recipe[]; byKey: Map<string, Recipe> }>();
+/** Parsed once per data set: combine checks run for every tower on every HUD update. */
+function recipeTables(data: GameData) {
+  let cached = recipeCache.get(data);
+  if (!cached) {
+    const list = parseRecipes(data);
+    cached = { list, byKey: new Map(list.map((r) => [`${r.kind}:${r.result}`, r])) };
+    recipeCache.set(data, cached);
+  }
+  return cached;
+}
+
 /** Recipe tables are the loaded baseline or Facet data, not a second copy of the rules. */
 export function readRecipes(data: GameData): Recipe[] {
+  return recipeTables(data).list;
+}
+
+function parseRecipes(data: GameData): Recipe[] {
   const lua = data.files['lua/addon_game_mode.json'] as Record<string, { value: unknown }>;
   const table = (key: string) => lua[key].value as Record<string, string[]>;
   const recipes: Recipe[] = [];
@@ -68,7 +84,7 @@ export function planCombine(
   kind: RecipeKind,
   result: string,
 ): Plan {
-  const recipe = readRecipes(data).find((r) => r.kind === kind && r.result === result);
+  const recipe = recipeTables(data).byKey.get(`${kind}:${result}`);
   const anchor = state.gems.find((g) => g.id === anchorId);
   if (!recipe || !anchor || !units(data)[result]) return fail('Unknown recipe or selected gem.');
   if (kind === 'normal' && (state.phase !== 'wave' || state.draft.includes(anchorId)))
@@ -123,7 +139,11 @@ export function combineOptions(
   state: ProgressionState,
   anchorId: number,
 ): Extract<Plan, { ok: true }>[] {
+  // Only recipes that use the selected gem can pass; skipping the rest gives the same answer.
+  const anchor = state.gems.find((g) => g.id === anchorId);
+  if (!anchor) return [];
   return readRecipes(data).flatMap((r) => {
+    if (!r.ingredients.includes(anchor.name)) return [];
     const plan = planCombine(data, state, anchorId, r.kind, r.result);
     return plan.ok ? [plan] : [];
   });
