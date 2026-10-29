@@ -7,13 +7,23 @@ import { GemGlyph } from './icons';
 
 // HUD icons rendered from the actual 3D tower models (the same art-study factories the board uses),
 // so a slot, chip or combine button shows the tower you will get. Each name is rendered once, in
-// an isometric three-quarter view on a transparent background, and cached as an image. Rendering
-// is queued and spread across frames; until an icon is ready, or where WebGL is unavailable, the
-// faceted SVG glyph stands in at the same size.
+// an isometric three-quarter view on a transparent background, and cached as an image. Until an
+// icon is ready, or where WebGL is unavailable, the faceted SVG glyph stands in at the same size.
+//
+// Rendering and reading an icon back stalls the frame it runs in, so it never runs on demand:
+// - icons are saved in IndexedDB, keyed by a hash of the model sources, so a return visit
+//   renders nothing;
+// - rendering runs one icon per idle period, never in a busy frame;
+// - after load every gem, recipe and pedal icon is queued (`prewarmIcons`), so by the time a
+//   tower is placed its icon is waiting. Icons something on screen asks for jump the queue.
 
 const SIZE = 128; // px: crisp at the largest HUD size (48 px swatch) on 2x screens
+const VERSION = typeof __ICON_VERSION__ === 'string' ? __ICON_VERSION__ : 'dev';
+const DB = 'facet-td-icons';
 const cache = new Map<string, string>();
 const queue: string[] = [];
+/** Icons saved by earlier visits, loaded before anything renders. */
+let stored: Promise<void> | undefined;
 /** Bumped when icons finish rendering, so components waiting on them redraw. */
 const ready = signal(0);
 let studio:
@@ -50,7 +60,8 @@ function setup() {
 const VIEW = new THREE.Vector3(1, Math.SQRT2 * Math.tan((35.264 * Math.PI) / 180), 1).normalize();
 
 function render(name: string) {
-  const { renderer, scene, camera } = studio!;
+  if (!studio) return Promise.resolve(null);
+  const { renderer, scene, camera } = studio;
   // `creep:<unit>` draws that creep whole; any other name is a tower.
   const creep = name.startsWith('creep:') ? name.slice(6) : null;
   // The tower without its stone footing: on the board it rises from a wall turret instead.
@@ -92,43 +103,128 @@ function render(name: string) {
   Object.assign(camera, { left: -half, right: half, top: half, bottom: -half, near: 1, far: 60 });
   camera.updateProjectionMatrix();
   renderer.render(scene, camera);
-  const url = renderer.domElement.toDataURL('image/png');
   scene.remove(holder);
   holder.traverse((o) => {
     if (o instanceof THREE.Mesh) o.geometry.dispose();
   });
-  return url;
+  // An async read-back: toDataURL would stall the frame until the GPU caught up.
+  return new Promise<Blob | null>((resolve) => renderer.domElement.toBlob(resolve));
 }
 
-function drain() {
-  scheduled = false;
-  const start = performance.now();
-  // A few icons per frame, so opening the recipe book never stalls the board.
-  while (queue.length && performance.now() - start < 12) {
-    const name = queue.shift()!;
+function openDb() {
+  return new Promise<IDBDatabase | null>((resolve) => {
     try {
-      cache.set(name, render(name));
+      const request = indexedDB.open(DB, 1);
+      request.onupgradeneeded = () => request.result.createObjectStore('icons');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => resolve(null);
     } catch {
-      cache.set(name, '');
+      resolve(null);
     }
+  });
+}
+
+/** Load this version's saved icons; drop other versions'. */
+function loadStored() {
+  return openDb().then(
+    (db) =>
+      new Promise<void>((resolve) => {
+        if (!db) return resolve();
+        const tx = db.transaction('icons', 'readwrite');
+        const icons = tx.objectStore('icons');
+        const cursor = icons.openCursor();
+        cursor.onsuccess = () => {
+          const at = cursor.result;
+          if (!at) return;
+          const [version, name] = String(at.key).split('|');
+          if (version !== VERSION) at.delete();
+          else if (at.value instanceof Blob && !cache.has(name))
+            cache.set(name, URL.createObjectURL(at.value));
+          at.continue();
+        };
+        tx.oncomplete =
+          tx.onerror =
+          tx.onabort =
+            () => {
+              db.close();
+              ready.value++;
+              resolve();
+            };
+      }),
+  );
+}
+
+function save(name: string, blob: Blob) {
+  void openDb().then((db) => {
+    if (!db) return;
+    const tx = db.transaction('icons', 'readwrite');
+    tx.objectStore('icons').put(blob, `${VERSION}|${name}`);
+    tx.oncomplete = tx.onerror = () => db.close();
+  });
+}
+
+type Idle = { timeRemaining(): number };
+const whenIdle = (run: (idle: Idle) => void) =>
+  typeof requestIdleCallback === 'function'
+    ? requestIdleCallback(run)
+    : setTimeout(() => run({ timeRemaining: () => 10 }), 60);
+
+/** One icon per idle period, so rendering never lands in a busy frame. */
+async function drain(idle: Idle) {
+  await stored;
+  // The WebGL context for icons is made in the first idle period, not mid-render.
+  if (studio === undefined) studio = setup();
+  const name = idle.timeRemaining() > 6 ? queue.shift() : undefined;
+  if (name !== undefined && !cache.has(name)) {
+    let url = '';
+    try {
+      const blob = await render(name);
+      if (blob) {
+        url = URL.createObjectURL(blob);
+        save(name, blob);
+      }
+    } catch {
+      url = '';
+    }
+    if (!studio) for (const rest of queue.splice(0)) cache.set(rest, '');
+    cache.set(name, url);
+    ready.value++;
   }
-  ready.value++;
+  scheduled = false;
   if (queue.length) schedule();
 }
 
 function schedule() {
   if (scheduled) return;
   scheduled = true;
-  requestAnimationFrame(drain);
+  whenIdle((idle) => void drain(idle));
 }
 
-/** The cached icon for a tower name: a data URL, '' if it cannot be drawn, undefined while queued. */
+/** Whether icons can be drawn here; loads the saved ones on first use. */
+function start() {
+  if (typeof document === 'undefined' || studio === null) return false;
+  stored ??= loadStored();
+  return true;
+}
+
+/** Queue icons ahead of need (every gem and recipe), rendered as the board idles. */
+export function prewarmIcons(names: Iterable<string>) {
+  if (!start()) return;
+  for (const name of names) if (!cache.has(name) && !queue.includes(name)) queue.push(name);
+  schedule();
+}
+
+/** The cached icon for a tower name: an image URL, '' if it cannot be drawn, undefined while queued. */
 export function iconOf(name: string): string | undefined {
   const hit = cache.get(name);
   if (hit !== undefined) return hit;
-  if (studio === undefined) studio = typeof document === 'undefined' ? null : setup();
-  if (!studio) return '';
-  if (!queue.includes(name)) queue.push(name);
+  if (!start()) return '';
+  // Wanted on screen now: ahead of the prewarm queue.
+  const at = queue.indexOf(name);
+  if (at !== 0) {
+    if (at > 0) queue.splice(at, 1);
+    queue.unshift(name);
+  }
   schedule();
   return undefined;
 }

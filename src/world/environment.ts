@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Cell } from '../sim/board';
 import { toScene } from './view';
+import { mergeStatic, mergedIn } from './merge';
 
 // The voxel cavern around the board (docs/art/environment, style studies B/C and the connected
 // cave concept D). Presentation only: nothing here is a board cell, waypoint or rule.
@@ -26,7 +27,9 @@ const LANE_HALF = 1.8; // half-width of the clear approach lanes
 const MOUTH_SCALE = 0.6;
 const FORT_SCALE = 0.65;
 const ROCK = ['#6e7378', '#757a7f', '#686d72', '#7c8186', '#63686d'];
-const FLOOR_TONES = ['#8d9499', '#868d93', '#939a9f'];
+const FLOOR_TONES = ['#5b6065', '#565b60', '#60656a'];
+/** Depth of the cave floor below the board's raised platform, in cells. */
+const DROP = 5;
 /** Scene backdrop (world.ts) in sRGB: the cave fades into it. */
 const BACKDROP = [43 / 255, 47 / 255, 52 / 255];
 const AMBER = new THREE.Color('#ffb04a');
@@ -65,13 +68,11 @@ export type Keep = { x: number; z: number; hx: number; hz: number };
  * h > distance * tan(elevation).
  */
 export function distanceTo(r: Keep, x: number, z: number, dx: number, dz: number) {
-  // Ray p - t*dir against the rectangle (slab method).
+  // Ray p - t*dir against the rectangle (slab method), one axis at a time.
   let lo = 0;
   let hi = Infinity;
-  for (const [p, d, c, half] of [
-    [x, -dx, r.x, r.hx],
-    [z, -dz, r.z, r.hz],
-  ]) {
+  for (let axis = 0; axis < 2; axis++) {
+    const [p, d, c, half] = axis === 0 ? [x, -dx, r.x, r.hx] : [z, -dz, r.z, r.hz];
     if (Math.abs(d) < 1e-9) {
       if (Math.abs(p - c) > half) return Infinity;
       continue;
@@ -175,20 +176,36 @@ const smoothstep = (a: number, b: number, v: number) => {
 /** How far the cave has dissolved into the backdrop at (x, z): 0 near the board, 1 at the edge. */
 const fadeAt = (x: number, z: number) => smoothstep(28, 34.5, Math.hypot(x, z));
 
-/** Mix each fragment toward the backdrop by the per-vertex `fade` attribute, after lighting. */
-function fadeToBackdrop<T extends THREE.Material>(material: T) {
+/**
+ * Fog: mix each fragment toward the backdrop by its distance from the board, after lighting, the
+ * same for rock, floor and the structures in it. It thins round `clear` (the vault's heart
+ * crystal), so the heart's light carries through; glowing crystals and halos are left unfogged.
+ */
+function fogged<T extends THREE.Material>(material: T, clear: { x: number; z: number }) {
   material.onBeforeCompile = (shader) => {
+    shader.uniforms.fogClear = { value: new THREE.Vector2(clear.x, clear.z) };
     shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vFogXZ;')
+      .replace(
+        '#include <project_vertex>',
+        `#include <project_vertex>
+  vec4 fogWorld = vec4(transformed, 1.0);
+  #ifdef USE_INSTANCING
+    fogWorld = instanceMatrix * fogWorld;
+  #endif
+  vFogXZ = (modelMatrix * fogWorld).xz;`,
+      );
+    shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
-        '#include <common>\nattribute float fade;\nvarying float vFade;',
+        '#include <common>\nvarying vec2 vFogXZ;\nuniform vec2 fogClear;',
       )
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvFade = fade;');
-    shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying float vFade;')
       .replace(
         '#include <dithering_fragment>',
-        `gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(${BACKDROP.map((c) => c.toFixed(4))}), vFade);\n#include <dithering_fragment>`,
+        `float fogAmount = smoothstep(28.0, 34.5, length(vFogXZ));
+  fogAmount *= 1.0 - 0.8 * max(0.0, 1.0 - distance(vFogXZ, fogClear) / 7.0);
+  gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(${BACKDROP.map((c) => c.toFixed(4))}), fogAmount);
+  #include <dithering_fragment>`,
       );
   };
   return material;
@@ -241,12 +258,18 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
 
   // Voxel grid: rock columns and floor tiles, half a cell each.
   type Voxel = { x: number; z: number; i: number; j: number; ring: number; fade: number };
+  // Heights are measured from the cave floor, DROP below the board. The board, its rim, the two
+  // approach lanes and the ledges the structures stand on are a raised platform level with the
+  // board (height DROP), so the arena floats over the dark cave floor among the rock.
   /** A rock column; `pools`: the light pools that can reach it. */
   type Column = Voxel & { h: number; tone: THREE.Color; pools: Pool[] };
   const columns: Column[] = [];
-  const tiles: (Voxel & { pools: Pool[] })[] = [];
+  /** Floor tiles; `raised` ones are the platform, level with the board. */
+  const tiles: (Voxel & { raised: boolean; pools: Pool[] })[] = [];
   const W = 2 * N + 1;
-  const grid = new Float32Array(W * W); // current column heights; 0 for floor and board
+  const grid = new Float32Array(W * W); // current column heights; 0 for the cave floor
+  /** The platform (board, rim, lanes, ledges) at DROP; everything else 0 until rock is filled in. */
+  const ground = new Float32Array(W * W);
   const index = (i: number, j: number) => (i + N) * W + j + N;
   /** Height at a voxel; beyond the terrain counts as solid so its outer faces are never drawn. */
   const at = (i: number, j: number) =>
@@ -254,7 +277,10 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
   for (let i = -N; i <= N; i++)
     for (let j = -N; j <= N; j++) {
       const [x, z] = [i * VOXEL, j * VOXEL];
-      if (Math.abs(x) <= HALF && Math.abs(z) <= HALF) continue;
+      if (Math.abs(x) <= HALF && Math.abs(z) <= HALF) {
+        ground[index(i, j)] = DROP;
+        continue;
+      }
       const fade = fadeAt(x, z);
       if (fade >= 0.985) continue; // lost in the dark: nothing to draw
       const ring = Math.max(Math.abs(x), Math.abs(z)) - FLOOR;
@@ -263,8 +289,12 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
       const atMouth = Math.abs(x - mouth.x) <= 3.2 && z >= mouth.z - 0.9 && z <= mouth.z + 1.5;
       const atVault = Math.abs(x - vault.x) <= 3 && Math.abs(z - vault.z) <= 3;
       const voxel = { x, z, i, j, ring, fade };
-      let h =
-        ring <= 0 || lane <= LANE_HALF || atMouth || atVault ? 0 : rockHeight(x, z, i, j, ring);
+      if (ring <= 0 || lane <= LANE_HALF || atMouth || atVault) {
+        tiles.push({ ...voxel, raised: true, pools: [] });
+        ground[index(i, j)] = DROP;
+        continue;
+      }
+      let h = rockHeight(x, z, i, j, ring);
       // Both structures are set into a rock face, not left standing in the open.
       if (h || ring > 0) {
         const behindMouth = Math.abs(x - mouth.x) < 5.5 && z < mouth.z + 0.3 && z > mouth.z - 6;
@@ -273,15 +303,16 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
           h = Math.max(h, 3 + hash(i, j, 21) * 0.8);
       }
       h = Math.round(h * 4) / 4;
-      if (h < 0.25) tiles.push({ ...voxel, pools: [] });
+      if (h < 0.25) tiles.push({ ...voxel, raised: false, pools: [] });
       else {
-        // One tone per one-cell block of four voxels, so blocks read as single stones.
+        // One tone per one-cell block of four voxels, so blocks read as single stones. Rock rises
+        // from the cave floor, so it stands DROP taller than its height above the board.
         const tone = new THREE.Color(ROCK[Math.floor(hash(i >> 1, j >> 1, 1) * ROCK.length)]);
-        columns.push({ ...voxel, h, tone, pools: [] });
+        columns.push({ ...voxel, h: h + DROP, tone, pools: [] });
       }
     }
   const fill = (heights: number[]) => {
-    grid.fill(0);
+    grid.set(ground);
     columns.forEach(({ i, j }, k) => (grid[index(i, j)] = heights[k]));
   };
   fill(columns.map((c) => c.h));
@@ -308,15 +339,17 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
     }
   };
   // Darker away from the board, before the fade takes the rest.
-  const depth = (x: number, z: number) =>
+  // Darker toward the cave floor too, so the drop below the platform reads as depth.
+  const horizontal = (x: number, z: number) =>
     Math.max(0.55, Math.min(1, 1 - (Math.hypot(x, z) - 24) / 16));
+  const depth = (x: number, y: number, z: number) =>
+    horizontal(x, z) * (y >= 0 ? 1 : 0.4 + 0.6 * Math.max(0, 1 + y / DROP));
 
-  /** Mesh data: positions, UVs, baked colours and fade, two triangles per quad. */
+  /** Mesh data: positions, UVs and baked colours, two triangles per quad. */
   const meshData = () => {
     const pos: number[] = [];
     const uv: number[] = [];
     const col: number[] = [];
-    const fades: number[] = [];
     const vertex = (
       [x, y, z, u, v, shade]: number[],
       base: THREE.Color,
@@ -325,10 +358,9 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
     ) => {
       pos.push(x, y, z);
       uv.push(u, v);
-      color.copy(base).multiplyScalar(shade * depth(x, z));
+      color.copy(base).multiplyScalar(shade * depth(x, y, z));
       light(x, y, z, color, near, off);
       col.push(color.r, color.g, color.b);
-      fades.push(fadeAt(x, z));
     };
     return {
       quad(corners: number[][], base: THREE.Color, near: Pool[], off: Set<number>) {
@@ -339,7 +371,6 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
         g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
         g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
         g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-        g.setAttribute('fade', new THREE.Float32BufferAttribute(fades, 1));
         g.computeVertexNormals();
         return g;
       },
@@ -351,52 +382,151 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
   // sampling: the rock fills much of the screen, so it must stay cheap.
   const rock = new THREE.Mesh(
     new THREE.BufferGeometry(),
-    fadeToBackdrop(new THREE.MeshLambertMaterial({ vertexColors: true, map: stone })),
+    fogged(new THREE.MeshLambertMaterial({ vertexColors: true, map: stone }), vault),
   );
   rock.name = 'cave-rock';
   const base = new THREE.Color();
+  const platformStone = new THREE.Color('#5f646a');
   const r = VOXEL / 2;
+  // The rock is rebuilt on every degree the camera turns, so it is written straight into typed
+  // arrays: indexed quads (four vertices, not six), normals known per face, no temporaries.
+  const capacity = (columns.length * 5 + tiles.length * 4) * 4;
+  const P = new Float32Array(capacity * 3);
+  const C = new Float32Array(capacity * 3);
+  const Nm = new Float32Array(capacity * 3);
+  const U = new Float32Array(capacity * 2);
+  const I = new Uint32Array((capacity / 4) * 6);
+  let nv = 0;
+  let ni = 0;
+  const vert = (
+    x: number,
+    y: number,
+    z: number,
+    u: number,
+    v: number,
+    shade: number,
+    tint: THREE.Color,
+    /** The column's distance shading, worked out once per column. */
+    hd: number,
+    near: Pool[],
+    off: Set<number>,
+    nx: number,
+    nz: number,
+  ) => {
+    const k = nv * 3;
+    P[k] = x;
+    P[k + 1] = y;
+    P[k + 2] = z;
+    Nm[k] = nx;
+    Nm[k + 1] = nx || nz ? 0 : 1;
+    Nm[k + 2] = nz;
+    U[nv * 2] = u;
+    U[nv * 2 + 1] = v;
+    const f = shade * hd * (y >= 0 ? 1 : 0.4 + 0.6 * Math.max(0, 1 + y / DROP));
+    if (near.length) {
+      color.setRGB(tint.r * f, tint.g * f, tint.b * f);
+      light(x, y, z, color, near, off);
+      C[k] = color.r;
+      C[k + 1] = color.g;
+      C[k + 2] = color.b;
+    } else {
+      C[k] = tint.r * f;
+      C[k + 1] = tint.g * f;
+      C[k + 2] = tint.b * f;
+    }
+    return nv++;
+  };
+  const quad4 = (a: number, b: number, c: number, d: number) => {
+    I[ni++] = a;
+    I[ni++] = b;
+    I[ni++] = c;
+    I[ni++] = a;
+    I[ni++] = c;
+    I[ni++] = d;
+  };
+  // Neighbours in face order: +x, -x, +z, -z, with each side's corner offsets and outward normal.
+  const SIDES = [
+    [1, 0, 1, 1, 1, -1],
+    [-1, 0, -1, -1, -1, 1],
+    [0, 1, -1, 1, 1, 1],
+    [0, -1, 1, -1, -1, -1],
+  ] as const;
+  /** A side from height `low` to `high` facing neighbour (di, dj), down from a column at (x, z). */
+  const side = (
+    x: number,
+    z: number,
+    s: (typeof SIDES)[number],
+    low: number,
+    high: number,
+    footShade: number,
+    topShade: number,
+    tint: THREE.Color,
+    hd: number,
+    near: Pool[],
+    off: Set<number>,
+  ) => {
+    const [di, dj, ax, az, bx, bz] = s;
+    const [x0, z0, x1, z1] = [x + ax * r, z + az * r, x + bx * r, z + bz * r];
+    const along = di === 0;
+    const [ua, ub] = along ? [x0 / VOXEL, x1 / VOXEL] : [z0 / VOXEL, z1 / VOXEL];
+    quad4(
+      vert(x0, low - DROP, z0, ua, low / VOXEL, footShade, tint, hd, near, off, di, dj),
+      vert(x1, low - DROP, z1, ub, low / VOXEL, footShade, tint, hd, near, off, di, dj),
+      vert(x1, high - DROP, z1, ub, high / VOXEL, topShade, tint, hd, near, off, di, dj),
+      vert(x0, high - DROP, z0, ua, high / VOXEL, topShade, tint, hd, near, off, di, dj),
+    );
+  };
   function buildRock(heights: number[], off: Set<number>) {
     fill(heights);
-    const mesh = meshData();
+    nv = ni = 0;
     columns.forEach(({ x, z, i, j, tone, pools: near }, k) => {
       const h = heights[k];
+      const hd = horizontal(x, z);
       // Higher rock catches more light.
       base.copy(tone).multiplyScalar(0.7 + 0.35 * Math.min(1, h / 5));
-      const [x0, x1, z0, z1] = [x - r, x + r, z - r, z + r];
       // Top: each corner darkens for every taller neighbour around it (voxel ambient occlusion).
-      const corner = (cx: number, cz: number) => {
-        const [si, sj] = [cx > x ? 1 : -1, cz > z ? 1 : -1];
+      const corner = (si: number, sj: number) => {
         const taller = +(at(i + si, j) > h) + +(at(i, j + sj) > h) + +(at(i + si, j + sj) > h);
-        return [cx, h, cz, cx / VOXEL, cz / VOXEL, 1 - 0.17 * taller];
-      };
-      mesh.quad([corner(x0, z0), corner(x0, z1), corner(x1, z1), corner(x1, z0)], base, near, off);
-      // Sides down to each lower neighbour, dark at the foot like a crevice.
-      for (const [ni, nj, a, b] of [
-        [i + 1, j, [x1, z1], [x1, z0]],
-        [i - 1, j, [x0, z0], [x0, z1]],
-        [i, j + 1, [x0, z1], [x1, z1]],
-        [i, j - 1, [x1, z0], [x0, z0]],
-      ] as [number, number, number[], number[]][]) {
-        const low = at(ni, nj);
-        if (low >= h) continue;
-        const along = ni === i ? 0 : 1; // UV runs along x for z-facing sides, z for x-facing
-        const foot = low === 0 ? 0.4 : 0.58;
-        mesh.quad(
-          [
-            [a[0], low, a[1], a[along] / VOXEL, low / VOXEL, foot],
-            [b[0], low, b[1], b[along] / VOXEL, low / VOXEL, foot],
-            [b[0], h, b[1], b[along] / VOXEL, h / VOXEL, 0.9],
-            [a[0], h, a[1], a[along] / VOXEL, h / VOXEL, 0.9],
-          ],
+        const [cx, cz] = [x + si * r, z + sj * r];
+        return vert(
+          cx,
+          h - DROP,
+          cz,
+          cx / VOXEL,
+          cz / VOXEL,
+          1 - 0.17 * taller,
           base,
+          hd,
           near,
           off,
+          0,
+          0,
         );
+      };
+      quad4(corner(-1, -1), corner(-1, 1), corner(1, 1), corner(1, -1));
+      // Sides down to each lower neighbour, dark at the foot like a crevice.
+      for (const s of SIDES) {
+        const low = at(i + s[0], j + s[1]);
+        if (low < h) side(x, z, s, low, h, low === 0 ? 0.4 : 0.58, 0.9, base, hd, near, off);
       }
     });
+    // The platform's own sides: sheer stone from the board's level down into the dark.
+    for (const { x, z, i, j, raised, pools: near } of tiles) {
+      if (!raised) continue;
+      for (const s of SIDES) {
+        const low = at(i + s[0], j + s[1]);
+        if (low < DROP)
+          side(x, z, s, low, DROP - 0.02, 0.4, 0.95, platformStone, horizontal(x, z), near, off);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(P.slice(0, nv * 3), 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(Nm.slice(0, nv * 3), 3));
+    g.setAttribute('uv', new THREE.BufferAttribute(U.slice(0, nv * 2), 2));
+    g.setAttribute('color', new THREE.BufferAttribute(C.slice(0, nv * 3), 3));
+    g.setIndex(new THREE.BufferAttribute(I.slice(0, ni), 1));
     rock.geometry.dispose();
-    rock.geometry = mesh.geometry();
+    rock.geometry = g;
   }
   group.add(rock);
 
@@ -440,7 +570,7 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
   };
   const rubble = instancer(
     new THREE.BoxGeometry(1, 1, 1),
-    new THREE.MeshLambertMaterial({ color: '#6a6f74', map: stone }),
+    fogged(new THREE.MeshLambertMaterial({ color: '#6a6f74', map: stone }), vault),
     'cave-rubble',
   );
   // Halos: camera-facing quads in one additive instanced mesh, turned with the view.
@@ -482,36 +612,38 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
     placed.every((p) => Math.hypot(p.x - x, p.z - z) >= gap);
   const crystalTone = (x: number, z: number) =>
     hash(x * 4, z * 4, 6) < (x > 0 ? 0.65 : 0.3) ? 'ice' : 'amber';
+  // Sites: rock tops and the cave floor (not the platform), with their height above the board.
   const sites = [
-    ...columns.map((c, k) => ({ ...c, column: k })),
-    ...tiles.map((t) => ({ ...t, h: 0, column: -1 })),
+    ...columns.map((c, k) => ({ ...c, top: c.h - DROP, column: k })),
+    ...tiles.filter((t) => !t.raised).map((t) => ({ ...t, top: -DROP, column: -1 })),
   ].sort((a, b) => hash(a.i, a.j, 3) - hash(b.i, b.j, 3));
   for (const c of sites) {
     if (c.ring < 1.5 || c.fade > 0.85 || hash(c.i, c.j, 4) > 0.04) continue;
     const far = c.fade > 0.35;
     if (!clear(c.x, c.z, far ? 6 : 8)) continue;
-    if (c.h > 4) continue; // not on stalagmite tips
+    if (c.top > 4) continue; // not on stalagmite tips
     placed.push(c);
     const size = far ? 0.45 + hash(c.i, c.j, 12) * 0.3 : 0.6 + hash(c.i, c.j, 12) * 0.45;
-    cluster(c.x, c.h, c.z, crystalTone(c.x, c.z), size, c.column);
+    cluster(c.x, c.top, c.z, crystalTone(c.x, c.z), size, c.column);
   }
   // Small warm clusters close to the arena light its rim in place of torches.
   for (const c of sites) {
-    if (c.ring < 1 || c.ring > 7 || c.h > 2 || hash(c.i, c.j, 5) > 0.03) continue;
+    if (c.ring < 1 || c.ring > 7 || c.top > 2 || hash(c.i, c.j, 5) > 0.03) continue;
     if (!clear(c.x, c.z, 5)) continue;
     placed.push(c);
-    cluster(c.x, c.h, c.z, 'amber', 0.35 + hash(c.i, c.j, 17) * 0.2, c.column);
+    cluster(c.x, c.top, c.z, 'amber', 0.35 + hash(c.i, c.j, 17) * 0.2, c.column);
   }
   // Rubble at the foot of the rock.
-  for (const { x, z, i, j, ring } of tiles) {
+  for (const { x, z, i, j, ring, raised } of tiles) {
     const v = hash(i, j, 13);
     if (v > 0.14 || ring < 0) continue;
-    if (Math.max(at(i + 1, j), at(i - 1, j), at(i, j + 1), at(i, j - 1)) === 0) continue;
+    const level = raised ? DROP : 0;
+    if (Math.max(at(i + 1, j), at(i - 1, j), at(i, j + 1), at(i, j - 1)) <= level) continue;
     if (Math.min(...lanes.map((l) => distToSegment(x, z, l))) < LANE_HALF + 0.3) continue;
     const size = 0.12 + v * 1.7;
     pose.position.set(
       x + (hash(i, j, 14) - 0.5) * 0.2,
-      size / 2 - 0.02,
+      size / 2 - 0.02 + level - DROP,
       z + (hash(i, j, 15) - 0.5) * 0.2,
     );
     pose.rotation.set(0, hash(i, j, 16) * 1.5, 0);
@@ -522,7 +654,8 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
   pose.scale.setScalar(1);
 
   // Shared masonry for both structures: stone-textured blocks, half-cell bricks.
-  const masonry = (hex: string) => new THREE.MeshLambertMaterial({ color: hex, map: stone });
+  const masonry = (hex: string) =>
+    fogged(new THREE.MeshLambertMaterial({ color: hex, map: stone }), vault);
   const block = (
     parent: THREE.Object3D,
     w: number,
@@ -572,6 +705,7 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
   shade.position.set(0, 0.005, -0.1); // the floor fades into the tunnel
   cave.add(shade);
   group.add(cave);
+  mergeStatic(cave); // static masonry: one mesh per material
 
   // Crystal vault: an open keep set into the rock, gate toward the board. Four crenellated towers
   // with blue banners and curtain walls in the board walls' masonry greys; ice crystals fill the
@@ -683,8 +817,14 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
       breaks(block(fort, 0.42, 0.4, 0.42, tx + mx, 3.9, tz + mz, cap), 0.55, 0.97);
   }
   // Banners on the front towers and beside the gate: blue cloth, gold trim and a gem emblem.
-  const cloth = new THREE.MeshLambertMaterial({ color: '#2a4d8c', side: THREE.DoubleSide });
-  const gold = new THREE.MeshLambertMaterial({ color: '#c9a24a', emissive: '#3a2a08' });
+  const cloth = fogged(
+    new THREE.MeshLambertMaterial({ color: '#2a4d8c', side: THREE.DoubleSide }),
+    vault,
+  );
+  const gold = fogged(
+    new THREE.MeshLambertMaterial({ color: '#c9a24a', emissive: '#3a2a08' }),
+    vault,
+  );
   for (const [bx, bz, w, top] of [
     [-3.5, 4.36, 0.9, 3.3],
     [3.5, 4.36, 0.9, 3.3],
@@ -707,7 +847,7 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
     breaks(banner, 0.4, 0.8);
   }
   // Portcullis across the gate: the last thing to go.
-  const bars = new THREE.MeshLambertMaterial({ color: '#26292c' });
+  const bars = fogged(new THREE.MeshLambertMaterial({ color: '#26292c' }), vault);
   for (let i = -0.9; i <= 0.91; i += 0.3)
     breaks(block(fort, 0.09, 1.5, 0.09, i, 0.3, 3.75, bars), 0.02, 0.07);
   breaks(block(fort, 2, 0.09, 0.09, 0, 1.1, 3.75, bars), 0.02, 0.07);
@@ -785,6 +925,36 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
     column: -1,
   });
 
+  // The vault draws as a batch: one mesh per material of everything that is not falling. Falling
+  // parts draw on their own until they land; the batch is rebuilt (at most every quarter second)
+  // as parts break off, land as rubble or are rebuilt.
+  let fortBatch: THREE.Mesh[] = [];
+  let fortDirty = true;
+  let fortRebuilt = -Infinity;
+  const dynamic = new Set<THREE.Object3D>([heart, aura, debris, ...smoke]);
+  function rebuildFort() {
+    fortDirty = false;
+    for (const m of fortBatch) {
+      m.removeFromParent();
+      m.geometry.dispose();
+    }
+    const falling = new Set<THREE.Object3D>();
+    for (const p of parts) if (p.state === 'falling') p.mesh.traverse((o) => falling.add(o));
+    const members: THREE.Mesh[] = [];
+    fort.traverse((o) => {
+      if (!(o instanceof THREE.Mesh) || dynamic.has(o) || o.userData.batch) return;
+      const alone = falling.has(o);
+      o.visible = alone;
+      if (!alone) members.push(o);
+    });
+    // Batch meshes sit in the fort's frame, so they shake with it.
+    fortBatch = mergedIn(fort, members);
+    for (const m of fortBatch) {
+      m.userData.batch = true;
+      fort.add(m);
+    }
+  }
+
   const meshes = [shards.amber, shards.ice, rubble];
   for (const mesh of meshes) mesh.build();
   const haloMesh = new THREE.InstancedMesh(
@@ -811,14 +981,15 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
   // rock and lit by every pool. Built once, against the full-height rock; one stone per cell.
   const floorData = meshData();
   const none = new Set<number>();
-  for (const { x, z, i, j, ring, pools: near } of tiles) {
+  for (const { x, z, i, j, raised, pools: near } of tiles) {
     const [cx, cz] = [Math.floor(x + 0.5), Math.floor(z + 0.5)];
     const tone = new THREE.Color(FLOOR_TONES[Math.floor(hash(cx, cz, 2) * FLOOR_TONES.length)]);
-    if (ring > 0) tone.multiplyScalar(0.86); // the open cave floor, past the arena's ring
+    const level = raised ? DROP : 0;
     const corner = (px: number, pz: number) => {
       const [si, sj] = [px > x ? 1 : -1, pz > z ? 1 : -1];
-      const rock = +(at(i + si, j) > 0) + +(at(i, j + sj) > 0) + +(at(i + si, j + sj) > 0);
-      return [px, -0.02, pz, px, pz, 1 - 0.2 * rock];
+      const taller =
+        +(at(i + si, j) > level) + +(at(i, j + sj) > level) + +(at(i + si, j + sj) > level);
+      return [px, raised ? -0.02 : -DROP, pz, px, pz, 1 - 0.2 * taller];
     };
     const [x0, x1, z0, z1] = [x - r, x + r, z - r, z + r];
     floorData.quad(
@@ -830,7 +1001,7 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
   }
   const floor = new THREE.Mesh(
     floorData.geometry(),
-    fadeToBackdrop(new THREE.MeshLambertMaterial({ vertexColors: true, map: stone })),
+    fogged(new THREE.MeshLambertMaterial({ vertexColors: true, map: stone }), vault),
   );
   floor.name = 'cave-floor';
   floor.receiveShadow = true;
@@ -844,7 +1015,7 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
     const angle = hash(k, 1, 31) * Math.PI * 2;
     const radius = 22 + hash(k, 3, 31) * 9;
     motePositions[k * 3] = Math.cos(angle) * radius;
-    motePositions[k * 3 + 1] = 0.3 + hash(k, 2, 31) * 4;
+    motePositions[k * 3 + 1] = 0.3 - DROP + hash(k, 2, 31) * (4 + DROP);
     motePositions[k * 3 + 2] = Math.sin(angle) * radius;
   }
   const moteGeometry = new THREE.BufferGeometry();
@@ -867,37 +1038,60 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
   // Cutaway: cap every rock column at the height that keeps the board visible from this view.
   // Recomputed per whole degree of camera change, so free rotation stays smooth.
   let lastView = '';
+  let shownHeights: number[] = [];
+  /** The view the rock was last cut for, and the columns that cut lowered. */
+  let cutAt = { e: -90, a: 0 };
+  let lowered = new Set<number>();
   const toCamera = new THREE.Vector3();
   const billboard = new THREE.Matrix4();
-  function view(elevationDeg: number, azimuthDeg: number) {
+  /**
+   * Fit the cutaway (and turn the halos) to a camera elevation and azimuth. While the camera is
+   * `moving`, the rock is only recut every ten degrees, so turning stays smooth; the exact cut
+   * follows as soon as it settles.
+   */
+  function view(elevationDeg: number, azimuthDeg: number, moving = false) {
     const key = `${Math.round(elevationDeg)}:${Math.round(azimuthDeg)}`;
     if (key === lastView) return;
+    const turn = Math.abs(((azimuthDeg - cutAt.a + 540) % 360) - 180);
+    if (moving && turn < 10 && Math.abs(elevationDeg - cutAt.e) < 5) {
+      faceHalos(elevationDeg, azimuthDeg);
+      return;
+    }
     lastView = key;
+    cutAt = { e: elevationDeg, a: azimuthDeg };
     const a = (Math.round(azimuthDeg) * Math.PI) / 180;
     const [dx, dz] = [Math.sin(a), Math.cos(a)]; // horizontal direction toward the camera
     const slope = Math.tan((elevationDeg * Math.PI) / 180);
     const heights = columns.map(({ x, z, h }) => {
-      const t =
-        elevationDeg >= 89.5
-          ? Infinity
-          : Math.min(...keeps.map((k) => distanceTo(k, x, z, dx, dz)));
+      let t = Infinity;
+      if (elevationDeg < 89.5) for (const k of keeps) t = Math.min(t, distanceTo(k, x, z, dx, dz));
       // Snap to quarter-cell steps so cut rock keeps its voxel terraces.
-      return Math.max(0.25, Math.min(h, Math.floor((t - 0.25) * slope * 4) / 4));
+      // Measured from the cave floor, DROP below the board the cut protects.
+      return Math.max(0.25, Math.min(h, Math.floor((t - 0.25) * slope * 4) / 4 + DROP));
     });
     // Decor on a lowered column would float: hide it, and its light, until the column is whole.
     const off = new Set<number>();
     heights.forEach((h, k) => h < columns[k].h && off.add(k));
-    buildRock(heights, off);
-    const lowered = (column: number) => off.has(column);
-    for (const mesh of meshes) mesh.hide(lowered);
-    // Halos face the camera, nudged toward it so the rock they stand on does not clip them.
+    lowered = off;
+    // A turn often leaves every column as it was: then only the halos need to face the camera.
+    if (heights.some((h, k) => h !== shownHeights[k])) {
+      shownHeights = heights;
+      buildRock(heights, off);
+      for (const mesh of meshes) mesh.hide((column) => off.has(column));
+    }
+    faceHalos(elevationDeg, azimuthDeg);
+  }
+  /** Halos face the camera, nudged toward it so the rock they stand on does not clip them. */
+  function faceHalos(elevationDeg: number, azimuthDeg: number) {
+    const a = (Math.round(azimuthDeg) * Math.PI) / 180;
+    const [dx, dz] = [Math.sin(a), Math.cos(a)];
     const elevation = (elevationDeg * Math.PI) / 180;
     toCamera.set(dx * Math.cos(elevation), Math.sin(elevation), dz * Math.cos(elevation));
     billboard.lookAt(toCamera, new THREE.Vector3(), new THREE.Vector3(-dx, 1, -dz));
     pose.quaternion.setFromRotationMatrix(billboard);
     halos.forEach((h, k) => {
       pose.position.copy(h.at).addScaledVector(toCamera, 0.8);
-      pose.scale.setScalar(lowered(h.column) ? 0 : h.size);
+      pose.scale.setScalar(lowered.has(h.column) ? 0 : h.size);
       pose.updateMatrix();
       haloMesh.setMatrixAt(k, pose.matrix);
     });
@@ -924,6 +1118,10 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
     view,
     /** Inside the cave mouth's tunnel: where creeps start their walk to S. */
     tunnel,
+    /** True while castle parts are falling, so shadows follow them. */
+    get settling() {
+      return parts.some((p) => p.state === 'falling');
+    },
     /** After each sim step: castle HP share and how much damage leaked this tick. */
     castle(ratio: number, leaked: number) {
       hpRatio = Math.max(0, Math.min(1, ratio));
@@ -945,6 +1143,7 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
         if (p.state === 'whole' && hpRatio < p.below) {
           // Break off: outward from the keep's centre, up, and tumbling.
           p.state = 'falling';
+          fortDirty = true;
           const out = new THREE.Vector3(p.mesh.position.x, 0, p.mesh.position.z).normalize();
           p.velocity.copy(out).multiplyScalar(1.2 + hash(p.mesh.id, 3, 61) * 1.8);
           p.velocity.y = 1.5 + hash(p.mesh.id, 4, 61) * 2;
@@ -956,6 +1155,7 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
         } else if (p.state !== 'whole' && hpRatio >= p.below) {
           // Healed: the part is rebuilt where it stood.
           p.state = 'whole';
+          fortDirty = true;
           p.mesh.position.copy(p.home.position);
           p.mesh.rotation.copy(p.home.rotation);
           p.mesh.material = p.material;
@@ -964,6 +1164,14 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
     },
     frame(dt: number, reducedMotion: boolean) {
       clock += dt;
+      // Breaking parts leave the batch at once; landings are folded in at most four times a second.
+      if (
+        fortDirty &&
+        (parts.some((p) => p.state === 'falling' && !p.mesh.visible) || clock - fortRebuilt > 0.25)
+      ) {
+        fortRebuilt = clock;
+        rebuildFort();
+      }
       flash = Math.max(0, flash - dt * 1.8);
       const pulse = reducedMotion ? 0 : Math.sin(clock * 2) * 0.12;
       heartMaterial.emissive.copy(calm).lerp(hurt, Math.max(flash, (1 - hpRatio) * 0.6));
@@ -993,7 +1201,11 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
         if (reducedMotion || m.position.y + bottom <= 0.3) {
           m.position.y = 0.3 - bottom;
           p.state = 'fallen';
-          const dark = (Array.isArray(p.material) ? p.material[0] : p.material).clone();
+          fortDirty = true;
+          const source = Array.isArray(p.material) ? p.material[0] : p.material;
+          const dark = source.clone();
+          dark.onBeforeCompile = source.onBeforeCompile; // keep the fog
+
           if ('color' in dark) (dark.color as THREE.Color).multiplyScalar(0.62);
           m.material = dark;
         }
@@ -1024,7 +1236,7 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
         // Dust rises slowly and sways, wrapping back to the floor.
         for (let k = 0; k < MOTES; k++) {
           const y = motePositions[k * 3 + 1] + dt * (0.08 + hash(k, 4, 31) * 0.1);
-          motePositions[k * 3 + 1] = y > 4.3 ? 0.3 : y;
+          motePositions[k * 3 + 1] = y > 4.3 ? 0.3 - DROP : y;
           motePositions[k * 3] += Math.sin(clock * 0.6 + k) * dt * 0.08;
         }
         moteGeometry.getAttribute('position').needsUpdate = true;
