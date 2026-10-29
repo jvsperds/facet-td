@@ -92,3 +92,22 @@ test('the heart crystal dims with castle HP and flashes on a leak', () => {
   env.frame(2, true);
   expect(heart.material.emissive.r).toBeLessThan(0.5);
 });
+
+test('the castle crumbles as its HP falls, parts land on the footing, and healing rebuilds it', () => {
+  const { env } = make();
+  const { parts } = env.debug;
+  const whole = () => parts.filter((p) => p.state === 'whole').length;
+  expect(whole()).toBe(parts.length);
+  env.castle(0.7, 3);
+  const afterHit = whole();
+  expect(afterHit).toBeLessThan(parts.length); // crenels and merlons go first
+  env.castle(0.05, 3);
+  expect(whole()).toBeLessThan(afterHit); // down to the gate
+  for (let i = 0; i < 200; i++) env.frame(1 / 60, false);
+  const fallen = parts.filter((p) => p.state !== 'whole');
+  expect(fallen.every((p) => p.state === 'fallen')).toBe(true);
+  expect(fallen.every((p) => p.mesh.position.y < p.home.position.y)).toBe(true);
+  env.castle(1, 0);
+  expect(whole()).toBe(parts.length);
+  expect(parts.every((p) => p.mesh.position.equals(p.home.position))).toBe(true);
+});

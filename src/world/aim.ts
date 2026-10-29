@@ -25,20 +25,30 @@ export function turnToward(from: number, to: number, dt: number) {
 export function createAimer(tower: THREE.Object3D) {
   const aimAt = tower.userData.aimAt as ((x?: number, z?: number) => void) | undefined;
   const movers: Mover[] = [];
+  /** Every node aimAt moves in any way: these must stay separate when the model is merged. */
+  const moving: THREE.Object3D[] = [];
   if (aimAt) {
     // Probe: rest, then aim east and south of the tower; whatever rotates is what aimAt drives.
     const all: THREE.Object3D[] = [];
     tower.traverse((o) => all.push(o));
     const pose = () => all.map((o) => [o.rotation.y, o.rotation.z]);
+    const full = () =>
+      all.map((o) => [...o.position.toArray(), o.rotation.x, o.rotation.y, o.rotation.z].join());
     tower.updateWorldMatrix(true, true);
     const at = new THREE.Vector3().setFromMatrixPosition(tower.matrixWorld);
     aimAt();
     const rest = pose();
+    const restFull = full();
     aimAt(at.x + 10, at.z);
     const east = pose();
+    const eastFull = full();
     aimAt(at.x, at.z + 10);
     const south = pose();
+    const southFull = full();
     aimAt();
+    all.forEach((node, i) => {
+      if (restFull[i] !== eastFull[i] || restFull[i] !== southFull[i]) moving.push(node);
+    });
     all.forEach((node, i) => {
       const yaw = Math.abs(east[i][0] - south[i][0]) > 1e-6;
       const lean = Math.abs(east[i][1] - rest[i][1]) > 1e-6;
@@ -47,6 +57,8 @@ export function createAimer(tower: THREE.Object3D) {
     });
   }
   return {
+    /** Nodes aimAt moves; merging keeps them separate. */
+    moving,
     get parts() {
       return movers.length;
     },

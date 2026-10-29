@@ -51,3 +51,40 @@ export function compact(n: number) {
   if (a >= 1e3) return `${(n / 1e3).toFixed(a >= 1e4 ? 0 : 1)}k`;
   return `${Math.round(n)}`;
 }
+
+let lowerTokens: Map<string, string> | undefined;
+const token = (data: GameData, key: string) => {
+  lowerTokens ??= new Map(Object.entries(tokensOf(data)).map(([k, v]) => [k.toLowerCase(), v]));
+  return lowerTokens.get(key.toLowerCase());
+};
+const SKILL_NAMES: Record<string, string> = {
+  mvp: 'MVP',
+  disarmed: 'Disarmed',
+  hold: 'Holding fire',
+  enraged: 'Enraged',
+  riki_permanent_invisibility: 'Invisible',
+  runrunrun: 'Rush',
+};
+const sentence = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+/** Display name of an ability or modifier from the original tooltips, e.g. "Magic immunity". */
+export function skillName(data: GameData, key: string) {
+  const text =
+    SKILL_NAMES[key] ??
+    token(data, `DOTA_Tooltip_ability_${key}`) ??
+    token(data, `DOTA_Tooltip_modifier_${key}`) ??
+    key.replace(/^(gemtd_|modifier_|enemy_|guai_|tower_)/, '').replaceAll('_', ' ');
+  return sentence(text.replace(/<[^>]+>/g, ''));
+}
+
+/** The original tooltip's description of an ability or modifier, or ''. */
+export function skillText(data: GameData, key: string) {
+  const text =
+    token(data, `DOTA_Tooltip_ability_${key}_Description`) ??
+    token(data, `DOTA_Tooltip_modifier_${key}_Description`) ??
+    '';
+  return text
+    .replace(/<[^>]+>/g, '')
+    .replace(/\\n/g, ' ')
+    .trim();
+}

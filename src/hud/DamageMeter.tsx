@@ -16,7 +16,7 @@ export function DamageMeter({ data, game }: { data: GameData; game: Game }) {
     .sort((a, b) => b.d - a.d || a.g.id - b.g.id)
     .slice(0, TOP);
   return (
-    <section class="panel meter-panel" data-exclude aria-label="Damage this wave">
+    <section class="panel meter-panel" aria-label="Damage this wave">
       <div class="drawer-head">
         <h2 class="section-label">Damage · wave {game.level}</h2>
         <span class="muted tabular">{compact(total)}</span>

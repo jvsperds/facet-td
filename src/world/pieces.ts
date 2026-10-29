@@ -11,9 +11,11 @@ import type { Cell } from '../sim/board';
 import { isBasicGem, qualityOf, type Game } from '../sim/game';
 import { toScene } from './view';
 import { createAimer } from './aim';
+import { mergeStatic, mergedCopy } from './merge';
 import { creepPartScale } from './clearance';
 import { createEffects } from './effects';
 import { createPedalEffects } from './pedals';
+import { pedalHead } from './pedal-models';
 import { TURRET_TOP, neighbourhood, wallMesh, wallRaster, type Occupancy } from './walls';
 
 // Everything on the board that the sim owns: stones, gem towers, creeps and combat effects.
@@ -28,17 +30,18 @@ const BAR = { width: 0.5, height: 0.07, back: '#25282C', fill: '#7ED07A', low: '
 type Piece = { sig: string; obj: THREE.Object3D };
 type CreepView = {
   obj: THREE.Object3D;
-  bar: THREE.Sprite;
+  /** Health share for the bar. */
+  ratio: number;
   prev: { x: number; y: number };
   cur: { x: number; y: number };
   height: number;
 };
 
 const key = (c: Cell) => c.y * 64 + c.x;
-const barMaterial = (color: string) => new THREE.SpriteMaterial({ color, depthTest: false });
-const BAR_BACK = barMaterial(BAR.back);
-const BAR_FILL = barMaterial(BAR.fill);
-const BAR_LOW = barMaterial(BAR.low);
+const BAR_FILL = new THREE.Color(BAR.fill);
+const BAR_LOW = new THREE.Color(BAR.low);
+/** Most health bars drawn at once. */
+const MAX_BARS = 512;
 const TOWER_SPECS = [...SPECIAL_TOWERS, ...COMBINED_TOWERS];
 const WALL_MATERIAL = new THREE.MeshStandardMaterial({
   vertexColors: true,
@@ -64,20 +67,21 @@ function extraTower(name: string, options: Parameters<typeof createStone>[0]) {
   const head = new THREE.Group();
   const tablet = name.includes('shiban');
   if (tablet) base.children[0].scale.y = 0.12;
-  const metal = new THREE.MeshStandardMaterial({ color: towerColor(name), roughness: 0.65 });
-  const body = new THREE.Mesh(
-    new THREE.BoxGeometry(0.62, tablet ? 0.08 : 0.16, 0.62),
-    new THREE.MeshStandardMaterial({ color: '#60646d', roughness: 1 }),
-  );
-  body.position.y = tablet ? 0.08 : 0.2;
-  head.add(body);
-  const core = new THREE.Mesh(
-    tablet ? new THREE.TorusGeometry(0.2, 0.035, 4, 8) : new THREE.OctahedronGeometry(0.26),
-    metal,
-  );
-  core.position.y = tablet ? 0.13 : 0.5;
-  if (tablet) core.rotation.x = -Math.PI / 2;
-  head.add(core);
+  if (tablet) head.add(pedalHead(name));
+  else {
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(0.62, 0.16, 0.62),
+      new THREE.MeshStandardMaterial({ color: '#60646d', roughness: 1 }),
+    );
+    body.position.y = 0.2;
+    head.add(body);
+    const core = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.26),
+      new THREE.MeshStandardMaterial({ color: towerColor(name), roughness: 0.65 }),
+    );
+    core.position.y = 0.5;
+    head.add(core);
+  }
   if (name.endsWith('_yin') || name.endsWith('_jin')) {
     const rim = new THREE.Mesh(
       new THREE.TorusGeometry(0.29, 0.025, 4, name.endsWith('_jin') ? 12 : 8),
@@ -114,8 +118,81 @@ export function towerModel(name: string) {
     : extraTower(name, options);
 }
 
+/**
+ * A copy of a cached model sharing its geometry and materials: building and merging a model
+ * takes milliseconds, so each tower, pedal and creep model is built once and copied after.
+ */
+function shareCopy(template: THREE.Object3D) {
+  const copy = template.clone();
+  copy.userData = { shared: true };
+  return copy;
+}
+
+/** Towers and pedals as placed on the board, seated and merged, by name and floor/turret. */
+const towerTemplates = new Map<string, { model: THREE.Object3D; paths: number[][] }>();
+
+/** Child indices from `root` down to `node`. */
+function pathTo(root: THREE.Object3D, node: THREE.Object3D) {
+  const path: number[] = [];
+  for (let o = node; o !== root; o = o.parent!) path.unshift(o.parent!.children.indexOf(o));
+  return path;
+}
+const follow = (root: THREE.Object3D, path: number[]) => path.reduce((o, i) => o.children[i], root);
+
+/**
+ * A tower ready to place: the cached, seated and merged model, copied. The copy aims by posing
+ * the cached model's head toward the same target, relative to itself, and taking its turn.
+ */
+export function placedTower(name: string, floor: boolean) {
+  const id = `${name}:${floor}`;
+  let entry = towerTemplates.get(id);
+  if (!entry) {
+    const model = towerModel(name);
+    if (floor) layTablet(model);
+    else seatTower(model);
+    // One mesh per material, the turning head kept apart: a tower draws in a few calls.
+    const moving = createAimer(model).moving;
+    mergeStatic(model, moving);
+    entry = { model, paths: moving.map((node) => pathTo(model, node)) };
+    towerTemplates.set(id, entry);
+  }
+  const { model, paths } = entry;
+  const copy = shareCopy(model);
+  const aimAt = model.userData.aimAt as ((x?: number, z?: number) => void) | undefined;
+  if (aimAt && paths.length) {
+    const pairs = paths.map((path) => [follow(model, path), follow(copy, path)] as const);
+    copy.userData.aimAt = (x?: number, z?: number) => {
+      if (x === undefined || z === undefined) aimAt();
+      else aimAt(x - copy.position.x, z - copy.position.z);
+      for (const [from, to] of pairs) {
+        to.position.copy(from.position);
+        to.rotation.copy(from.rotation);
+      }
+    };
+  }
+  return copy;
+}
+
+/** Build and cache tower models ahead of placement, one per idle period. */
+export function prewarmTowers(names: Iterable<string>) {
+  const queue = [...names].filter((n) => !towerTemplates.has(`${n}:${n.includes('shiban')}`));
+  const next = (idle: { timeRemaining(): number }) => {
+    while (queue.length && idle.timeRemaining() > 4) {
+      const name = queue.shift()!;
+      placedTower(name, name.includes('shiban'));
+    }
+    if (queue.length) whenIdle(next);
+  };
+  whenIdle(next);
+}
+const whenIdle = (run: (idle: { timeRemaining(): number }) => void) =>
+  typeof requestIdleCallback === 'function'
+    ? requestIdleCallback(run)
+    : setTimeout(() => run({ timeRemaining: () => 8 }), 60);
+
 function dispose(o: THREE.Object3D) {
   o.removeFromParent();
+  if (o.userData.shared) return; // a copy of a cached model: geometry and materials stay cached
   o.traverse((m) => {
     if (!(m instanceof THREE.Mesh)) return;
     m.geometry.dispose();
@@ -189,6 +266,43 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
   const pedals = createPedalEffects(scene);
   let version = 0;
 
+  // Walls draw as one merged mesh. Each cell keeps its own block, hidden, for picking and for
+  // fading: a faded block is shown on its own, see-through, and left out of the merged mesh.
+  let wallBatch: THREE.Mesh | null = null;
+  let wallsDirty = true;
+  const faded = new Set<THREE.Object3D>();
+  const fadedMaterials = new Map<THREE.Material, THREE.Material>();
+  const fadedOf = (m: THREE.Material) => {
+    let f = fadedMaterials.get(m);
+    if (!f)
+      fadedMaterials.set(
+        m,
+        (f = Object.assign(m.clone(), { transparent: true, opacity: 0.3, depthWrite: false })),
+      );
+    return f;
+  };
+  function rebuildWalls() {
+    wallsDirty = false;
+    if (wallBatch) {
+      wallBatch.removeFromParent();
+      wallBatch.geometry.dispose();
+    }
+    const blocks: THREE.Mesh[] = [];
+    for (const { obj } of walls.values()) {
+      const show = faded.has(obj);
+      obj.traverse((o) => {
+        if (!(o instanceof THREE.Mesh)) return;
+        o.visible = show;
+        o.material = show ? fadedOf(WALL_MATERIAL) : WALL_MATERIAL;
+        if (!show) blocks.push(o);
+      });
+    }
+    wallBatch = mergedCopy(blocks, WALL_MATERIAL);
+    wallBatch.name = 'walls';
+    wallBatch.castShadow = wallBatch.receiveShadow = true;
+    scene.add(wallBatch);
+  }
+
   // Walls are rebuilt from one shared footprint whenever any cell's occupant changes.
   let occupancy: Occupancy = new Map();
   let raster = wallRaster(occupancy);
@@ -222,6 +336,7 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
           dispose(p.obj);
           map.delete(k);
           version++;
+          if (map === walls) wallsDirty = true;
         }
     for (const [k, { cell, name }] of occupied) {
       const { x: sx, z: sz } = toScene(cell);
@@ -237,14 +352,14 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
         scene.add(obj);
         walls.set(k, { sig: wallSig, obj });
         version++;
+        wallsDirty = true;
       }
       // Tower: rebuilt only when the gem changes; the wall handles every join.
       if (!name || cells.get(k)?.sig === name) continue;
       if (cells.has(k)) dispose(cells.get(k)!.obj);
-      const obj = towerModel(name);
+      const obj = placedTower(name, floor.has(k));
       obj.position.set(sx, 0, sz);
-      if (floor.has(k)) layTablet(obj);
-      else seatTower(obj);
+      obj.userData.aimer = createAimer(obj);
       obj.userData.cell = cell;
       scene.add(obj);
       cells.set(k, { sig: name, obj });
@@ -254,13 +369,27 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
 
   /** Creeps of a model: the factory's body grown to its board size. */
   function creepModel(name: string, flying: boolean, boss: boolean, elite = false) {
+    const id = `${name}:${flying}:${boss}:${elite}`;
+    let template = creepTemplates.get(id);
+    if (!template) {
+      template = buildCreep(name, flying, boss, elite);
+      creepTemplates.set(id, template);
+    }
+    return shareCopy(template);
+  }
+  function buildCreep(name: string, flying: boolean, boss: boolean, elite: boolean) {
     const scale = Number(game.unit(name)?.ModelScale ?? 1) * (elite ? 2 : 1);
     const obj = createCreep({ modelScale: scale, flying, boss });
     // Grow body and shadow in place; the body's flying altitude stays as the factory set it.
     const partScale = creepPartScale(scale, flying);
     for (const part of obj.children) part.scale.setScalar(partScale);
+    // Creeps carry a painted shadow disc, so they need not cast real ones; one mesh per material.
+    obj.traverse((o) => (o.castShadow = false));
+    mergeStatic(obj);
     return obj;
   }
+
+  const creepTemplates = new Map<string, THREE.Object3D>();
 
   // The approach: creeps still to spawn, walking from the tunnel to S. Their models are reused
   // front to back, so as the leader becomes the sim's creep at S the rest simply walk on.
@@ -297,29 +426,42 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
     for (let k = shown; k < approach.length; k++) approach[k].visible = false;
   }
 
+  // Health bars: every creep's backing and fill in two instanced, camera-facing quads.
+  const barMesh = (color: string, order: number) => {
+    const mesh = new THREE.InstancedMesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshBasicMaterial({ color, depthTest: false, transparent: true }),
+      MAX_BARS,
+    );
+    mesh.count = 0;
+    mesh.renderOrder = order;
+    mesh.frustumCulled = false;
+    scene.add(mesh);
+    return mesh;
+  };
+  const barBack = barMesh(BAR.back, 12);
+  const barFill = barMesh('#ffffff', 13);
+  barFill.setColorAt(0, BAR_FILL);
+  const barPose = new THREE.Matrix4();
+  const barAt = new THREE.Vector3();
+  const barSize = new THREE.Vector3();
+  const barRight = new THREE.Vector3();
+
   function syncCreeps() {
     const alive = new Set(game.creeps.map((c) => c.id));
     for (const [id, v] of creeps)
       if (!alive.has(id)) {
         dispose(v.obj);
-        (v.bar.userData.holder as THREE.Object3D).removeFromParent();
         creeps.delete(id);
       }
     for (const c of game.creeps) {
       let v = creeps.get(c.id);
       if (!v) {
         const obj = creepModel(c.name, c.fly, c.boss, c.elite);
-        const bar = new THREE.Sprite(BAR_FILL);
-        const back = new THREE.Sprite(BAR_BACK);
-        back.scale.set(BAR.width, BAR.height, 1);
-        back.renderOrder = 12;
-        bar.renderOrder = 13;
-        const holder = new THREE.Group().add(back, bar);
-        scene.add(obj, holder);
-        bar.userData.holder = holder;
+        scene.add(obj);
         v = {
           obj,
-          bar,
+          ratio: 1,
           prev: { x: c.x, y: c.y },
           cur: { x: c.x, y: c.y },
           height: new THREE.Box3().setFromObject(obj).max.y + 0.15,
@@ -328,11 +470,7 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
       }
       v.prev = v.cur;
       v.cur = { x: c.x, y: c.y };
-      const ratio = Math.max(0, c.hp / c.maxHp);
-      v.bar.visible = ratio > 0;
-      v.bar.scale.set(BAR.width * ratio, BAR.height, 1);
-      v.bar.center.set(0.5 / Math.max(ratio, 1e-3), 0.5); // left-align with the backing bar in screen space
-      v.bar.material = ratio < 0.3 ? BAR_LOW : BAR_FILL;
+      v.ratio = Math.max(0, c.hp / c.maxHp);
     }
   }
 
@@ -340,8 +478,36 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
     get version() {
       return version;
     },
+    /** Where each creep is drawn now (scene units) and how tall it stands, for picking. */
+    creepPoints: () =>
+      [...creeps].map(([id, v]) => ({
+        id,
+        x: v.obj.position.x,
+        z: v.obj.position.z,
+        height: v.height,
+      })),
     /** Stones and towers, for occluder fading. */
     objects: () => [...cells.values(), ...walls.values()].map((p) => p.obj),
+    /** Show or hide the towers' aura rings. */
+    setAurasVisible(visible: boolean) {
+      effects.setAurasVisible(visible);
+    },
+    /** Fade these towers and wall blocks (they stand between the camera and the focus). */
+    fade(hit: Set<THREE.Object3D>) {
+      const wallObjs = new Set([...walls.values()].map((p) => p.obj));
+      let changed = false;
+      for (const o of [...faded, ...hit])
+        if (wallObjs.has(o) && faded.has(o) !== hit.has(o)) changed = true;
+      faded.clear();
+      for (const o of hit) faded.add(o);
+      for (const { obj } of cells.values())
+        obj.traverse((o) => {
+          if (!(o instanceof THREE.Mesh)) return;
+          o.userData.solid ??= o.material;
+          o.material = hit.has(obj) ? fadedOf(o.userData.solid) : o.userData.solid;
+        });
+      if (changed || wallsDirty) rebuildWalls();
+    },
     /** Call after every sim tick. */
     afterStep() {
       hero.visible = !!game.hero.selected;
@@ -353,9 +519,17 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
         beacon.position.set(b.x, 1.2, b.z);
       }
       syncCells();
+      if (wallsDirty) rebuildWalls();
       const tower = (g: (typeof game.gems)[number]) => {
         const { x, z } = toScene(g.cell);
-        return { id: g.id, x, z, color: towerColor(g.name), abilities: game.abilities(g.name) };
+        return {
+          id: g.id,
+          x,
+          z,
+          color: towerColor(g.name),
+          abilities: game.abilities(g.name),
+          name: g.name,
+        };
       };
       effects.setTowers(game.gems.map(tower));
       // Capture endpoints before removing dead creeps, so lethal shots still arrive and burst.
@@ -389,8 +563,11 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
       syncCreeps();
     },
     /** Call every frame; `alpha` is the fraction of the current tick that has elapsed. */
-    frame(alpha: number, dt: number, reducedMotion = false) {
+    frame(alpha: number, dt: number, reducedMotion = false, camera?: THREE.Camera) {
       syncApproach(alpha);
+      const facing = camera?.quaternion ?? new THREE.Quaternion();
+      barRight.set(1, 0, 0).applyQuaternion(facing);
+      let bars = 0;
       for (const v of creeps.values()) {
         const x = v.prev.x + (v.cur.x - v.prev.x) * alpha;
         const y = v.prev.y + (v.cur.y - v.prev.y) * alpha;
@@ -400,18 +577,33 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
         v.obj.position.set(s.x, 0, s.z);
         const [dx, dy] = [v.cur.x - v.prev.x, v.cur.y - v.prev.y];
         if (dx || dy) v.obj.rotation.y = Math.atan2(dy, dx);
-        (v.bar.userData.holder as THREE.Object3D).position.set(s.x, v.height, s.z);
+        if (v.ratio > 0 && bars < MAX_BARS) {
+          // The fill is left-aligned on its backing in screen space.
+          barAt.set(s.x, v.height, s.z);
+          barBack.setMatrixAt(
+            bars,
+            barPose.compose(barAt, facing, barSize.set(BAR.width, BAR.height, 1)),
+          );
+          const w = BAR.width * v.ratio;
+          barAt.addScaledVector(barRight, -(BAR.width - w) / 2);
+          barFill.setMatrixAt(bars, barPose.compose(barAt, facing, barSize.set(w, BAR.height, 1)));
+          barFill.setColorAt(bars, v.ratio < 0.3 ? BAR_LOW : BAR_FILL);
+          bars++;
+        }
       }
+      barBack.count = barFill.count = bars;
+      barBack.instanceMatrix.needsUpdate = barFill.instanceMatrix.needsUpdate = true;
+      if (barFill.instanceColor) barFill.instanceColor.needsUpdate = true;
       // Towers face their current target; visual travel never delays sim damage.
       for (const g of game.gems) {
         const obj = cells.get(key(g.cell))?.obj;
         const t = g.target !== null ? creeps.get(g.target) : undefined;
         if (!obj) continue;
         // Heads ease toward the target and turn smoothly onto the next one (issue #14).
-        const aimer = (obj.userData.aimer ??= createAimer(obj)) as ReturnType<typeof createAimer>;
+        const aimer = obj.userData.aimer as ReturnType<typeof createAimer>;
         aimer.update(t?.obj.position.x, t?.obj.position.z, dt, reducedMotion);
       }
-      effects.frame(dt, reducedMotion);
+      effects.frame(dt, reducedMotion, camera);
       pedals.frame(dt, reducedMotion);
     },
   };

@@ -96,3 +96,43 @@ test('speed, recipe book, damage meter and shortcuts work from the toolbar and k
   // The top bar previews the next wave's creep.
   await expect(page.locator('.next')).toContainText('×');
 });
+
+test('T toggles the view; Esc with nothing selected opens the menu; recipes pin beside the board', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/?seed=5');
+  await page.waitForFunction(() => window.facet);
+
+  // With nothing selected the command card shows the hero and the loadout key.
+  await expect(page.getByLabel('Selection')).toContainText('Build lv');
+  await expect(page.getByRole('button', { name: 'Hero', exact: true })).toBeVisible();
+
+  await page.keyboard.press('t');
+  await expect(page.getByRole('button', { name: 'Switch to isometric view' })).toBeVisible();
+  await page.keyboard.press('t');
+  await expect(page.getByRole('button', { name: 'Switch to top view' })).toBeVisible();
+
+  await page.keyboard.press('Escape');
+  const menu = page.getByRole('dialog', { name: 'Menu' });
+  await expect(menu).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Pause' })).toHaveAttribute('aria-pressed', 'true');
+  await menu.getByRole('button', { name: 'New run' }).click();
+  await expect(menu).toContainText('progress is lost');
+  await menu.getByRole('button', { name: 'Back' }).click();
+  await menu.getByRole('button', { name: /^Resume/ }).click();
+  await expect(menu).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Pause' })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
+
+  await page.getByRole('button', { name: 'Recipes' }).click();
+  const book = page.getByRole('region', { name: 'Recipe book' });
+  await book.getByRole('button', { name: 'Pin Malachite' }).click();
+  await page.getByRole('button', { name: 'Close recipes' }).click();
+  const pinnedPanel = page.getByRole('region', { name: 'Pinned recipes' });
+  await expect(pinnedPanel).toContainText('Malachite');
+  await pinnedPanel.getByRole('button', { name: 'Unpin Malachite' }).click();
+  await expect(pinnedPanel).toHaveCount(0);
+});
