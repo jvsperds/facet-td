@@ -121,6 +121,11 @@ export function Hud(props: Props) {
         if (!skill) return;
         const { point, target } = heroTarget(g);
         send({ type: 'hero-cast', action: skill.name, target, point });
+      } else if (k === 's') {
+        // Hold fire / resume on the selected tower (Dota's stop and attack).
+        const gem = selected.value && sim.game.gemAt(selected.value);
+        if (!gem || gem.name.includes('shiban')) return;
+        send({ type: 'hold', id: gem.id, hold: !gem.holdFire });
       } else if (k === 'k' || k === 'c') {
         const gem = selected.value && sim.game.gemAt(selected.value);
         if (!gem) return;

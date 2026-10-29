@@ -70,8 +70,7 @@ test('a tower takes an aim mode and boss priority, and shows its MVP card', asyn
   const info = page.getByLabel('Selection');
   await expect(info.getByRole('listitem', { name: /MVP 2: \+20% damage/ })).toBeVisible();
   await page.keyboard.press('p'); // aim commands apply on the next tick
-  await info.getByRole('tab', { name: 'Targeting' }).click();
-  await info.getByRole('button', { name: 'Lowest HP', exact: true }).click();
+  await info.getByLabel('Aim').selectOption({ label: 'Lowest HP' });
   await info.getByRole('button', { name: 'Boss first' }).click();
   await expect(info.getByRole('button', { name: 'Boss first' })).toHaveAttribute(
     'aria-pressed',
@@ -80,4 +79,10 @@ test('a tower takes an aim mode and boss priority, and shows its MVP card', asyn
   expect(
     await page.evaluate(() => (window as unknown as { facet: Facet }).facet.sim.game.gems[0].aim),
   ).toBe(2 + 8);
+
+  // Hold fire stops the tower (to steer the MVP), shown as an effect; S resumes.
+  await info.getByRole('button', { name: 'Hold fire' }).click();
+  await expect(info.getByRole('listitem', { name: /Holding fire/ })).toBeVisible();
+  await page.keyboard.press('s');
+  await expect(info.getByRole('listitem', { name: /Holding fire/ })).toHaveCount(0);
 });

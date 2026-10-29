@@ -19,7 +19,8 @@ export type Cmd =
   | { type: 'keep'; id: number; upgrade: 0 | 1 | 2 }
   | { type: 'downgrade'; id: number; hammer?: boolean }
   | { type: 'combine'; id: number; kind: RecipeKind; result: string; cell?: Cell }
-  | { type: 'aim'; id: number; mode: number };
+  | { type: 'aim'; id: number; mode: number }
+  | { type: 'hold'; id: number; hold: boolean };
 export type LogEntry = { tick: number; player: number; cmd: Cmd };
 
 export interface Player {
@@ -87,6 +88,8 @@ export class Sim {
         return void this.game.combine(c.id, c.kind, c.result, c.cell);
       case 'aim':
         return void this.game.setAim(c.id, c.mode);
+      case 'hold':
+        return void this.game.setHold(c.id, c.hold);
     }
   }
 

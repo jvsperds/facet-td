@@ -729,23 +729,28 @@ img.glyph.mini {
   gap: 4px;
   min-height: 0;
 }
-.card-tabs {
+.aim {
   display: flex;
-  gap: 2px;
+  align-items: center;
+  gap: 4px;
 }
-.card-tabs button {
-  flex: 1;
-  min-height: 22px;
-  padding: 0 6px;
+.aim label {
   font-size: 10px;
+  font-weight: 800;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  box-shadow: none;
+  color: var(--ink-3);
 }
-.card-tabs button[aria-selected='true'] {
-  color: var(--amber);
-  background: var(--well);
-  border-bottom-color: var(--amber);
+.aim select {
+  flex: 1;
+  min-width: 0;
+  min-height: 28px;
+  font-size: 12px;
+}
+.aim button {
+  min-height: 28px;
+  padding: 0 8px;
+  font-size: 11px;
 }
 .cmd-grid {
   display: grid;
@@ -862,59 +867,74 @@ img.glyph.mini {
   text-shadow: 0 1px 0 #000;
 }
 
-/* Effect cards (Statuses.tsx): buffs edged amber, debuffs red. */
+/* Effect icons (Statuses.tsx): a row of small tiles riding on the card's top edge. Buffs glow
+   ice blue; debuffs are edged red and pulse. */
 .effects {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 12px;
+  display: flex;
+  flex-wrap: wrap-reverse;
   gap: 4px;
+  max-width: calc(100% - 24px);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 .effect {
   position: relative;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  padding: 3px 7px;
-  font-size: 11px;
-  background: linear-gradient(180deg, #34383e, #272a2f);
-  border: 1px solid var(--stone-edge);
-  border-left: 3px solid var(--ice);
-  border-radius: 2px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  color: var(--ice);
+  background: linear-gradient(180deg, #2b3138, #1b1f24);
+  border: 1px solid var(--ice);
+  border-radius: 3px;
+  box-shadow:
+    0 2px 0 var(--stone-edge),
+    0 0 6px rgb(111 183 255 / 0.35);
+}
+.effect svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.effect b {
+  position: absolute;
+  right: 1px;
+  bottom: -2px;
+  font-size: 9px;
+  font-weight: 900;
+  color: #fff;
+  text-shadow:
+    0 0 2px #000,
+    0 0 2px #000;
 }
 .effect.bad {
-  border-left-color: var(--hp);
+  color: #ffb0aa;
+  border-color: var(--hp);
+  background: linear-gradient(180deg, #3a2224, #22161a);
+  box-shadow:
+    0 2px 0 var(--stone-edge),
+    0 0 6px rgb(224 96 90 / 0.45);
+  animation: debuff 0.8s ease-in-out infinite alternate;
 }
-.effect-name {
-  overflow: hidden;
-  padding-right: 22px;
-  font-weight: 800;
-  color: var(--ink);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+@keyframes debuff {
+  to {
+    box-shadow:
+      0 2px 0 var(--stone-edge),
+      0 0 11px rgb(224 96 90 / 0.85);
+  }
 }
-.effect-line {
-  overflow: hidden;
-  color: var(--ink-2);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.effect-count,
-.effect-time {
-  position: absolute;
-  top: 3px;
-  right: 5px;
-  font-size: 10px;
-  font-weight: 800;
-  color: var(--amber);
-}
-.effect-count + .effect-time {
-  top: auto;
-  bottom: 3px;
-}
-.effect-time {
-  color: var(--ink-3);
+@media (prefers-reduced-motion: reduce) {
+  .effect.bad {
+    animation: none;
+  }
 }
 
 /* Right edge: the small vertical tool strip. */

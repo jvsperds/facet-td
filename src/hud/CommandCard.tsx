@@ -105,6 +105,8 @@ function Card(p: {
   deselect?: () => void;
   stats?: [string, ComponentChildren, string?][];
   children?: ComponentChildren;
+  /** The effect icon strip along the card's top edge. */
+  effects?: ComponentChildren;
   commands?: ComponentChildren;
   kind?: string;
 }) {
@@ -118,6 +120,7 @@ function Card(p: {
       data-exclude
       aria-label="Selection"
     >
+      {p.effects}
       <div class="card-portrait">
         {p.portrait}
         {p.badge && <span class="badge tabular">{p.badge}</span>}
@@ -321,6 +324,7 @@ function CreepCard({ sim, id }: { sim: Sim; id: number; tick: number }) {
         `wave ${game.level}`,
       ].join(' · ')}
       deselect={clearSelection}
+      effects={<Statuses data={sim.data} list={game.creepStatuses(creep)} />}
       stats={[
         [
           'Armor',
@@ -359,7 +363,6 @@ function CreepCard({ sim, id }: { sim: Sim; id: number; tick: number }) {
           ))}
         </ul>
       )}
-      <Statuses data={sim.data} list={game.creepStatuses(creep)} />
     </Card>
   );
 }
@@ -377,7 +380,6 @@ function CellCard({
   tick: number;
 }) {
   const game = sim.game;
-  const tab = useSignal<'commands' | 'aim'>('commands');
   const gem = game.gemAt(cell);
   const kind = sim.board.kind(cell);
   let title = 'Open cell';
@@ -475,29 +477,6 @@ function CellCard({
       />
       <Command label="Cancel tablet placement" onClick={() => (pending.value = null)} />
     </>
-  ) : tab.value === 'aim' && gem ? (
-    <>
-      {AIM.map((label, i) => (
-        <Command
-          key={label}
-          label={label}
-          primary={(gem.aim ?? 0) % AIM_BOSS === i}
-          onClick={() =>
-            send({ type: 'aim', id: gem.id, mode: i + ((gem.aim ?? 0) >= AIM_BOSS ? AIM_BOSS : 0) })
-          }
-        />
-      ))}
-      <button
-        class="cmd boss"
-        aria-pressed={(gem.aim ?? 0) >= AIM_BOSS}
-        title="Bosses and elite creeps are targeted first"
-        onClick={() =>
-          send({ type: 'aim', id: gem.id, mode: ((gem.aim ?? 0) + AIM_BOSS) % (2 * AIM_BOSS) })
-        }
-      >
-        <span class="cmd-label">Boss first</span>
-      </button>
-    </>
   ) : (
     <>
       {combines.map((p, i) => (
@@ -529,6 +508,27 @@ function CellCard({
           onClick={() => send(cmd)}
         />
       ))}
+      {aims && gem && (
+        <button
+          class="cmd"
+          aria-pressed={!!gem.holdFire}
+          aria-keyshortcuts="S"
+          title="Stop or resume attacking, e.g. to steer the wave's MVP to another tower"
+          onClick={() => send({ type: 'hold', id: gem.id, hold: !gem.holdFire })}
+        >
+          <kbd class="cmd-key" aria-hidden="true">
+            S
+          </kbd>
+          <span class="cmd-icon">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              {gem.holdFire ? ICONS.play : ICONS.pause}
+            </svg>
+          </span>
+          <span class="cmd-text">
+            <span class="cmd-label">{gem.holdFire ? 'Holding fire' : 'Hold fire'}</span>
+          </span>
+        </button>
+      )}
       <HeroSkills sim={sim} send={send} />
     </>
   );
@@ -553,23 +553,44 @@ function CellCard({
       subtitle={`${subtitle ? `${subtitle} · ` : ''}Cell ${cell.x}, ${cell.y}`}
       deselect={clearSelection}
       stats={stats}
+      effects={gem && <Statuses data={sim.data} list={game.towerStatuses(gem)} />}
       commands={
         <>
-          {aims && !pending.value && (
-            <div class="card-tabs" role="tablist" aria-label="Command set">
-              <button
-                role="tab"
-                aria-selected={tab.value === 'commands'}
-                onClick={() => (tab.value = 'commands')}
+          {aims && gem && !pending.value && (
+            <div class="aim">
+              <label for="aim-mode">Aim</label>
+              <select
+                id="aim-mode"
+                value={(gem.aim ?? 0) % AIM_BOSS}
+                onChange={(e) =>
+                  send({
+                    type: 'aim',
+                    id: gem.id,
+                    mode:
+                      Number((e.target as HTMLSelectElement).value) +
+                      ((gem.aim ?? 0) >= AIM_BOSS ? AIM_BOSS : 0),
+                  })
+                }
               >
-                Actions
-              </button>
+                {AIM.map((label, i) => (
+                  <option key={label} value={i}>
+                    {label}
+                  </option>
+                ))}
+              </select>
               <button
-                role="tab"
-                aria-selected={tab.value === 'aim'}
-                onClick={() => (tab.value = 'aim')}
+                class="boss"
+                aria-pressed={(gem.aim ?? 0) >= AIM_BOSS}
+                title="Bosses and elite creeps are targeted first"
+                onClick={() =>
+                  send({
+                    type: 'aim',
+                    id: gem.id,
+                    mode: ((gem.aim ?? 0) + AIM_BOSS) % (2 * AIM_BOSS),
+                  })
+                }
               >
-                Targeting
+                Boss first
               </button>
             </div>
           )}
@@ -591,7 +612,6 @@ function CellCard({
           ))}
         </ul>
       )}
-      {gem && <Statuses data={sim.data} list={game.towerStatuses(gem)} />}
       {refusal && !refusal.ok && <p class="muted reason">{refusal.reason}</p>}
     </Card>
   );

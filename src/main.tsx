@@ -135,7 +135,9 @@ setInterval(() => {
     g.draft.length,
     g.gems.length,
     g.stones.size,
-    g.gems.map((gem) => `${gem.name}:${gem.level ?? 0}:${gem.aim ?? 0}`).join(),
+    g.gems
+      .map((gem) => `${gem.name}:${gem.level ?? 0}:${gem.aim ?? 0}:${gem.holdFire ?? 0}`)
+      .join(),
     JSON.stringify(g.hero),
     g.hero.selected ? Math.floor(sim.tick / 30) : 0,
   ].join();
