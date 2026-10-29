@@ -16,10 +16,10 @@ test('toolbar arrows move focus, Escape closes the camera flyout and returns foc
   await page.keyboard.press('ArrowRight');
   const camera = page.getByRole('button', { name: 'Camera controls' });
   await expect(camera).toBeFocused();
-  await page.keyboard.press('ArrowLeft');
-  await page.keyboard.press('ArrowLeft');
-  await page.keyboard.press('ArrowLeft'); // wraps to the last tool
+  await page.keyboard.press('ArrowRight'); // camera controls is last: wraps to the first tool
   await expect(page.getByRole('button', { name: 'Pause' })).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(camera).toBeFocused();
 
   await camera.click();
   await expect(camera).toHaveAttribute('aria-expanded', 'true');
@@ -51,4 +51,48 @@ test('the inspector collapses on tablets and Deselect clears the selection', asy
   await page.getByRole('button', { name: 'Deselect' }).click();
   await expect(info).not.toContainText('Cell 12, 12');
   await expect(page.locator('canvas')).toBeFocused();
+});
+
+test('speed, recipe book, damage meter and shortcuts work from the toolbar and keyboard', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/?seed=5');
+  await page.waitForFunction(() => window.facet);
+
+  await page.getByRole('button', { name: 'Double speed' }).click();
+  await expect(page.getByRole('button', { name: 'Double speed' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await page.keyboard.press('1');
+  await expect(page.getByRole('button', { name: 'Normal speed' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+
+  await page.getByRole('button', { name: 'Recipes' }).click();
+  const book = page.getByRole('region', { name: 'Recipe book' });
+  await expect(book).toBeVisible();
+  await book.getByRole('searchbox', { name: 'Search recipes' }).fill('malachite');
+  // The result and every recipe using it as an ingredient match.
+  await expect(book.getByRole('listitem').first()).toContainText('Malachite');
+  await book.getByRole('searchbox', { name: 'Search recipes' }).fill('zzz');
+  await expect(book.getByRole('listitem')).toContainText('No recipe matches');
+  await book.getByRole('tab', { name: 'Pedals' }).click();
+  await book.getByRole('searchbox', { name: 'Search recipes' }).fill('');
+  await expect(book.getByRole('listitem').first()).toBeVisible();
+  await book.getByRole('button', { name: 'Close recipes' }).click();
+  await expect(book).toHaveCount(0);
+  await page.keyboard.press('r');
+  await expect(book).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(book).toHaveCount(0);
+
+  await page.keyboard.press('p');
+  await expect(page.getByRole('button', { name: 'Pause' })).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('p');
+
+  // The top bar previews the next wave's creep.
+  await expect(page.locator('.next')).toContainText('×');
 });

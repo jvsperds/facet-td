@@ -163,6 +163,32 @@ export function createWorld(board: Board, game: Game) {
   }
   selectedRim.renderOrder = cursor.renderOrder = 10;
 
+  // Attack range of the selected tower: a pale ring with a faint fill, drawn on the ground.
+  const range = new THREE.Group().add(
+    new THREE.Mesh(
+      new THREE.RingGeometry(0.985, 1, 96).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({
+        color: '#F4F3EF',
+        transparent: true,
+        opacity: 0.9,
+        depthWrite: false,
+      }),
+    ),
+    new THREE.Mesh(
+      new THREE.CircleGeometry(1, 96).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({
+        color: '#F4F3EF',
+        transparent: true,
+        opacity: 0.08,
+        depthWrite: false,
+      }),
+    ),
+  );
+  range.position.y = 0.025;
+  range.visible = false;
+  range.renderOrder = 4;
+  scene.add(range);
+
   // Camera state: the shown elevation/azimuth/zoom/pan ease toward the target state.
   let target: ViewState = { mode: 'iso', rotation: 0, zoom: 1, panX: 0, panZ: 0 };
   let shown = { e: elevation(target), a: azimuth(target), zoom: 1, panX: 0, panZ: 0 };
@@ -322,6 +348,14 @@ export function createWorld(board: Board, game: Game) {
       const sx = f.basis.right[0] * x + f.basis.right[2] * z - f.camRight;
       const sy = f.basis.up[0] * x + f.basis.up[2] * z - f.camUp;
       return { x: viewport.w / 2 + sx * f.scale, y: viewport.h / 2 - sy * f.scale, safe: f.safe };
+    },
+    /** Show a tower's attack range (cells) around `cell`, or hide it with null. */
+    setRange(cell: Cell | null, radius = 0) {
+      range.visible = cell !== null && radius > 0;
+      if (!cell) return;
+      const { x, z } = toScene(cell);
+      range.position.set(x, 0.025, z);
+      range.scale.set(radius, 1, radius);
     },
     setMarks(selected: Cell | null, cursorCell: Cell | null) {
       for (const [o, cell] of [
