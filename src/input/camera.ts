@@ -16,6 +16,8 @@ import type { World } from '../world/world';
 // Pointer, wheel and keyboard -> camera and selection. Camera moves never send sim commands.
 
 const DRAG_PX = 6;
+/** Two picks of the same cell within this time place a gem there (issue #13). */
+const DOUBLE_PICK_MS = 400;
 const REVEAL_MARGIN_PX = 48;
 const ORBIT_DEG_PER_PX = 0.4;
 const PRESET: ViewState = { mode: 'iso', rotation: 0, zoom: 1, panX: 0, panZ: 0 };
@@ -31,7 +33,12 @@ export const announcement = signal('');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const clampZoom = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
 
-export function createCameraInput(world: World, board: Board, send: (cmd: Cmd) => void) {
+export function createCameraInput(
+  world: World,
+  board: Board,
+  send: (cmd: Cmd) => void,
+  canBuild: (cell: Cell) => boolean = () => true,
+) {
   const set = (patch: Partial<ViewState>, animate = true) => {
     view.value = { ...view.value, ...patch };
     world.setView(view.value, animate && !reducedMotion.matches);
@@ -88,6 +95,7 @@ export function createCameraInput(world: World, board: Board, send: (cmd: Cmd) =
   const down = new Map<number, { x: number; y: number }>();
   let travel = 0;
   let pinch = 0;
+  let lastPick: { cell: Cell; time: number } | null = null;
   canvas.style.touchAction = 'none';
   canvas.addEventListener('pointerdown', (e) => {
     canvas.setPointerCapture(e.pointerId);
@@ -122,7 +130,21 @@ export function createCameraInput(world: World, board: Board, send: (cmd: Cmd) =
     if (down.size > 0 || travel >= DRAG_PX || world.moving) return;
     const r = canvas.getBoundingClientRect();
     const cell = world.pick(e.clientX - r.left, e.clientY - r.top);
+    const now = e.timeStamp;
+    const again =
+      cell &&
+      lastPick &&
+      lastPick.cell.x === cell.x &&
+      lastPick.cell.y === cell.y &&
+      now - lastPick.time <= DOUBLE_PICK_MS;
+    lastPick = again || !cell ? null : { cell, time: now };
     actions.select(cell);
+    // A double click or double tap on an open cell or a stone places the gem straight away.
+    if (again && canBuild(cell)) {
+      send({ type: 'build', cell: { ...cell } });
+      announcement.value = `Placing a gem at cell ${cell.x}, ${cell.y}`;
+      return;
+    }
     announcement.value = cell ? `Selected cell ${cell.x}, ${cell.y}` : 'Selection cleared';
   };
   canvas.addEventListener('pointerup', up);
