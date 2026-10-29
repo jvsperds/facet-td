@@ -10,7 +10,9 @@ import { COMBINED_TOWERS } from '../../docs/art/model-study/combined-towers.js';
 import type { Cell } from '../sim/board';
 import { isBasicGem, qualityOf, type Game } from '../sim/game';
 import { toScene } from './view';
+import { clearancePush, creepPartScale, creepRadius } from './clearance';
 import { createEffects } from './effects';
+import { createPedalEffects } from './pedals';
 import { neighbourhood, wallMesh, wallRaster, type Occupancy } from './walls';
 
 // Everything on the board that the sim owns: stones, gem towers, creeps and combat effects.
@@ -20,7 +22,6 @@ import { neighbourhood, wallMesh, wallRaster, type Occupancy } from './walls';
 // them to fill their cell and drops their joining arms. Stones are board walls (walls.ts).
 const ALONG = 0.5 / 0.22;
 const PLINTH = 0.5 / 0.31;
-const CREEP_SCALE = 2;
 const BAR = { width: 0.5, height: 0.07, back: '#25282C', fill: '#7ED07A', low: '#FFB3AF' };
 
 type Piece = { sig: string; obj: THREE.Object3D };
@@ -30,6 +31,8 @@ type CreepView = {
   prev: { x: number; y: number };
   cur: { x: number; y: number };
   height: number;
+  /** Collision radius in cells; 0 for flying creeps, which pass above the walls. */
+  radius: number;
 };
 
 const key = (c: Cell) => c.y * 64 + c.x;
@@ -145,6 +148,7 @@ export function createPieces(scene: THREE.Scene, game: Game) {
   const cells = new Map<number, Piece>();
   const creeps = new Map<number, CreepView>();
   const effects = createEffects(scene);
+  const pedals = createPedalEffects(scene);
   let version = 0;
 
   // Walls are rebuilt from one shared footprint whenever any cell's occupant changes.
@@ -217,7 +221,8 @@ export function createPieces(scene: THREE.Scene, game: Game) {
         const scale = Number(game.unit(c.name)?.ModelScale ?? 1) * (c.elite ? 2 : 1);
         const obj = createCreep({ modelScale: scale, flying: c.fly, boss: c.boss });
         // Grow body and shadow in place; the body's flying altitude stays as the factory set it.
-        for (const part of obj.children) part.scale.setScalar(CREEP_SCALE);
+        const partScale = creepPartScale(scale, c.fly);
+        for (const part of obj.children) part.scale.setScalar(partScale);
         const bar = new THREE.Sprite(BAR_FILL);
         const back = new THREE.Sprite(BAR_BACK);
         back.scale.set(BAR.width, BAR.height, 1);
@@ -232,6 +237,7 @@ export function createPieces(scene: THREE.Scene, game: Game) {
           prev: { x: c.x, y: c.y },
           cur: { x: c.x, y: c.y },
           height: new THREE.Box3().setFromObject(obj).max.y + 0.15,
+          radius: c.fly ? 0 : creepRadius(scale, partScale),
         };
         creeps.set(c.id, v);
       }
@@ -283,15 +289,28 @@ export function createPieces(scene: THREE.Scene, game: Game) {
             new THREE.Vector3(end.x, (previous?.height ?? 0.8) - 0.25, end.z),
             killed.has(e.to),
           );
+        } else if (e.type === 'tablet') {
+          const gem = game.gems.find((g) => g.id === e.from);
+          if (!gem) continue;
+          const at = toScene(gem.cell);
+          pedals.trigger(
+            { x: at.x, z: at.z },
+            e.operations,
+            (x, y) => toScene({ x, y }),
+            game.creeps,
+            e.target,
+          );
         }
       syncCreeps();
     },
     /** Call every frame; `alpha` is the fraction of the current tick that has elapsed. */
     frame(alpha: number, dt: number, reducedMotion = false) {
+      const isWall = (x: number, y: number) => occupancy.has(key({ x, y }));
       for (const v of creeps.values()) {
         const x = v.prev.x + (v.cur.x - v.prev.x) * alpha;
         const y = v.prev.y + (v.cur.y - v.prev.y) * alpha;
-        const s = toScene({ x, y });
+        const push = v.radius ? clearancePush(x, y, v.radius, isWall) : { x: 0, y: 0 };
+        const s = toScene({ x: x + push.x, y: y + push.y });
         // The creep factory already lifts flying bodies; the group stays on the ground with the shadow.
         v.obj.position.set(s.x, 0, s.z);
         const [dx, dy] = [v.cur.x - v.prev.x, v.cur.y - v.prev.y];
@@ -306,6 +325,7 @@ export function createPieces(scene: THREE.Scene, game: Game) {
         else obj?.userData.aimAt();
       }
       effects.frame(dt, reducedMotion);
+      pedals.frame(dt, reducedMotion);
     },
   };
 }
