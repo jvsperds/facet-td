@@ -9,7 +9,8 @@ import type { RecipeKind } from '../sim/progression';
 import type { Cmd, Sim } from '../sim/sim';
 import { DamageMeter } from './DamageMeter';
 import { HeroPanel } from './HeroPanel';
-import { GemGlyph, GlyphDefs, ICONS, Icon } from './icons';
+import { GlyphDefs, ICONS, Icon } from './icons';
+import { TowerIcon } from './TowerIcon';
 import { QUALITY, code, compact, displayName, gemType, isTablet, roleOf } from './names';
 import { Ingredient, RecipeBook, recipesUsing } from './RecipeBook';
 import { announcement, rotateMode, selected, view, type CameraActions } from '../input/camera';
@@ -413,7 +414,7 @@ function PhaseCard({
                 }}
               >
                 <span class="slot-n">{i + 1}</span>
-                <GemGlyph type={gemType(g.name)} />
+                <TowerIcon name={g.name} />
                 <span class="slot-code">{code(g.name)}</span>
                 {combines && <span class="combine-dot" aria-hidden="true" />}
               </button>
@@ -595,7 +596,7 @@ function Inspector({ sim, send }: { sim: Sim; send: (cmd: Cmd) => void; tick: nu
       <div class="info-head">
         {name && (
           <span class={`swatch ${type ? `gem-${type}` : ''}`}>
-            <GemGlyph type={type} />
+            <TowerIcon name={name} />
             <span class="badge tabular">{code(name)}</span>
           </span>
         )}
@@ -663,6 +664,7 @@ function Inspector({ sim, send }: { sim: Sim; send: (cmd: Cmd) => void; tick: nu
               {buildsInto.map(({ recipe, have }) => (
                 <li key={recipe.result}>
                   <span class="recipe-name">
+                    <TowerIcon name={recipe.result} class="glyph result" />
                     {displayName(sim.data, recipe.result)}
                     {recipe.kind === 'secret' && <span class="chip secret">Secret</span>}
                     <span class="progress tabular">
@@ -683,7 +685,10 @@ function Inspector({ sim, send }: { sim: Sim; send: (cmd: Cmd) => void; tick: nu
       </div>
       {pending.value && (
         <div class="actions">
-          <p>Select an empty cell for {displayName(sim.data, pending.value.result)}.</p>
+          <p class="pending">
+            <TowerIcon name={pending.value.result} class="glyph preview" />
+            Select an empty cell for {displayName(sim.data, pending.value.result)}.
+          </p>
           <button
             class="primary"
             disabled={
@@ -719,7 +724,8 @@ function Inspector({ sim, send }: { sim: Sim; send: (cmd: Cmd) => void; tick: nu
                   });
               }}
             >
-              Combine: {displayName(sim.data, p.result)}
+              <TowerIcon name={p.result} class="glyph preview" />
+              <span class="combine-label">Combine: {displayName(sim.data, p.result)}</span>
               {i === 0 && p.placement !== 'separate' && <kbd aria-hidden="true">C</kbd>}
             </button>
           ))}

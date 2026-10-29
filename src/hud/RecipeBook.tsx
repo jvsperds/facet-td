@@ -3,8 +3,8 @@ import { useMemo } from 'preact/hooks';
 import type { GameData } from '../data';
 import type { Game } from '../sim/game';
 import { readRecipes, type Recipe } from '../sim/progression';
-import { GemGlyph } from './icons';
-import { code, displayName, gemType, isTablet } from './names';
+import { TowerIcon } from './TowerIcon';
+import { code, displayName, gemType } from './names';
 
 // Recipe book drawer (inspired by GemTD's Recipes / Pedals tabs): every Classic recipe with its
 // ingredients, marking the ones currently on the board. Searchable by result or ingredient name.
@@ -53,7 +53,7 @@ export function Ingredient({ data, name, have }: { data: GameData; name: string;
   const type = gemType(name);
   return (
     <span class={`chip ${have ? 'have' : ''} ${type ? `gem-${type}` : ''}`} title={label}>
-      <GemGlyph type={type} class="glyph mini" />
+      <TowerIcon name={name} class="glyph mini" />
       {type ? code(name) : label}
     </span>
   );
@@ -127,13 +127,7 @@ export function RecipeBook({
               key={`${r.kind}:${r.result}`}
             >
               <span class="recipe-icon">
-                {isTablet(r.result) ? (
-                  <svg class="icon pedal-icon" viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M4 15 12 11l8 4-8 4z M12 11V5" />
-                  </svg>
-                ) : (
-                  <GemGlyph />
-                )}
+                <TowerIcon name={r.result} />
               </span>
               <span class="recipe-body">
                 <span class="recipe-name">

@@ -395,8 +395,8 @@ button:disabled {
   cursor: default;
 }
 .slot .glyph {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
 }
 .slot-n {
   position: absolute;
@@ -439,6 +439,31 @@ button:disabled {
 .glyph.mini {
   width: 14px;
   height: 14px;
+}
+/* Icons rendered from the 3D tower models (TowerIcon): a touch larger than the flat glyphs, since
+   the model's silhouette carries detail the SVG did not. */
+img.glyph {
+  object-fit: contain;
+  user-select: none;
+}
+img.glyph.mini {
+  width: 20px;
+  height: 20px;
+  margin: -3px 0;
+}
+.glyph.preview {
+  width: 34px;
+  height: 34px;
+  margin: -9px 2px -9px -6px;
+  vertical-align: middle;
+}
+.actions p.pending {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.actions p.pending .glyph.preview {
+  margin: 0;
 }
 
 /* Gem pigments: colour reinforces the silhouette, never replaces it. */
@@ -521,6 +546,10 @@ button:disabled {
 .swatch .glyph {
   width: 32px;
   height: 32px;
+}
+.swatch img.glyph {
+  width: 42px;
+  height: 42px;
 }
 .badge {
   position: absolute;
@@ -722,6 +751,10 @@ button:disabled {
 .recipe-icon .icon {
   width: 26px;
   height: 26px;
+}
+.recipe-icon img.glyph {
+  width: 34px;
+  height: 34px;
 }
 .recipe-icon .icon {
   color: var(--ink-2);
@@ -1103,4 +1136,9 @@ button:disabled {
   .next {
     max-width: 110px;
   }
+}
+.recipe-name .glyph.result {
+  width: 24px;
+  height: 24px;
+  margin: -4px 0;
 }
