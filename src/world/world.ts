@@ -4,6 +4,7 @@ import type { Game } from '../sim/game';
 import { TICK_HZ } from '../sim/game';
 import { createEnvironment } from './environment';
 import { createPieces } from './pieces';
+import { TURRET_TOP } from './walls';
 import { azimuth, elevation, frame, toCell, toScene, type Rect, type ViewState } from './view';
 
 // Draws the board and owns the orthographic camera. Reads sim state, never changes it.
@@ -29,9 +30,38 @@ export type World = ReturnType<typeof createWorld>;
 
 export function createWorld(board: Board, game: Game) {
   const renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  // Adaptive resolution: start sharp, and if frames run long (a weak GPU at a high pixel ratio),
+  // step the pixel ratio down until 60 fps holds; step back up when there is headroom again.
+  const sharpest = Math.min(devicePixelRatio, 2);
+  let pixelRatio = sharpest;
+  renderer.setPixelRatio(pixelRatio);
+  let slowMs = 0;
+  let fastMs = 0;
+  let sampleMs = 0;
+  const adapt = (frameMs: number) => {
+    if (frameMs > 250) return; // a hidden tab or a stall, not the steady frame rate
+    sampleMs += frameMs;
+    if (frameMs > 19) slowMs += frameMs;
+    else if (frameMs < 15) fastMs += frameMs;
+    if (sampleMs < 1500) return;
+    const next =
+      slowMs > sampleMs * 0.4
+        ? Math.max(0.75, pixelRatio - 0.25)
+        : fastMs > sampleMs * 0.95
+          ? Math.min(sharpest, pixelRatio + 0.25)
+          : pixelRatio;
+    if (next !== pixelRatio) {
+      pixelRatio = next;
+      renderer.setPixelRatio(pixelRatio);
+    }
+    sampleMs = slowMs = fastMs = 0;
+  };
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
+  // Everything that casts a shadow is static (walls, towers, the vault), so the shadow map is only
+  // redrawn when the board changes, not every frame. Creeps paint their own shadow discs.
+  renderer.shadowMap.autoUpdate = false;
+  renderer.shadowMap.needsUpdate = true;
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
   renderer.domElement.setAttribute('role', 'img');
   renderer.domElement.setAttribute(
@@ -169,14 +199,14 @@ export function createWorld(board: Board, game: Game) {
   }
   selectedRim.renderOrder = cursor.renderOrder = 10;
 
-  // Row and column guides through the highlighted cell: faint strips across the board that fade
+  // Row and column guides through the highlighted cell: faint gold strips across the board that fade
   // over the five cells nearest each edge, so the axis reads without boxing the board in.
   const guideStrip = (alongX: boolean) => {
     const pos: number[] = [];
     const col: number[] = [];
     for (let i = 1; i <= n; i++) {
       const edge = Math.min(i - 1, n - i);
-      const alpha = 0.2 * (edge >= 5 ? 1 : (edge + 1) / 6);
+      const alpha = 0.26 * (edge >= 5 ? 1 : (edge + 1) / 6);
       // Along x: scene x = i - 19 on the row's line; along z: scene z = 19 - i on the column's.
       const [a, b] = alongX ? [i - 19.5, i - 18.5] : [18.5 - i, 19.5 - i];
       const quad = alongX
@@ -184,7 +214,7 @@ export function createWorld(board: Board, game: Game) {
         : [-0.5, a, -0.5, b, 0.5, b, -0.5, a, 0.5, b, 0.5, a];
       for (let k = 0; k < 12; k += 2) {
         pos.push(quad[k], 0, quad[k + 1]);
-        col.push(0.09, 0.31, 0.68, alpha); // the focus blue
+        col.push(0.98, 0.84, 0.45, alpha); // pale crystal gold
       }
     }
     const g = new THREE.BufferGeometry();
@@ -206,6 +236,24 @@ export function createWorld(board: Board, game: Game) {
   };
   const guideRow = guideStrip(true);
   const guideColumn = guideStrip(false);
+
+  // Highlights: a pulsing ring under towers that can combine (gold) or that keep as a better gem
+  // or belong to a pinned recipe (blue).
+  const HIGHLIGHTS = 48;
+  const glowRing = (color: string) => {
+    const mesh = new THREE.InstancedMesh(
+      new THREE.RingGeometry(0.42, 0.56, 8, 1, Math.PI / 8).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color, transparent: true, depthWrite: false }),
+      HIGHLIGHTS,
+    );
+    mesh.count = 0;
+    mesh.renderOrder = 9;
+    scene.add(mesh);
+    return mesh;
+  };
+  const combineRings = glowRing('#F2B84B');
+  const betterRings = glowRing('#6FB7FF');
+  const ringPose = new THREE.Matrix4();
 
   // The selected creep: a gold ring that follows it.
   const creepRing = new THREE.Group().add(
@@ -261,6 +309,8 @@ export function createWorld(board: Board, game: Game) {
   let viewport: Rect = { x: 0, y: 0, w: 1, h: 1 };
   let panels: Rect[] = [];
   let current = frame(target, shown.e, shown.a, viewport, panels);
+  let lastAngles = { e: shown.e, a: shown.a };
+  let lastTurn = -Infinity;
   let focusCells: Cell[] = [];
 
   function setView(next: ViewState, animate: boolean) {
@@ -317,21 +367,16 @@ export function createWorld(board: Board, game: Game) {
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld();
     for (const s of labels) s.scale.setScalar(Math.max(0.8, LABEL_MIN_PX / current.scale));
-    cave.view(shown.e, shown.a);
+    // The camera counts as turning during a transition or a drag, and for a moment after.
+    if (shown.e !== lastAngles.e || shown.a !== lastAngles.a) {
+      lastAngles = { e: shown.e, a: shown.a };
+      lastTurn = now;
+    }
+    cave.view(shown.e, shown.a, !settled || now - lastTurn < 150);
   }
 
   // Fade walls between the camera and the cursor or selection (IMPLEMENTATION.md occluder rule).
   const ray = new THREE.Raycaster();
-  const faded = new Map<THREE.Material, THREE.Material>();
-  const fadedOf = (m: THREE.Material) => {
-    let f = faded.get(m);
-    if (!f)
-      faded.set(
-        m,
-        (f = Object.assign(m.clone(), { transparent: true, opacity: 0.3, depthWrite: false })),
-      );
-    return f;
-  };
   function updateOccluders() {
     const blockers = pieces.objects();
     const hit = new Set<THREE.Object3D>();
@@ -345,30 +390,67 @@ export function createWorld(board: Board, game: Game) {
         if (blockers.includes(o) && !(o.position.x === x && o.position.z === z)) hit.add(o);
       }
     }
-    for (const s of blockers)
-      s.traverse((o) => {
-        if (!(o instanceof THREE.Mesh)) return;
-        o.userData.solid ??= o.material;
-        o.material = hit.has(s) ? fadedOf(o.userData.solid) : o.userData.solid;
-      });
+    pieces.fade(hit);
   }
 
   let lastKey = '';
+  let shadowVersion = -1;
+  let shadowFrames = 0;
   let lastFrame = performance.now();
+  // Frame cost by stage (ms, smoothed) and the last frame's draw calls, for profiling.
+  const perf = {
+    place: 0,
+    pieces: 0,
+    cave: 0,
+    occluders: 0,
+    render: 0,
+    calls: 0,
+    triangles: 0,
+    programs: 0,
+  };
+  const smooth = (key: keyof typeof perf, since: number) =>
+    (perf[key] += (performance.now() - since - perf[key]) * 0.1);
   renderer.setAnimationLoop((now) => {
+    let t = performance.now();
     place(now);
+    smooth('place', t);
     const dt = Math.min(0.1, (now - lastFrame) / 1000);
-    pieces.frame(Math.min(1, (now - lastStep) * (TICK_HZ / 1000)), dt, reducedMotion.matches);
+    t = performance.now();
+    pieces.frame(
+      Math.min(1, (now - lastStep) * (TICK_HZ / 1000)),
+      dt,
+      reducedMotion.matches,
+      camera,
+    );
+    smooth('pieces', t);
+    t = performance.now();
     cave.frame(dt, reducedMotion.matches);
+    smooth('cave', t);
+    // Highlight rings breathe, so they read as "act on me" without hiding the towers.
+    const breath = reducedMotion.matches ? 0.75 : 0.55 + 0.35 * Math.sin(now / 280);
+    (combineRings.material as THREE.MeshBasicMaterial).opacity = breath;
+    (betterRings.material as THREE.MeshBasicMaterial).opacity = breath * 0.8;
     const marked =
       markedCreep === null ? undefined : pieces.creepPoints().find((p) => p.id === markedCreep);
     creepRing.visible = !!marked;
     if (marked) creepRing.position.set(marked.x, 0.04, marked.z);
+    adapt(now - lastFrame);
     lastFrame = now;
     const key = `${shown.e},${shown.a},${focusCells.map((c) => `${c.x}:${c.y}`)},${pieces.version}`;
+    t = performance.now();
     if (key !== lastKey) updateOccluders();
+    smooth('occluders', t);
     lastKey = key;
+    if (pieces.version !== shadowVersion || (cave.settling && ++shadowFrames % 8 === 0)) {
+      shadowVersion = pieces.version;
+      renderer.shadowMap.needsUpdate = true;
+    }
+    t = performance.now();
     renderer.render(scene, camera);
+    smooth('render', t);
+    perf.calls = renderer.info.render.calls;
+    perf.triangles = renderer.info.render.triangles;
+    perf.programs = renderer.info.programs?.length ?? 0;
   });
 
   const ndc = new THREE.Vector2();
@@ -408,6 +490,14 @@ export function createWorld(board: Board, game: Game) {
     setPanels(rects: Rect[]) {
       panels = rects;
     },
+    /** Smoothed frame cost by stage (ms) and the last frame's draw calls and triangles. */
+    perf,
+    /** The current pixel ratio, after adaptive resolution. */
+    get pixelRatio() {
+      return pixelRatio;
+    },
+    /** The scene, for profiling tools. */
+    scene,
     /** Board cell under a canvas-relative CSS pixel, using the ground plane only (never mesh height). */
     pick(px: number, py: number): Cell | null {
       ndc.set((px / viewport.w) * 2 - 1, -(py / viewport.h) * 2 + 1);
@@ -429,6 +519,25 @@ export function createWorld(board: Board, game: Game) {
         if (d < bestD) [bestD, best] = [d, c.id];
       }
       return best;
+    },
+    /** Towers to highlight: those that can combine, and those that upgrade or are pinned. */
+    setHighlights(combine: Cell[], better: Cell[]) {
+      for (const [mesh, cells] of [
+        [combineRings, combine],
+        [betterRings, better],
+      ] as const) {
+        mesh.count = Math.min(HIGHLIGHTS, cells.length);
+        cells.slice(0, HIGHLIGHTS).forEach((c, i) => {
+          const { x, z } = toScene(c);
+          // On the turret's rim, where the tower rises out of the wall.
+          mesh.setMatrixAt(i, ringPose.makeTranslation(x, TURRET_TOP + 0.015, z));
+        });
+        mesh.instanceMatrix.needsUpdate = true;
+      }
+    },
+    /** Show or hide the towers' aura rings. */
+    setAurasVisible(visible: boolean) {
+      pieces.setAurasVisible(visible);
     },
     /** Row and column guides through `cell`, or none. */
     setGuides(cell: Cell | null) {

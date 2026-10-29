@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { expect, test } from 'vitest';
 import { loadData } from '../src/data';
 import { Sim } from '../src/sim/sim';
-import { createPieces } from '../src/world/pieces';
+import { createAimer } from '../src/world/aim';
+import { createPieces, placedTower } from '../src/world/pieces';
 
 test('every combined tower, secret stone and tablet has a finite board model', () => {
   const data = loadData('classic'),
@@ -125,16 +126,41 @@ test('lethal shots retain their endpoints, burst, expire and reuse fixed instanc
   }));
   pieces.afterStep();
   pieces.frame(1, 0.01);
-  expect(shots.count).toBe(128);
+  expect(shots.count).toBe(160);
   pieces.frame(1, 1);
   expect(shots.count + rings.count).toBe(0);
   pieces.afterStep();
   pieces.frame(1, 0.01, true);
   expect(shots.count).toBe(0);
-  expect(rings.count).toBe(128);
+  expect(rings.count).toBe(160);
   rings.getMatrixAt(0, matrix);
   const before = matrix.clone();
   pieces.frame(1, 0.1, true);
   rings.getMatrixAt(0, matrix);
   expect(matrix.equals(before)).toBe(true);
+});
+
+test('placed towers are copies of one cached model that still aim on their own', () => {
+  const a = placedTower('gemtd_r111', false);
+  const b = placedTower('gemtd_r111', false);
+  const meshes = (o: THREE.Object3D) => {
+    const list: THREE.Mesh[] = [];
+    o.traverse((m) => m instanceof THREE.Mesh && list.push(m));
+    return list;
+  };
+  // Shared geometry and materials: nothing is built twice.
+  expect(meshes(a).map((m) => m.geometry)).toEqual(meshes(b).map((m) => m.geometry));
+  a.position.set(5, 0, 0);
+  b.position.set(-5, 0, 0);
+  const aimA = createAimer(a);
+  const aimB = createAimer(b);
+  expect(aimA.parts).toBeGreaterThan(0);
+  // Each aims at a point east of itself, then north of itself: the same turn for both.
+  aimA.update(15, 0, 1, true);
+  aimB.update(-5, -10, 1, true);
+  const heads = (o: THREE.Object3D) =>
+    meshes(o).map((m) => m.getWorldQuaternion(new THREE.Quaternion()).y);
+  expect(heads(a)).not.toEqual(heads(b));
+  aimB.update(-5 + 10, 0, 1, true);
+  heads(a).forEach((y, i) => expect(y).toBeCloseTo(heads(b)[i], 5));
 });

@@ -60,6 +60,7 @@ const token = (data: GameData, key: string) => {
 const SKILL_NAMES: Record<string, string> = {
   mvp: 'MVP',
   disarmed: 'Disarmed',
+  hold: 'Holding fire',
   enraged: 'Enraged',
   riki_permanent_invisibility: 'Invisible',
   runrunrun: 'Rush',

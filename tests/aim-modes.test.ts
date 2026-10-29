@@ -60,3 +60,15 @@ test('a tower lists its MVP level as an effect', () => {
     expect.objectContaining({ key: 'mvp', count: 3, effects: ['+30% damage'] }),
   );
 });
+
+test('a tower told to hold fire attacks nothing until it resumes', () => {
+  const { sim, game, gem, creeps } = setup();
+  expect(game.setHold(gem.id, true).ok).toBe(true);
+  for (let i = 0; i < 30; i++) sim.step();
+  expect(gem.target).toBeNull();
+  expect(game.damageThisWave[gem.id] ?? 0).toBe(0);
+  expect(game.towerStatuses(gem).some((s) => s.key === 'hold')).toBe(true);
+  game.setHold(gem.id, false);
+  sim.step();
+  expect(gem.target).toBe(creeps[0].id);
+});

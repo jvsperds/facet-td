@@ -90,6 +90,8 @@ export interface Gem {
   stolenAbilities?: TowerAbility[];
   /** AIM index, plus AIM_BOSS for bosses first; unset is Closest, the original's targeting. */
   aim?: number;
+  /** Ordered to hold fire (Dota's stop): it attacks nothing until told to resume. */
+  holdFire?: boolean;
 }
 export interface Creep {
   id: number;
@@ -1102,6 +1104,19 @@ export class Game {
     return { ok: true };
   }
 
+  /**
+   * Order a tower to hold fire or resume (Dota's stop and attack orders), e.g. to steer the wave's
+   * MVP award to another tower.
+   */
+  setHold(id: number, hold: boolean): Check {
+    const gem = this.gems.find((g) => g.id === id);
+    if (!gem) return { ok: false, reason: 'No tower to order.' };
+    if (gem.name.includes('shiban')) return { ok: false, reason: 'Pedals do not attack.' };
+    if (hold) gem.holdFire = true;
+    else delete gem.holdFire;
+    return { ok: true };
+  }
+
   /** Buffs and debuffs on a tower: MVP, ally auras and fields, hero buffs, disarm. Read-only. */
   towerStatuses(g: Gem): Status[] {
     const out: Status[] = [];
@@ -1147,6 +1162,7 @@ export class Game {
           effects: Object.entries(b.values).map(([k, v]) => `${k.replaceAll('_', ' ')} ${v}`),
           left: (b.expires - this.time) / TICK_HZ,
         });
+    if (g.holdFire) out.push({ key: 'hold', good: false, effects: ['Not attacking'] });
     if ((g.disabledUntil ?? 0) > this.time)
       out.push({
         key: 'disarmed',
@@ -1757,6 +1773,10 @@ export class Game {
     const u = this.units[g.name];
     if (u.AttackCapabilities === 'DOTA_UNIT_CAP_NO_ATTACK' || num(u, 'AttackRate') <= 0) return;
     if ((g.disabledUntil ?? 0) > tick) return;
+    if (g.holdFire) {
+      g.target = null;
+      return;
+    }
     const protectedTower = this.towerState(g, 'MODIFIER_STATE_MAGIC_IMMUNE');
     if (
       !protectedTower &&
