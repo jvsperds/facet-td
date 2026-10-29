@@ -17,7 +17,7 @@ export type PedalFamily =
   'ensnare' | 'gale' | 'torrent' | 'howl' | 'acid' | 'cask' | 'terror' | 'decrepify';
 
 const HZ = 30;
-const COLORS: Record<PedalFamily | 'press', string> = {
+export const PEDAL_COLORS: Record<PedalFamily | 'press', string> = {
   ensnare: '#3E6B2F',
   gale: '#7BC043',
   torrent: '#3A8DDE',
@@ -127,12 +127,12 @@ export function createPedalEffects(scene: THREE.Scene) {
       creeps: { id: number; x: number; y: number }[],
       targetId: number,
     ) {
-      add(thin, COLORS.press, tablet, 0.03, 0.5, expand(0.7, 0.9));
-      add(disc, COLORS.press, tablet, 0.025, 0.35, expand(0.5, 0.5));
+      add(thin, PEDAL_COLORS.press, tablet, 0.03, 0.5, expand(0.7, 0.9));
+      add(disc, PEDAL_COLORS.press, tablet, 0.025, 0.35, expand(0.5, 0.5));
       for (const op of operations) {
         const family = pedalFamily(op);
         if (!family) continue;
-        const color = COLORS[family];
+        const color = PEDAL_COLORS[family];
         const at = toScene(op.x ?? 0, op.y ?? 0);
         const radius = Math.min(MAX_RADIUS, op.radius ?? 1);
         const seconds = (ticks: number | undefined, fallback: number) =>

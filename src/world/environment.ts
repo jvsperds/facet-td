@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Cell } from '../sim/board';
 import { toScene } from './view';
+import { mergeStatic, mergedIn } from './merge';
 
 // The voxel cavern around the board (docs/art/environment, style studies B/C and the connected
 // cave concept D). Presentation only: nothing here is a board cell, waypoint or rule.
@@ -67,13 +68,11 @@ export type Keep = { x: number; z: number; hx: number; hz: number };
  * h > distance * tan(elevation).
  */
 export function distanceTo(r: Keep, x: number, z: number, dx: number, dz: number) {
-  // Ray p - t*dir against the rectangle (slab method).
+  // Ray p - t*dir against the rectangle (slab method), one axis at a time.
   let lo = 0;
   let hi = Infinity;
-  for (const [p, d, c, half] of [
-    [x, -dx, r.x, r.hx],
-    [z, -dz, r.z, r.hz],
-  ]) {
+  for (let axis = 0; axis < 2; axis++) {
+    const [p, d, c, half] = axis === 0 ? [x, -dx, r.x, r.hx] : [z, -dz, r.z, r.hz];
     if (Math.abs(d) < 1e-9) {
       if (Math.abs(p - c) > half) return Infinity;
       continue;
@@ -341,9 +340,10 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
   };
   // Darker away from the board, before the fade takes the rest.
   // Darker toward the cave floor too, so the drop below the platform reads as depth.
+  const horizontal = (x: number, z: number) =>
+    Math.max(0.55, Math.min(1, 1 - (Math.hypot(x, z) - 24) / 16));
   const depth = (x: number, y: number, z: number) =>
-    Math.max(0.55, Math.min(1, 1 - (Math.hypot(x, z) - 24) / 16)) *
-    (y >= 0 ? 1 : 0.4 + 0.6 * Math.max(0, 1 + y / DROP));
+    horizontal(x, z) * (y >= 0 ? 1 : 0.4 + 0.6 * Math.max(0, 1 + y / DROP));
 
   /** Mesh data: positions, UVs and baked colours, two triangles per quad. */
   const meshData = () => {
@@ -388,73 +388,145 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
   const base = new THREE.Color();
   const platformStone = new THREE.Color('#5f646a');
   const r = VOXEL / 2;
+  // The rock is rebuilt on every degree the camera turns, so it is written straight into typed
+  // arrays: indexed quads (four vertices, not six), normals known per face, no temporaries.
+  const capacity = (columns.length * 5 + tiles.length * 4) * 4;
+  const P = new Float32Array(capacity * 3);
+  const C = new Float32Array(capacity * 3);
+  const Nm = new Float32Array(capacity * 3);
+  const U = new Float32Array(capacity * 2);
+  const I = new Uint32Array((capacity / 4) * 6);
+  let nv = 0;
+  let ni = 0;
+  const vert = (
+    x: number,
+    y: number,
+    z: number,
+    u: number,
+    v: number,
+    shade: number,
+    tint: THREE.Color,
+    /** The column's distance shading, worked out once per column. */
+    hd: number,
+    near: Pool[],
+    off: Set<number>,
+    nx: number,
+    nz: number,
+  ) => {
+    const k = nv * 3;
+    P[k] = x;
+    P[k + 1] = y;
+    P[k + 2] = z;
+    Nm[k] = nx;
+    Nm[k + 1] = nx || nz ? 0 : 1;
+    Nm[k + 2] = nz;
+    U[nv * 2] = u;
+    U[nv * 2 + 1] = v;
+    const f = shade * hd * (y >= 0 ? 1 : 0.4 + 0.6 * Math.max(0, 1 + y / DROP));
+    if (near.length) {
+      color.setRGB(tint.r * f, tint.g * f, tint.b * f);
+      light(x, y, z, color, near, off);
+      C[k] = color.r;
+      C[k + 1] = color.g;
+      C[k + 2] = color.b;
+    } else {
+      C[k] = tint.r * f;
+      C[k + 1] = tint.g * f;
+      C[k + 2] = tint.b * f;
+    }
+    return nv++;
+  };
+  const quad4 = (a: number, b: number, c: number, d: number) => {
+    I[ni++] = a;
+    I[ni++] = b;
+    I[ni++] = c;
+    I[ni++] = a;
+    I[ni++] = c;
+    I[ni++] = d;
+  };
+  // Neighbours in face order: +x, -x, +z, -z, with each side's corner offsets and outward normal.
+  const SIDES = [
+    [1, 0, 1, 1, 1, -1],
+    [-1, 0, -1, -1, -1, 1],
+    [0, 1, -1, 1, 1, 1],
+    [0, -1, 1, -1, -1, -1],
+  ] as const;
+  /** A side from height `low` to `high` facing neighbour (di, dj), down from a column at (x, z). */
+  const side = (
+    x: number,
+    z: number,
+    s: (typeof SIDES)[number],
+    low: number,
+    high: number,
+    footShade: number,
+    topShade: number,
+    tint: THREE.Color,
+    hd: number,
+    near: Pool[],
+    off: Set<number>,
+  ) => {
+    const [di, dj, ax, az, bx, bz] = s;
+    const [x0, z0, x1, z1] = [x + ax * r, z + az * r, x + bx * r, z + bz * r];
+    const along = di === 0;
+    const [ua, ub] = along ? [x0 / VOXEL, x1 / VOXEL] : [z0 / VOXEL, z1 / VOXEL];
+    quad4(
+      vert(x0, low - DROP, z0, ua, low / VOXEL, footShade, tint, hd, near, off, di, dj),
+      vert(x1, low - DROP, z1, ub, low / VOXEL, footShade, tint, hd, near, off, di, dj),
+      vert(x1, high - DROP, z1, ub, high / VOXEL, topShade, tint, hd, near, off, di, dj),
+      vert(x0, high - DROP, z0, ua, high / VOXEL, topShade, tint, hd, near, off, di, dj),
+    );
+  };
   function buildRock(heights: number[], off: Set<number>) {
     fill(heights);
-    const mesh = meshData();
+    nv = ni = 0;
     columns.forEach(({ x, z, i, j, tone, pools: near }, k) => {
       const h = heights[k];
+      const hd = horizontal(x, z);
       // Higher rock catches more light.
       base.copy(tone).multiplyScalar(0.7 + 0.35 * Math.min(1, h / 5));
-      const [x0, x1, z0, z1] = [x - r, x + r, z - r, z + r];
       // Top: each corner darkens for every taller neighbour around it (voxel ambient occlusion).
-      const corner = (cx: number, cz: number) => {
-        const [si, sj] = [cx > x ? 1 : -1, cz > z ? 1 : -1];
+      const corner = (si: number, sj: number) => {
         const taller = +(at(i + si, j) > h) + +(at(i, j + sj) > h) + +(at(i + si, j + sj) > h);
-        return [cx, h - DROP, cz, cx / VOXEL, cz / VOXEL, 1 - 0.17 * taller];
-      };
-      mesh.quad([corner(x0, z0), corner(x0, z1), corner(x1, z1), corner(x1, z0)], base, near, off);
-      // Sides down to each lower neighbour, dark at the foot like a crevice.
-      for (const [ni, nj, a, b] of [
-        [i + 1, j, [x1, z1], [x1, z0]],
-        [i - 1, j, [x0, z0], [x0, z1]],
-        [i, j + 1, [x0, z1], [x1, z1]],
-        [i, j - 1, [x1, z0], [x0, z0]],
-      ] as [number, number, number[], number[]][]) {
-        const low = at(ni, nj);
-        if (low >= h) continue;
-        const along = ni === i ? 0 : 1; // UV runs along x for z-facing sides, z for x-facing
-        const foot = low === 0 ? 0.4 : 0.58;
-        mesh.quad(
-          [
-            [a[0], low - DROP, a[1], a[along] / VOXEL, low / VOXEL, foot],
-            [b[0], low - DROP, b[1], b[along] / VOXEL, low / VOXEL, foot],
-            [b[0], h - DROP, b[1], b[along] / VOXEL, h / VOXEL, 0.9],
-            [a[0], h - DROP, a[1], a[along] / VOXEL, h / VOXEL, 0.9],
-          ],
+        const [cx, cz] = [x + si * r, z + sj * r];
+        return vert(
+          cx,
+          h - DROP,
+          cz,
+          cx / VOXEL,
+          cz / VOXEL,
+          1 - 0.17 * taller,
           base,
+          hd,
           near,
           off,
+          0,
+          0,
         );
+      };
+      quad4(corner(-1, -1), corner(-1, 1), corner(1, 1), corner(1, -1));
+      // Sides down to each lower neighbour, dark at the foot like a crevice.
+      for (const s of SIDES) {
+        const low = at(i + s[0], j + s[1]);
+        if (low < h) side(x, z, s, low, h, low === 0 ? 0.4 : 0.58, 0.9, base, hd, near, off);
       }
     });
     // The platform's own sides: sheer stone from the board's level down into the dark.
     for (const { x, z, i, j, raised, pools: near } of tiles) {
       if (!raised) continue;
-      const [x0, x1, z0, z1] = [x - r, x + r, z - r, z + r];
-      for (const [ni, nj, a, b] of [
-        [i + 1, j, [x1, z1], [x1, z0]],
-        [i - 1, j, [x0, z0], [x0, z1]],
-        [i, j + 1, [x0, z1], [x1, z1]],
-        [i, j - 1, [x1, z0], [x0, z0]],
-      ] as [number, number, number[], number[]][]) {
-        const low = at(ni, nj);
-        if (low >= DROP) continue;
-        const along = ni === i ? 0 : 1;
-        mesh.quad(
-          [
-            [a[0], low - DROP, a[1], a[along] / VOXEL, low / VOXEL, 0.4],
-            [b[0], low - DROP, b[1], b[along] / VOXEL, low / VOXEL, 0.4],
-            [b[0], -0.02, b[1], b[along] / VOXEL, DROP / VOXEL, 0.95],
-            [a[0], -0.02, a[1], a[along] / VOXEL, DROP / VOXEL, 0.95],
-          ],
-          platformStone,
-          near,
-          off,
-        );
+      for (const s of SIDES) {
+        const low = at(i + s[0], j + s[1]);
+        if (low < DROP)
+          side(x, z, s, low, DROP - 0.02, 0.4, 0.95, platformStone, horizontal(x, z), near, off);
       }
     }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(P.slice(0, nv * 3), 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(Nm.slice(0, nv * 3), 3));
+    g.setAttribute('uv', new THREE.BufferAttribute(U.slice(0, nv * 2), 2));
+    g.setAttribute('color', new THREE.BufferAttribute(C.slice(0, nv * 3), 3));
+    g.setIndex(new THREE.BufferAttribute(I.slice(0, ni), 1));
     rock.geometry.dispose();
-    rock.geometry = mesh.geometry();
+    rock.geometry = g;
   }
   group.add(rock);
 
@@ -633,6 +705,7 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
   shade.position.set(0, 0.005, -0.1); // the floor fades into the tunnel
   cave.add(shade);
   group.add(cave);
+  mergeStatic(cave); // static masonry: one mesh per material
 
   // Crystal vault: an open keep set into the rock, gate toward the board. Four crenellated towers
   // with blue banners and curtain walls in the board walls' masonry greys; ice crystals fill the
@@ -852,6 +925,36 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
     column: -1,
   });
 
+  // The vault draws as a batch: one mesh per material of everything that is not falling. Falling
+  // parts draw on their own until they land; the batch is rebuilt (at most every quarter second)
+  // as parts break off, land as rubble or are rebuilt.
+  let fortBatch: THREE.Mesh[] = [];
+  let fortDirty = true;
+  let fortRebuilt = -Infinity;
+  const dynamic = new Set<THREE.Object3D>([heart, aura, debris, ...smoke]);
+  function rebuildFort() {
+    fortDirty = false;
+    for (const m of fortBatch) {
+      m.removeFromParent();
+      m.geometry.dispose();
+    }
+    const falling = new Set<THREE.Object3D>();
+    for (const p of parts) if (p.state === 'falling') p.mesh.traverse((o) => falling.add(o));
+    const members: THREE.Mesh[] = [];
+    fort.traverse((o) => {
+      if (!(o instanceof THREE.Mesh) || dynamic.has(o) || o.userData.batch) return;
+      const alone = falling.has(o);
+      o.visible = alone;
+      if (!alone) members.push(o);
+    });
+    // Batch meshes sit in the fort's frame, so they shake with it.
+    fortBatch = mergedIn(fort, members);
+    for (const m of fortBatch) {
+      m.userData.batch = true;
+      fort.add(m);
+    }
+  }
+
   const meshes = [shards.amber, shards.ice, rubble];
   for (const mesh of meshes) mesh.build();
   const haloMesh = new THREE.InstancedMesh(
@@ -935,20 +1038,33 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
   // Cutaway: cap every rock column at the height that keeps the board visible from this view.
   // Recomputed per whole degree of camera change, so free rotation stays smooth.
   let lastView = '';
+  let shownHeights: number[] = [];
+  /** The view the rock was last cut for, and the columns that cut lowered. */
+  let cutAt = { e: -90, a: 0 };
+  let lowered = new Set<number>();
   const toCamera = new THREE.Vector3();
   const billboard = new THREE.Matrix4();
-  function view(elevationDeg: number, azimuthDeg: number) {
+  /**
+   * Fit the cutaway (and turn the halos) to a camera elevation and azimuth. While the camera is
+   * `moving`, the rock is only recut every ten degrees, so turning stays smooth; the exact cut
+   * follows as soon as it settles.
+   */
+  function view(elevationDeg: number, azimuthDeg: number, moving = false) {
     const key = `${Math.round(elevationDeg)}:${Math.round(azimuthDeg)}`;
     if (key === lastView) return;
+    const turn = Math.abs(((azimuthDeg - cutAt.a + 540) % 360) - 180);
+    if (moving && turn < 10 && Math.abs(elevationDeg - cutAt.e) < 5) {
+      faceHalos(elevationDeg, azimuthDeg);
+      return;
+    }
     lastView = key;
+    cutAt = { e: elevationDeg, a: azimuthDeg };
     const a = (Math.round(azimuthDeg) * Math.PI) / 180;
     const [dx, dz] = [Math.sin(a), Math.cos(a)]; // horizontal direction toward the camera
     const slope = Math.tan((elevationDeg * Math.PI) / 180);
     const heights = columns.map(({ x, z, h }) => {
-      const t =
-        elevationDeg >= 89.5
-          ? Infinity
-          : Math.min(...keeps.map((k) => distanceTo(k, x, z, dx, dz)));
+      let t = Infinity;
+      if (elevationDeg < 89.5) for (const k of keeps) t = Math.min(t, distanceTo(k, x, z, dx, dz));
       // Snap to quarter-cell steps so cut rock keeps its voxel terraces.
       // Measured from the cave floor, DROP below the board the cut protects.
       return Math.max(0.25, Math.min(h, Math.floor((t - 0.25) * slope * 4) / 4 + DROP));
@@ -956,17 +1072,26 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
     // Decor on a lowered column would float: hide it, and its light, until the column is whole.
     const off = new Set<number>();
     heights.forEach((h, k) => h < columns[k].h && off.add(k));
-    buildRock(heights, off);
-    const lowered = (column: number) => off.has(column);
-    for (const mesh of meshes) mesh.hide(lowered);
-    // Halos face the camera, nudged toward it so the rock they stand on does not clip them.
+    lowered = off;
+    // A turn often leaves every column as it was: then only the halos need to face the camera.
+    if (heights.some((h, k) => h !== shownHeights[k])) {
+      shownHeights = heights;
+      buildRock(heights, off);
+      for (const mesh of meshes) mesh.hide((column) => off.has(column));
+    }
+    faceHalos(elevationDeg, azimuthDeg);
+  }
+  /** Halos face the camera, nudged toward it so the rock they stand on does not clip them. */
+  function faceHalos(elevationDeg: number, azimuthDeg: number) {
+    const a = (Math.round(azimuthDeg) * Math.PI) / 180;
+    const [dx, dz] = [Math.sin(a), Math.cos(a)];
     const elevation = (elevationDeg * Math.PI) / 180;
     toCamera.set(dx * Math.cos(elevation), Math.sin(elevation), dz * Math.cos(elevation));
     billboard.lookAt(toCamera, new THREE.Vector3(), new THREE.Vector3(-dx, 1, -dz));
     pose.quaternion.setFromRotationMatrix(billboard);
     halos.forEach((h, k) => {
       pose.position.copy(h.at).addScaledVector(toCamera, 0.8);
-      pose.scale.setScalar(lowered(h.column) ? 0 : h.size);
+      pose.scale.setScalar(lowered.has(h.column) ? 0 : h.size);
       pose.updateMatrix();
       haloMesh.setMatrixAt(k, pose.matrix);
     });
@@ -993,6 +1118,10 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
     view,
     /** Inside the cave mouth's tunnel: where creeps start their walk to S. */
     tunnel,
+    /** True while castle parts are falling, so shadows follow them. */
+    get settling() {
+      return parts.some((p) => p.state === 'falling');
+    },
     /** After each sim step: castle HP share and how much damage leaked this tick. */
     castle(ratio: number, leaked: number) {
       hpRatio = Math.max(0, Math.min(1, ratio));
@@ -1014,6 +1143,7 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
         if (p.state === 'whole' && hpRatio < p.below) {
           // Break off: outward from the keep's centre, up, and tumbling.
           p.state = 'falling';
+          fortDirty = true;
           const out = new THREE.Vector3(p.mesh.position.x, 0, p.mesh.position.z).normalize();
           p.velocity.copy(out).multiplyScalar(1.2 + hash(p.mesh.id, 3, 61) * 1.8);
           p.velocity.y = 1.5 + hash(p.mesh.id, 4, 61) * 2;
@@ -1025,6 +1155,7 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
         } else if (p.state !== 'whole' && hpRatio >= p.below) {
           // Healed: the part is rebuilt where it stood.
           p.state = 'whole';
+          fortDirty = true;
           p.mesh.position.copy(p.home.position);
           p.mesh.rotation.copy(p.home.rotation);
           p.mesh.material = p.material;
@@ -1033,6 +1164,14 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
     },
     frame(dt: number, reducedMotion: boolean) {
       clock += dt;
+      // Breaking parts leave the batch at once; landings are folded in at most four times a second.
+      if (
+        fortDirty &&
+        (parts.some((p) => p.state === 'falling' && !p.mesh.visible) || clock - fortRebuilt > 0.25)
+      ) {
+        fortRebuilt = clock;
+        rebuildFort();
+      }
       flash = Math.max(0, flash - dt * 1.8);
       const pulse = reducedMotion ? 0 : Math.sin(clock * 2) * 0.12;
       heartMaterial.emissive.copy(calm).lerp(hurt, Math.max(flash, (1 - hpRatio) * 0.6));
@@ -1062,6 +1201,7 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
         if (reducedMotion || m.position.y + bottom <= 0.3) {
           m.position.y = 0.3 - bottom;
           p.state = 'fallen';
+          fortDirty = true;
           const source = Array.isArray(p.material) ? p.material[0] : p.material;
           const dark = source.clone();
           dark.onBeforeCompile = source.onBeforeCompile; // keep the fog

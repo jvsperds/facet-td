@@ -4,11 +4,14 @@ import { createAudio } from './audio';
 import { loadData, type Mode } from './data';
 import { Hud } from './hud/Hud';
 import { pinned, pinnedIngredients } from './hud/RecipeBook';
+import { prewarmIcons } from './hud/TowerIcon';
+import { readRecipes } from './sim/progression';
 import type { Cell } from './sim/board';
 import { createFeedback } from './hud/feedback';
 import { createCameraInput, cursor, hovered, selected, selectedCreep } from './input/camera';
 import { Sim, TICK_HZ, type Cmd } from './sim/sim';
 import { createWorld } from './world/world';
+import { prewarmTowers } from './world/pieces';
 import './style.css';
 
 const mode: Mode = 'classic';
@@ -29,6 +32,16 @@ const paused = signal(title);
 /** Game speed: sim ticks per real tick (1x, 2x, 4x). */
 const speed = signal(1);
 const routeVisible = signal(false);
+/** Tower aura rings on the board; a per-browser preference. */
+const aurasVisible = signal(
+  (() => {
+    try {
+      return localStorage.getItem('facet-td:auras') !== 'off';
+    } catch {
+      return true;
+    }
+  })(),
+);
 const feedback = createFeedback(sim.game);
 const audio = createAudio();
 addEventListener('pointerdown', () => audio.unlock());
@@ -47,6 +60,7 @@ render(
     feedback={feedback}
     audio={audio}
     routeVisible={routeVisible}
+    aurasVisible={aurasVisible}
     title={title}
   />,
   hudRoot,
@@ -86,6 +100,14 @@ effect(() => {
   world.setRange(gem ? gem.cell : null, gem ? sim.game.attackRange(gem) : 0);
 });
 effect(() => world.setRouteVisible(routeVisible.value));
+effect(() => {
+  world.setAurasVisible(aurasVisible.value);
+  try {
+    localStorage.setItem('facet-td:auras', aurasVisible.value ? 'on' : 'off');
+  } catch {
+    // Storage unavailable: the choice lasts for this session.
+  }
+});
 // Towers that can combine glow gold; draft gems that keep as a better gem, and the ingredients of
 // pinned recipes, glow blue.
 effect(() => {
@@ -146,6 +168,16 @@ setInterval(() => {
     ticked.value++;
   }
 }, 1000 / TICK_HZ);
+
+// Every gem, recipe and pedal model and icon is built while the board idles, ahead of placement.
+const towerNames = [
+  ...'dbyrgpqe'
+    .split('')
+    .flatMap((t) => [1, 2, 3, 4, 5, 6].map((q) => `gemtd_${t}${'1'.repeat(q)}`)),
+  ...readRecipes(sim.data).flatMap((r) => [r.result, ...r.ingredients]),
+];
+prewarmTowers(towerNames);
+prewarmIcons(towerNames);
 
 // Test hook for the Playwright smoke test (dev server only).
 if (import.meta.env.DEV) Object.assign(window, { facet: { world, board, sim } });
