@@ -1,0 +1,179 @@
+/* A: Smooth Charcoal. Paint-only overrides for current HUD da21e57.
+   Preserve layout, sizing, typography, content and interaction semantics. */
+:root {
+  --ink: #f4f3ef;
+  --ink-2: #bdc3c7;
+  --ink-3: #b1b9bf;
+  --amber: #d4d8dc;
+  --amber-1: #e2e5e7;
+  --amber-2: #bdc5cc;
+  --on-amber: #202429;
+  --focus: #d4e4f1;
+  --bevel: 0 8px 24px rgb(0 0 0 / 0.25);
+  --key-bevel: none;
+}
+.panel,
+.card,
+.round-clock,
+.draft {
+  background: #25282c;
+  border-color: transparent;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
+}
+.panel,
+.draft {
+  border-radius: 12px;
+}
+.card {
+  border-radius: 14px 14px 0 0;
+}
+.round-clock {
+  border-radius: 0 0 14px 14px;
+}
+button,
+.cmd,
+.slot {
+  background: #393e43;
+  border-color: transparent;
+  border-radius: 9px;
+  box-shadow: none;
+}
+button:hover:not(:disabled),
+.cmd:hover:not(:disabled),
+.slot:hover:not(:disabled) {
+  background: #4b525a;
+}
+button.primary,
+button[aria-pressed='true'],
+.cmd.primary {
+  color: #202429;
+  background: #d4d8dc;
+  box-shadow: none;
+  border-color: transparent;
+}
+button.primary:hover:not(:disabled),
+button[aria-pressed='true']:hover:not(:disabled) {
+  background: #e7eaed;
+}
+button:active:not(:disabled) {
+  transform: none;
+  box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.22);
+}
+button:focus-visible {
+  outline: 2px dashed #f4f3ef;
+  outline-offset: 2px;
+}
+.tool {
+  background: #30353a;
+  border-color: transparent;
+  box-shadow: none;
+}
+.tool,
+.cmd.passive {
+  border-radius: 50%;
+}
+button:disabled {
+  opacity: 0.65;
+}
+.slot[aria-pressed='true'] {
+  color: #f4f3ef;
+  background: #46505a;
+  outline-color: #e2e5e7;
+}
+.cmd.empty {
+  background: #1d2125;
+  box-shadow: none;
+}
+.cmd.passive {
+  background: #343c43;
+  border-color: #66727c;
+}
+.card-portrait {
+  background: #30363c;
+  border-color: transparent;
+  border-radius: 9px;
+  box-shadow: none;
+}
+.portrait-name,
+.stats {
+  background: #25282c;
+  text-shadow: none;
+}
+.level-disc {
+  color: #f4f3ef;
+  background: #4a535c;
+  border-color: transparent;
+  box-shadow: none;
+}
+.hero-mark,
+.cell-mark,
+.cmd-icon .effect-icon {
+  filter: none;
+}
+.clock-main {
+  background: #30353a;
+  border-color: transparent;
+  border-radius: 9px;
+  box-shadow: none;
+}
+.quest {
+  border-left-color: #bdc5cc;
+}
+.cmd-label {
+  background: #25282c;
+  color: #f4f3ef;
+}
+.showcase-foot {
+  background: #25282c;
+  border-radius: 9px;
+}
+.showcase-tag {
+  background: #30353a;
+  border-radius: 5px;
+}
+.showcase-plinth {
+  background: radial-gradient(ellipse at 50% 45%, rgb(90 102 114 / 0.45), transparent 70%);
+}
+.bar,
+.health,
+.mana {
+  border-color: #30363c;
+  box-shadow: none;
+}
+select,
+input[type='search'] {
+  background: #30353a;
+  border-color: #66727c;
+  border-radius: 7px;
+  box-shadow: none;
+}
+kbd {
+  background: #30353a;
+  border-color: transparent;
+  border-radius: 4px;
+}
+@media (prefers-reduced-motion: reduce) {
+  button {
+    transition: none;
+  }
+}
+.run-stats {
+  background: #25282ce8;
+  border-radius: 10px;
+}
+.bar {
+  background: #1d2125;
+  border-radius: 4px;
+}
+.bar i {
+  background: #286631;
+}
+.bar.mana i {
+  background: #345982;
+}
+.bar.hp.low i {
+  background: #963f3a;
+}
+.bar span {
+  text-shadow: none;
+}

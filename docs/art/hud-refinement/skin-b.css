@@ -1,0 +1,108 @@
+/* B: Soft Graphite. Paint-only overrides over skin A; same HUD geometry. */
+:root {
+  --ink: #f4f3ef;
+  --ink-2: #d0d6db;
+  --ink-3: #c0c8ce;
+}
+.panel,
+.card,
+.round-clock,
+.draft {
+  background: #343c43;
+  border-color: #697680;
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.2);
+}
+.panel,
+.draft {
+  border-radius: 18px;
+}
+.card {
+  border-radius: 22px 22px 0 0;
+}
+.round-clock {
+  border-radius: 0 0 20px 20px;
+}
+button,
+.cmd,
+.slot {
+  background: #48535d;
+  border-color: #74828e;
+  border-radius: 16px;
+}
+button:hover:not(:disabled),
+.cmd:hover:not(:disabled),
+.slot:hover:not(:disabled) {
+  background: #5a6874;
+}
+button.primary,
+button[aria-pressed='true'],
+.cmd.primary {
+  background: #e0e5e9;
+  border-color: #eef1f3;
+  color: #202429;
+}
+button.primary:hover:not(:disabled),
+button[aria-pressed='true']:hover:not(:disabled) {
+  background: #f1f3f5;
+}
+.tool {
+  border-radius: 50%;
+  background: #424e58;
+  border-color: #74828e;
+}
+.slot[aria-pressed='true'] {
+  background: #596977;
+  color: #f4f3ef;
+  outline-color: #e0e5e9;
+}
+.cmd.empty {
+  background: #2c343b;
+}
+.cmd.passive {
+  background: #424e58;
+  border-radius: 50%;
+}
+.card-portrait {
+  background: #46535e;
+  border-radius: 18px;
+}
+.portrait-name,
+.stats {
+  background: #343c43;
+}
+.level-disc {
+  background: #667786;
+  border-color: #9aa9b5;
+}
+.clock-main {
+  background: #46535e;
+  border-radius: 16px;
+}
+.showcase-foot {
+  background: #343c43;
+  border-radius: 16px;
+}
+.showcase-tag {
+  background: #424e58;
+  border-radius: 8px;
+}
+.cmd-label {
+  background: #343c43;
+}
+select,
+input[type='search'] {
+  background: #46535e;
+  border-radius: 12px;
+}
+kbd {
+  background: #424e58;
+  border-radius: 6px;
+}
+.run-stats {
+  background: #343c43f2;
+  border-radius: 14px;
+}
+.bar {
+  background: #273139;
+  border-radius: 6px;
+}
