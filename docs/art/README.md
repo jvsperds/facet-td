@@ -2,6 +2,10 @@
 
 Start with the compact [direction sheet](DIRECTION.md).
 
+[HUD audit and two refinement alternatives](hud-refinement/README.md): Floating
+Slate and Mineral Ribbon desktop studies, based on the current game capture and
+the phase 1.5 direction. These are proposals, pending selection.
+
 [Stone and basic gem 3D models](model-study/README.md): reusable three.js faceted rock walls and gem-crowned masonry towers, animated wall joins, eight gem towers and a standalone interactive preview.
 
 - [Desktop reference mockup](desktop.svg): cave-grey arena, top-left five-gem quick selection, lower-left selection info and lower-right icon-only tools.
