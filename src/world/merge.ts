@@ -77,16 +77,30 @@ export function mergeStatic(root: THREE.Object3D, moving: THREE.Object3D[] = [])
   for (const [anchor, list] of groups) mergeInto(anchor, list);
 }
 
+const worldCopies = new WeakMap<
+  THREE.Mesh,
+  { keep: string; source: THREE.BufferGeometry; geometry: THREE.BufferGeometry }
+>();
+
 /** One new world-space mesh of `meshes` (all of `material`), leaving the originals in place. */
 export function mergedCopy(meshes: THREE.Mesh[], material: THREE.Material) {
   const keep = ['position', 'normal', 'uv', 'color'].filter((name) =>
     meshes.every((m) => m.geometry.getAttribute(name)),
   );
   const identity = new THREE.Matrix4();
-  for (const m of meshes) m.updateWorldMatrix(true, false);
-  const geometry = meshes.length
-    ? mergeGeometries(meshes.map((m) => inSpace(m, identity, keep)))
-    : new THREE.BufferGeometry();
+  // Each mesh's world-space copy is kept: batches like the walls are rebuilt from mostly the same
+  // blocks, so a rebuild only concatenates. Meshes in a batch must not move.
+  const world = (m: THREE.Mesh) => {
+    const id = keep.join();
+    let hit = worldCopies.get(m);
+    if (hit?.keep !== id || hit.source !== m.geometry) {
+      m.updateWorldMatrix(true, false);
+      hit = { keep: id, source: m.geometry, geometry: inSpace(m, identity, keep) };
+      worldCopies.set(m, hit);
+    }
+    return hit.geometry;
+  };
+  const geometry = meshes.length ? mergeGeometries(meshes.map(world)) : new THREE.BufferGeometry();
   return new THREE.Mesh(geometry ?? new THREE.BufferGeometry(), material);
 }
 

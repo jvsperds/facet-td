@@ -118,8 +118,81 @@ export function towerModel(name: string) {
     : extraTower(name, options);
 }
 
+/**
+ * A copy of a cached model sharing its geometry and materials: building and merging a model
+ * takes milliseconds, so each tower, pedal and creep model is built once and copied after.
+ */
+function shareCopy(template: THREE.Object3D) {
+  const copy = template.clone();
+  copy.userData = { shared: true };
+  return copy;
+}
+
+/** Towers and pedals as placed on the board, seated and merged, by name and floor/turret. */
+const towerTemplates = new Map<string, { model: THREE.Object3D; paths: number[][] }>();
+
+/** Child indices from `root` down to `node`. */
+function pathTo(root: THREE.Object3D, node: THREE.Object3D) {
+  const path: number[] = [];
+  for (let o = node; o !== root; o = o.parent!) path.unshift(o.parent!.children.indexOf(o));
+  return path;
+}
+const follow = (root: THREE.Object3D, path: number[]) => path.reduce((o, i) => o.children[i], root);
+
+/**
+ * A tower ready to place: the cached, seated and merged model, copied. The copy aims by posing
+ * the cached model's head toward the same target, relative to itself, and taking its turn.
+ */
+export function placedTower(name: string, floor: boolean) {
+  const id = `${name}:${floor}`;
+  let entry = towerTemplates.get(id);
+  if (!entry) {
+    const model = towerModel(name);
+    if (floor) layTablet(model);
+    else seatTower(model);
+    // One mesh per material, the turning head kept apart: a tower draws in a few calls.
+    const moving = createAimer(model).moving;
+    mergeStatic(model, moving);
+    entry = { model, paths: moving.map((node) => pathTo(model, node)) };
+    towerTemplates.set(id, entry);
+  }
+  const { model, paths } = entry;
+  const copy = shareCopy(model);
+  const aimAt = model.userData.aimAt as ((x?: number, z?: number) => void) | undefined;
+  if (aimAt && paths.length) {
+    const pairs = paths.map((path) => [follow(model, path), follow(copy, path)] as const);
+    copy.userData.aimAt = (x?: number, z?: number) => {
+      if (x === undefined || z === undefined) aimAt();
+      else aimAt(x - copy.position.x, z - copy.position.z);
+      for (const [from, to] of pairs) {
+        to.position.copy(from.position);
+        to.rotation.copy(from.rotation);
+      }
+    };
+  }
+  return copy;
+}
+
+/** Build and cache tower models ahead of placement, one per idle period. */
+export function prewarmTowers(names: Iterable<string>) {
+  const queue = [...names].filter((n) => !towerTemplates.has(`${n}:${n.includes('shiban')}`));
+  const next = (idle: { timeRemaining(): number }) => {
+    while (queue.length && idle.timeRemaining() > 4) {
+      const name = queue.shift()!;
+      placedTower(name, name.includes('shiban'));
+    }
+    if (queue.length) whenIdle(next);
+  };
+  whenIdle(next);
+}
+const whenIdle = (run: (idle: { timeRemaining(): number }) => void) =>
+  typeof requestIdleCallback === 'function'
+    ? requestIdleCallback(run)
+    : setTimeout(() => run({ timeRemaining: () => 8 }), 60);
+
 function dispose(o: THREE.Object3D) {
   o.removeFromParent();
+  if (o.userData.shared) return; // a copy of a cached model: geometry and materials stay cached
   o.traverse((m) => {
     if (!(m instanceof THREE.Mesh)) return;
     m.geometry.dispose();
@@ -284,14 +357,9 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
       // Tower: rebuilt only when the gem changes; the wall handles every join.
       if (!name || cells.get(k)?.sig === name) continue;
       if (cells.has(k)) dispose(cells.get(k)!.obj);
-      const obj = towerModel(name);
+      const obj = placedTower(name, floor.has(k));
       obj.position.set(sx, 0, sz);
-      if (floor.has(k)) layTablet(obj);
-      else seatTower(obj);
-      // One mesh per material, the turning head kept apart: a tower draws in a few calls.
-      const aimer = createAimer(obj);
-      obj.userData.aimer = aimer;
-      mergeStatic(obj, aimer.moving);
+      obj.userData.aimer = createAimer(obj);
       obj.userData.cell = cell;
       scene.add(obj);
       cells.set(k, { sig: name, obj });
@@ -301,6 +369,15 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
 
   /** Creeps of a model: the factory's body grown to its board size. */
   function creepModel(name: string, flying: boolean, boss: boolean, elite = false) {
+    const id = `${name}:${flying}:${boss}:${elite}`;
+    let template = creepTemplates.get(id);
+    if (!template) {
+      template = buildCreep(name, flying, boss, elite);
+      creepTemplates.set(id, template);
+    }
+    return shareCopy(template);
+  }
+  function buildCreep(name: string, flying: boolean, boss: boolean, elite: boolean) {
     const scale = Number(game.unit(name)?.ModelScale ?? 1) * (elite ? 2 : 1);
     const obj = createCreep({ modelScale: scale, flying, boss });
     // Grow body and shadow in place; the body's flying altitude stays as the factory set it.
@@ -311,6 +388,8 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
     mergeStatic(obj);
     return obj;
   }
+
+  const creepTemplates = new Map<string, THREE.Object3D>();
 
   // The approach: creeps still to spawn, walking from the tunnel to S. Their models are reused
   // front to back, so as the leader becomes the sim's creep at S the rest simply walk on.

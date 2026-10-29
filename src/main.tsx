@@ -4,11 +4,14 @@ import { createAudio } from './audio';
 import { loadData, type Mode } from './data';
 import { Hud } from './hud/Hud';
 import { pinned, pinnedIngredients } from './hud/RecipeBook';
+import { prewarmIcons } from './hud/TowerIcon';
+import { readRecipes } from './sim/progression';
 import type { Cell } from './sim/board';
 import { createFeedback } from './hud/feedback';
 import { createCameraInput, cursor, hovered, selected, selectedCreep } from './input/camera';
 import { Sim, TICK_HZ, type Cmd } from './sim/sim';
 import { createWorld } from './world/world';
+import { prewarmTowers } from './world/pieces';
 import './style.css';
 
 const mode: Mode = 'classic';
@@ -165,6 +168,16 @@ setInterval(() => {
     ticked.value++;
   }
 }, 1000 / TICK_HZ);
+
+// Every gem, recipe and pedal model and icon is built while the board idles, ahead of placement.
+const towerNames = [
+  ...'dbyrgpqe'
+    .split('')
+    .flatMap((t) => [1, 2, 3, 4, 5, 6].map((q) => `gemtd_${t}${'1'.repeat(q)}`)),
+  ...readRecipes(sim.data).flatMap((r) => [r.result, ...r.ingredients]),
+];
+prewarmTowers(towerNames);
+prewarmIcons(towerNames);
 
 // Test hook for the Playwright smoke test (dev server only).
 if (import.meta.env.DEV) Object.assign(window, { facet: { world, board, sim } });
