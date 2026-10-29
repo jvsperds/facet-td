@@ -11,18 +11,18 @@ import type { Cell } from '../sim/board';
 import { isBasicGem, qualityOf, type Game } from '../sim/game';
 import { toScene } from './view';
 import { createAimer } from './aim';
-import { clearancePush, creepPartScale, creepRadius } from './clearance';
+import { creepPartScale } from './clearance';
 import { createEffects } from './effects';
 import { createPedalEffects } from './pedals';
-import { neighbourhood, wallMesh, wallRaster, type Occupancy } from './walls';
+import { TURRET_TOP, neighbourhood, wallMesh, wallRaster, type Occupancy } from './walls';
 
 // Everything on the board that the sim owns: stones, gem towers, creeps and combat effects.
 // Rebuilt from sim state after each tick; creeps interpolate between the last two ticks.
 
-// The art study draws thin tower footings (core half 0.22, plinth radius 0.31); the board stretches
-// them to fill their cell and drops their joining arms. Stones are board walls (walls.ts).
-const ALONG = 0.5 / 0.22;
+// The art study's tower plinth has radius 0.31; the board grows towers to fill their cell. Every
+// stone and tower cell is a block of the board wall (walls.ts) and towers stand on top of it.
 const PLINTH = 0.5 / 0.31;
+const PLINTH_HEIGHT = 0.12;
 const BAR = { width: 0.5, height: 0.07, back: '#25282C', fill: '#7ED07A', low: '#FFB3AF' };
 
 type Piece = { sig: string; obj: THREE.Object3D };
@@ -32,8 +32,6 @@ type CreepView = {
   prev: { x: number; y: number };
   cur: { x: number; y: number };
   height: number;
-  /** Collision radius in cells; 0 for flying creeps, which pass above the walls. */
-  radius: number;
 };
 
 const key = (c: Cell) => c.y * 64 + c.x;
@@ -97,6 +95,7 @@ function extraTower(name: string, options: Parameters<typeof createStone>[0]) {
   });
   base.add(head);
   base.userData.aimAt = () => {};
+  base.userData.extraTower = true;
   return base;
 }
 
@@ -111,15 +110,31 @@ function dispose(o: THREE.Object3D) {
 }
 
 /** Stretch a tower's stone base to fill its cell and keep the tower itself evenly scaled. */
-function fillTowerCell(obj: THREE.Object3D) {
-  obj.scale.setScalar(ALONG);
-  // Children: core mesh, one group per joining arm, then the tower itself.
-  obj.children.slice(1, -1).forEach(dispose);
+/**
+ * Build a tower into its cell's turret: drop the art-study footing (the board wall replaces it),
+ * scale the tower evenly, and sink its octagonal plinth into the turret so only the shaft rises
+ * from the brickwork.
+ */
+function seatTower(obj: THREE.Object3D) {
+  // Children: footing core, one group per joining arm, then the tower itself.
+  obj.children.slice(0, -1).forEach(dispose);
   const t = obj.children.at(-1)!;
   // Quality still sets the size, compressed so even a chipped tower fills most of its cell.
-  const s = PLINTH * (0.7 + 0.3 * t.scale.y);
-  t.scale.setScalar(s / ALONG); // undo the base stretch: the tower grows evenly
-  t.position.y = 0.08 * (1 - s / ALONG); // keep the plinth seated on the stone, as the factory does
+  const scale = PLINTH * (0.7 + 0.3 * t.scale.y);
+  t.scale.setScalar(scale);
+  t.position.y = 0;
+  obj.updateMatrixWorld(true);
+  const bottom = new THREE.Box3().setFromObject(t).min.y - obj.position.y;
+  // The art-study plinth is 0.12 tall at the bottom of the tower; named stones have none.
+  const plinth = obj.userData.extraTower ? 0 : PLINTH_HEIGHT * scale;
+  t.position.y = TURRET_TOP - bottom - plinth;
+}
+
+/** A pedal lies on the floor: its flat slab stretched to fill the cell. */
+function layTablet(obj: THREE.Object3D) {
+  const stretch = 0.5 / 0.22; // the art-study footing core is 0.44 wide
+  obj.scale.setScalar(stretch);
+  obj.children.at(-1)!.scale.setScalar(PLINTH / stretch); // the slab's head grows evenly
 }
 
 export function createPieces(scene: THREE.Scene, game: Game) {
@@ -146,7 +161,10 @@ export function createPieces(scene: THREE.Scene, game: Game) {
   beacon.position.y = 1.2;
   beacon.visible = false;
   scene.add(hero, beacon);
+  /** Tower models by cell key. */
   const cells = new Map<number, Piece>();
+  /** Wall blocks by cell key, for every stone and tower cell. */
+  const walls = new Map<number, Piece>();
   const creeps = new Map<number, CreepView>();
   const effects = createEffects(scene);
   const pedals = createPedalEffects(scene);
@@ -161,49 +179,64 @@ export function createPieces(scene: THREE.Scene, game: Game) {
     const occupied = new Map<number, { cell: Cell; name: string | null }>();
     for (const c of game.stones.values()) occupied.set(key(c), { cell: c, name: null });
     for (const g of game.gems) occupied.set(key(g.cell), { cell: g.cell, name: g.name });
-    const has = (x: number, y: number) => occupied.has(key({ x, y }));
+    // Pedals (tablets) are floor tiles creeps walk over: no wall under or around them.
+    const floor = new Set(
+      [...occupied].filter(([, o]) => o.name?.includes('shiban')).map(([k]) => k),
+    );
     const signature = [...occupied].map(([k, o]) => `${k}${o.name ? 't' : 's'}`).join();
     if (signature !== lastOccupancy) {
       lastOccupancy = signature;
-      occupancy = new Map([...occupied].map(([k, o]) => [k, o.name ? 'tower' : 'stone']));
+      occupancy = new Map(
+        [...occupied]
+          .filter(([k]) => !floor.has(k))
+          .map(([k, o]) => [k, o.name ? 'tower' : 'stone']),
+      );
       raster = wallRaster(occupancy);
     }
-    for (const [k, p] of cells)
-      if (!occupied.has(k)) {
-        dispose(p.obj);
-        cells.delete(k);
+    for (const map of [cells, walls])
+      for (const [k, p] of map)
+        if (
+          !occupied.has(k) ||
+          (map === cells && !occupied.get(k)!.name) ||
+          (map === walls && floor.has(k))
+        ) {
+          dispose(p.obj);
+          map.delete(k);
+          version++;
+        }
+    for (const [k, { cell, name }] of occupied) {
+      const { x: sx, z: sz } = toScene(cell);
+      // Wall block: rebuilt when anything in its 5×5 neighbourhood changes.
+      const wallSig = neighbourhood(occupancy, cell);
+      if (!floor.has(k) && walls.get(k)?.sig !== wallSig) {
+        if (walls.has(k)) dispose(walls.get(k)!.obj);
+        const obj = new THREE.Group().add(
+          ...[wallMesh(raster, cell, WALL_MATERIAL)].filter((m) => !!m),
+        );
+        obj.position.set(sx, 0, sz);
+        obj.userData.cell = cell;
+        scene.add(obj);
+        walls.set(k, { sig: wallSig, obj });
         version++;
       }
-    for (const [k, { cell, name }] of occupied) {
-      const { x, y } = cell;
-      const neighbours = {
-        north: has(x, y + 1),
-        south: has(x, y - 1),
-        east: has(x + 1, y),
-        west: has(x - 1, y),
-      };
-      const sig = name
-        ? `${name}|${Object.values(neighbours).join()}`
-        : `wall|${neighbourhood(occupancy, cell)}`;
-      if (cells.get(k)?.sig === sig) continue;
+      // Tower: rebuilt only when the gem changes; the wall handles every join.
+      if (!name || cells.get(k)?.sig === name) continue;
       if (cells.has(k)) dispose(cells.get(k)!.obj);
-      const { x: sx, z: sz } = toScene(cell);
-      const options = { x: sx, z: sz, neighbours, seed: 1 };
-      const basic = name !== null && isBasicGem(name);
-      const known = name !== null && TOWER_SPECS.some((t) => t.id === name);
-      const obj = name
-        ? basic || known
+      const options = { x: sx, z: sz, neighbours: {}, seed: 1 };
+      const basic = isBasicGem(name);
+      const obj =
+        basic || TOWER_SPECS.some((t) => t.id === name)
           ? createGemTower(basic ? name[6].toUpperCase() : name, {
               ...options,
               ...(basic ? { quality: qualityOf(name) } : {}),
             } as typeof options)
-          : extraTower(name, options)
-        : new THREE.Group().add(...[wallMesh(raster, cell, WALL_MATERIAL)].filter((m) => !!m));
+          : extraTower(name, options);
       obj.position.set(sx, 0, sz);
-      if (name) fillTowerCell(obj);
+      if (floor.has(k)) layTablet(obj);
+      else seatTower(obj);
       obj.userData.cell = cell;
       scene.add(obj);
-      cells.set(k, { sig, obj });
+      cells.set(k, { sig: name, obj });
       version++;
     }
   }
@@ -238,7 +271,6 @@ export function createPieces(scene: THREE.Scene, game: Game) {
           prev: { x: c.x, y: c.y },
           cur: { x: c.x, y: c.y },
           height: new THREE.Box3().setFromObject(obj).max.y + 0.15,
-          radius: c.fly ? 0 : creepRadius(scale, partScale),
         };
         creeps.set(c.id, v);
       }
@@ -257,7 +289,7 @@ export function createPieces(scene: THREE.Scene, game: Game) {
       return version;
     },
     /** Stones and towers, for occluder fading. */
-    objects: () => [...cells.values()].map((p) => p.obj),
+    objects: () => [...cells.values(), ...walls.values()].map((p) => p.obj),
     /** Call after every sim tick. */
     afterStep() {
       hero.visible = !!game.hero.selected;
@@ -306,12 +338,11 @@ export function createPieces(scene: THREE.Scene, game: Game) {
     },
     /** Call every frame; `alpha` is the fraction of the current tick that has elapsed. */
     frame(alpha: number, dt: number, reducedMotion = false) {
-      const isWall = (x: number, y: number) => occupancy.has(key({ x, y }));
       for (const v of creeps.values()) {
         const x = v.prev.x + (v.cur.x - v.prev.x) * alpha;
         const y = v.prev.y + (v.cur.y - v.prev.y) * alpha;
-        const push = v.radius ? clearancePush(x, y, v.radius, isWall) : { x: 0, y: 0 };
-        const s = toScene({ x: x + push.x, y: y + push.y });
+        // Creeps follow the sim's path through cell centres exactly.
+        const s = toScene({ x, y });
         // The creep factory already lifts flying bodies; the group stays on the ground with the shadow.
         v.obj.position.set(s.x, 0, s.z);
         const [dx, dy] = [v.cur.x - v.prev.x, v.cur.y - v.prev.y];
