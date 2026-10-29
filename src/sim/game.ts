@@ -41,6 +41,39 @@ const CASTLE_RADIUS = 400 / CELL_UNITS;
 const CASTLE_DAMAGE_SPREAD = [2, 6, 10, 14, 18, 26, 34, 42, 50, 58];
 
 export type Phase = 'build' | 'wave' | 'lost' | 'won';
+/**
+ * Aim modes a player can set per tower (GemTD's aim options). Closest is the original's
+ * acquisition and keeps its target while it stays in range; every other mode re-aims before each
+ * attack. First to exit is spawn order: the earliest spawned creep still alive.
+ */
+export const AIM = [
+  'Closest',
+  'First to exit',
+  'Lowest HP',
+  'Highest HP',
+  'Lowest HP %',
+  'Highest HP %',
+] as const;
+/** Added to an aim mode: bosses and elite (mutated) creeps are targeted before the rest. */
+export const AIM_BOSS = 8;
+/** MVP damage bonus per level, in percent, and its cap (attack, line 3690). */
+export const MVP_STEP = 10;
+export const MVP_CAP = 100;
+/** A buff or debuff currently on a tower or creep, for the inspector's status cards. */
+export interface Status {
+  /** Ability or modifier name, for display lookups and icons. */
+  key: string;
+  /** Buff (helps its holder) or debuff. */
+  good: boolean;
+  /** Effect lines in plain words, e.g. "+30 attack speed". */
+  effects: string[];
+  /** Seconds left, if it expires. */
+  left?: number;
+  /** Stack count or level, when it has one. */
+  count?: number;
+  /** Where it comes from: a tower name. */
+  from?: string;
+}
 export interface Gem {
   id: number;
   name: string;
@@ -55,6 +88,10 @@ export interface Gem {
   buffs?: Record<string, { expires: number; values: Record<string, number> }>;
   /** Natural Emerald copies up to three resolved VPK tower abilities from nearby ranged towers. */
   stolenAbilities?: TowerAbility[];
+  /** AIM index, plus AIM_BOSS for bosses first; unset is Closest, the original's targeting. */
+  aim?: number;
+  /** Ordered to hold fire (Dota's stop): it attacks nothing until told to resume. */
+  holdFire?: boolean;
 }
 export interface Creep {
   id: number;
@@ -107,6 +144,8 @@ export type GameEvent =
       via: HitVia;
     }
   | { type: 'kill'; id: number; gold: number }
+  /** A tablet (pedal) fired; its planned operations, for presentation. */
+  | { type: 'tablet'; from: number; target: number; operations: readonly TabletOperation[] }
   | { type: 'leak'; id: number; damage: number };
 export type Refusal = { ok: false; reason: string };
 export type Check = { ok: true } | Refusal;
@@ -1015,6 +1054,188 @@ export class Game {
   get guaiLevel() {
     return this.level > LAST_LEVEL ? this.level - LAST_LEVEL : this.level;
   }
+  /**
+   * The creep the coming (or current) wave spawns, for the HUD's wave preview. Some levels have a
+   * second creep chosen at random when the wave starts (`guai[level + 100]`); both are listed.
+   */
+  get wavePreview(): { names: string[]; count: number } {
+    const guai = this.luaValue<Record<string, string>>('guai');
+    const level = this.guaiLevel;
+    const names = [guai[level], guai[level + 100]].filter((n): n is string => !!n);
+    if (this.phase === 'wave' && this.spawnName) names.splice(0, names.length, this.spawnName);
+    const count = names[0]?.includes('boss') ? 1 : this.luaValue<number>('wave_enemy_count');
+    return { names, count };
+  }
+  /**
+   * Creeps still to spawn this wave, for the view's tunnel approach: how many, the ticks until the
+   * next one (after the latest step), the ticks between them, and their speed in cells per tick.
+   * Read-only; the variant some levels swap in at random is not known until it spawns.
+   */
+  get spawning(): {
+    name: string;
+    count: number;
+    next: number;
+    every: number;
+    speed: number;
+  } | null {
+    if (this.phase !== 'wave' || this.toSpawn <= 0) return null;
+    return {
+      name: this.spawnName,
+      count: this.toSpawn,
+      next: Math.max(0, this.nextSpawn - this.time),
+      every: SPAWN_TICKS,
+      speed: this.speedOf(this.spawnName),
+    };
+  }
+  /** Set a tower's aim mode (AIM index, plus AIM_BOSS for bosses first). */
+  setAim(id: number, mode: number): Check {
+    const gem = this.gems.find((g) => g.id === id);
+    if (!gem) return { ok: false, reason: 'No tower to aim.' };
+    if (gem.name.includes('shiban')) return { ok: false, reason: 'Pedals do not attack.' };
+    if (
+      !Number.isInteger(mode) ||
+      mode < 0 ||
+      mode >= 2 * AIM_BOSS ||
+      mode % AIM_BOSS >= AIM.length
+    )
+      return { ok: false, reason: 'Unknown aim mode.' };
+    if (mode === 0) delete gem.aim;
+    else gem.aim = mode;
+    return { ok: true };
+  }
+
+  /**
+   * Order a tower to hold fire or resume (Dota's stop and attack orders), e.g. to steer the wave's
+   * MVP award to another tower.
+   */
+  setHold(id: number, hold: boolean): Check {
+    const gem = this.gems.find((g) => g.id === id);
+    if (!gem) return { ok: false, reason: 'No tower to order.' };
+    if (gem.name.includes('shiban')) return { ok: false, reason: 'Pedals do not attack.' };
+    if (hold) gem.holdFire = true;
+    else delete gem.holdFire;
+    return { ok: true };
+  }
+
+  /** Buffs and debuffs on a tower: MVP, ally auras and fields, hero buffs, disarm. Read-only. */
+  towerStatuses(g: Gem): Status[] {
+    const out: Status[] = [];
+    if (g.level)
+      out.push({
+        key: 'mvp',
+        good: true,
+        count: g.level,
+        effects: [`+${Math.min(MVP_CAP, g.level * MVP_STEP)}% damage`],
+      });
+    const auras = new Set<string>();
+    for (const source of this.gems)
+      for (const a of this.gemAbilities(source)) {
+        if (a.kind !== 'aura' || auras.has(a.modifier) || !this.near(source.cell, g.cell, a.radius))
+          continue;
+        auras.add(a.modifier);
+        out.push({
+          key: a.name,
+          good: true,
+          effects: [`+${a.amount} attack speed`],
+          from: source.name,
+        });
+      }
+    const seen = new Set<string>();
+    for (const source of this.gems)
+      for (const a of this.gemAbilities(source)) {
+        if (a.kind !== 'field' || !a.ally || !this.near(source.cell, g.cell, a.radius)) continue;
+        const key = a.multiple ? `${a.modifier}:${source.id}` : a.modifier;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({
+          key: a.modifier,
+          good: true,
+          effects: [...propertyLines(a.properties), ...a.states.map(stateLine)],
+          from: source.name,
+        });
+      }
+    for (const [name, b] of Object.entries(g.buffs ?? {}))
+      if (b.expires > this.time)
+        out.push({
+          key: name,
+          good: true,
+          effects: Object.entries(b.values).map(([k, v]) => `${k.replaceAll('_', ' ')} ${v}`),
+          left: (b.expires - this.time) / TICK_HZ,
+        });
+    if (g.holdFire) out.push({ key: 'hold', good: false, effects: ['Not attacking'] });
+    if ((g.disabledUntil ?? 0) > this.time)
+      out.push({
+        key: 'disarmed',
+        good: false,
+        effects: ['Cannot attack'],
+        left: (g.disabledUntil! - this.time) / TICK_HZ,
+      });
+    return out;
+  }
+
+  /** Buffs and debuffs on a creep: modifiers from towers and pedals, shields, auras, rage. */
+  creepStatuses(c: Creep): Status[] {
+    const out: Status[] = [];
+    if (this.enraged)
+      out.push({ key: 'enraged', good: true, effects: ['+100% move speed', 'Immune to magic'] });
+    for (const [name, m] of Object.entries(c.modifiers ?? {})) {
+      const effects = [
+        ...(m.slow ? [`${m.slow} move speed`] : []),
+        ...(m.armor ? [`${m.armor} armor`] : []),
+        ...propertyLines(m.properties ?? {}).filter(
+          (l) => !/move speed$|armor$/.test(l) || !(m.slow || m.armor),
+        ),
+        ...(m.states ?? []).map(stateLine),
+        ...(m.poison
+          ? [`${m.poison.damage} magic damage every ${(m.poison.interval / TICK_HZ).toFixed(1)}s`]
+          : []),
+      ];
+      const source = m.poison ? this.gems.find((g) => g.id === m.poison!.source) : undefined;
+      out.push({
+        key: name.split(':')[0],
+        good: false,
+        effects,
+        left: Math.max(0, m.expires - this.time) / TICK_HZ,
+        ...(source ? { from: source.name } : {}),
+      });
+    }
+    if (c.shield && c.shield.charges > 0 && c.shield.expires > this.time)
+      out.push({
+        key: 'enemy_zheguang',
+        good: true,
+        count: c.shield.charges,
+        effects: [`Blocks ${c.shield.charges} more hits`],
+        left: (c.shield.expires - this.time) / TICK_HZ,
+      });
+    if ((c.hasteUntil ?? 0) > this.time)
+      out.push({
+        key: 'runrunrun',
+        good: true,
+        effects: ['+50% move speed'],
+        left: (c.hasteUntil! - this.time) / TICK_HZ,
+      });
+    const guards = this.creeps.filter(
+      (o) => this.enemySkills(o).includes('enemy_high_armor') && this.near(o, c, 500 / CELL_UNITS),
+    ).length;
+    if (guards)
+      out.push({
+        key: 'enemy_high_armor',
+        good: true,
+        count: guards,
+        effects: [`+${4 * guards} armor`],
+      });
+    return out;
+  }
+
+  /** A creep's own abilities (VPK skills plus any the wave grants). */
+  creepSkills(c: Creep) {
+    return this.enemySkills(c);
+  }
+
+  /** Damage each tower has dealt this wave, by tower id (read-only view for the damage meter). */
+  get damageThisWave(): Readonly<Record<number, number>> {
+    return this.waveDamage;
+  }
   /** Rage aura from the castle (enemy_crazy, line 3304): +100% speed and magic immunity. */
   get enraged() {
     return this.phase === 'wave' && this.waveTicks > 181 * TICK_HZ;
@@ -1039,13 +1260,12 @@ export class Game {
     if ([35, 36, 38].includes(this.guaiLevel) && this.rng.int(1, 100) > 50) name += '1';
     const u = this.units[name] ?? this.units[this.spawnName];
     const difficulty = this.luaValue<Record<string, number>>('gem_difficulty')[1];
-    const speedFactor = this.luaValue<Record<string, number>>('gem_difficulty_speed')[1];
     const elite = !name.includes('boss') && !name.includes('tester') && this.rng.int(1, 400) === 1;
     let hp =
       num(u, 'StatusHealth') *
       difficulty *
       (elite ? ((51 - Math.min(this.level, 50)) / 50) * 6 + 2 : 1);
-    let speed = (num(u, 'MovementSpeed') * speedFactor) / CELL_UNITS / TICK_HZ;
+    const speed = this.speedOf(name);
     const skills = new Set([
       ...this.skills(name),
       ...(this.luaValue<Record<string, string[]>>('guai_ability')[this.guaiLevel] ?? []),
@@ -1062,7 +1282,6 @@ export class Game {
         skills.add(skill);
       }
       hp = hp > 10000 ? 999999999 : hp * 100000;
-      speed *= 1.8;
     }
     hp = Math.max(1, Math.floor(hp));
     const damage =
@@ -1087,6 +1306,14 @@ export class Game {
       skills: [...skills],
     });
     this.toSpawn--;
+  }
+
+  /** Spawn movement speed in cells per tick, before modifiers; endless creeps run 1.8 times faster. */
+  private speedOf(name: string) {
+    const u = this.units[name] ?? this.units[this.spawnName];
+    const factor = this.luaValue<Record<string, number>>('gem_difficulty_speed')[1];
+    const speed = (num(u, 'MovementSpeed') * factor) / CELL_UNITS / TICK_HZ;
+    return this.level > LAST_LEVEL ? speed * 1.8 : speed;
   }
 
   private move(c: Creep) {
@@ -1300,6 +1527,12 @@ export class Game {
         );
         if (!plan.ok) continue;
         this.tabletReady[g.id] = plan.cooldownUntil;
+        this.events.push({
+          type: 'tablet',
+          from: g.id,
+          target: plan.target,
+          operations: plan.plans,
+        });
         for (const operation of plan.plans) {
           if (operation.modifier === 'modifier_howl_unit_datadriven') {
             for (const ally of this.gems)
@@ -1540,6 +1773,10 @@ export class Game {
     const u = this.units[g.name];
     if (u.AttackCapabilities === 'DOTA_UNIT_CAP_NO_ATTACK' || num(u, 'AttackRate') <= 0) return;
     if ((g.disabledUntil ?? 0) > tick) return;
+    if (g.holdFire) {
+      g.target = null;
+      return;
+    }
     const protectedTower = this.towerState(g, 'MODIFIER_STATE_MAGIC_IMMUNE');
     if (
       !protectedTower &&
@@ -1554,14 +1791,24 @@ export class Game {
     }
     const range = this.attackRange(g);
     const dist2 = (c: Creep) => sq(c.x - g.cell.x) + sq(c.y - g.cell.y);
-    let target = this.creeps.find(
-      (c) => c.id === g.target && dist2(c) <= range * range && this.visible(c),
-    );
+    const aim = g.aim ?? 0;
+    // Closest keeps its target while it can; other aim modes re-aim when ready to attack.
+    let target =
+      aim === 0 || g.cooldown > 0
+        ? this.creeps.find((c) => c.id === g.target && dist2(c) <= range * range && this.visible(c))
+        : undefined;
     if (!target) {
-      let best = Infinity;
+      const mode = aim % AIM_BOSS;
+      const bossFirst = aim >= AIM_BOSS;
+      let [bestRank, best] = [Infinity, Infinity];
       for (const c of this.creeps) {
         const d = dist2(c);
-        if (d <= range * range && d < best && this.visible(c)) [best, target] = [d, c];
+        if (d > range * range || !this.visible(c)) continue;
+        const rank = bossFirst && (c.boss || c.elite) ? 0 : 1;
+        const share = c.hp / c.maxHp;
+        const v = [d, c.id, c.hp, -c.hp, share, -share][mode];
+        if (rank < bestRank || (rank === bestRank && v < best))
+          [bestRank, best, target] = [rank, v, c];
       }
     }
     g.target = target?.id ?? null;
@@ -1903,3 +2150,35 @@ export class Game {
 
 const key = (c: Cell) => c.y * 64 + c.x;
 const sq = (v: number) => v * v;
+
+const PROPERTY_LABELS: Record<string, [string, string]> = {
+  MODIFIER_PROPERTY_ATTACKSPEED_BONUS_CONSTANT: ['', ' attack speed'],
+  MODIFIER_PROPERTY_DAMAGEOUTGOING_PERCENTAGE: ['', '% damage'],
+  MODIFIER_PROPERTY_ATTACK_RANGE_BONUS: ['', ' attack range'],
+  MODIFIER_PROPERTY_MOVESPEED_BONUS_CONSTANT: ['', ' move speed'],
+  MODIFIER_PROPERTY_MOVESPEED_BONUS_PERCENTAGE: ['', '% move speed'],
+  MODIFIER_PROPERTY_PHYSICAL_ARMOR_BONUS: ['', ' armor'],
+  MODIFIER_PROPERTY_MAGICAL_RESISTANCE_BONUS: ['', '% magic resistance'],
+  MODIFIER_PROPERTY_MAGICAL_RESISTANCE_DECREPIFY_UNIQUE: ['', '% magic resistance'],
+  MODIFIER_PROPERTY_INCOMING_DAMAGE_PERCENTAGE: ['', '% damage taken'],
+};
+/** VPK modifier properties as plain effect lines, e.g. "+30 attack speed". */
+function propertyLines(properties: Record<string, number>) {
+  return Object.entries(properties).flatMap(([k, v]) => {
+    if (k === 'MODIFIER_PROPERTY_DISABLE_HEALING') return v ? ['Cannot regenerate'] : [];
+    const label = PROPERTY_LABELS[k];
+    if (!label || !v) return [];
+    return [`${v > 0 ? '+' : ''}${v}${label[1]}`];
+  });
+}
+/** A VPK modifier state in plain words. */
+function stateLine(state: string) {
+  const words: Record<string, string> = {
+    MODIFIER_STATE_STUNNED: 'Stunned',
+    MODIFIER_STATE_ROOTED: 'Rooted',
+    MODIFIER_STATE_MAGIC_IMMUNE: 'Magic immune',
+    MODIFIER_STATE_DISARMED: 'Disarmed',
+    MODIFIER_STATE_SILENCED: 'Silenced',
+  };
+  return words[state] ?? state.replace('MODIFIER_STATE_', '').toLowerCase().replaceAll('_', ' ');
+}
