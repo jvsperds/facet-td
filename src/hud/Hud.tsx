@@ -1,138 +1,188 @@
 import { useSignal, type Signal } from '@preact/signals';
 import type { ComponentChildren, Ref } from 'preact';
-import { useRef } from 'preact/hooks';
+import { useEffect, useRef } from 'preact/hooks';
 import type { Audio } from '../audio';
 import type { Feedback } from './feedback';
 import type { Cell } from '../sim/board';
-import { DRAFT_SIZE, LAST_LEVEL, isBasicGem, qualityOf, type Check, type Game } from '../sim/game';
+import { DRAFT_SIZE, LAST_LEVEL, type Game } from '../sim/game';
 import type { RecipeKind } from '../sim/progression';
 import type { Cmd, Sim } from '../sim/sim';
+import { CommandCard, SKILL_KEYS, heroTarget } from './CommandCard';
+import { DamageMeter } from './DamageMeter';
 import { HeroPanel } from './HeroPanel';
-import { GemGlyph, ICONS } from './icons';
-import { announcement, rotateMode, selected, view, type CameraActions } from '../input/camera';
+import { GlyphDefs, ICONS, Icon } from './icons';
+import { GameMenu, TitleScreen } from './Menu';
+import { TowerIcon } from './TowerIcon';
+import { code, compact, displayName } from './names';
+import { PinnedRecipes, RecipeBook } from './RecipeBook';
+import {
+  announcement,
+  rotateMode,
+  selected,
+  selectedCreep,
+  view,
+  type CameraActions,
+} from '../input/camera';
 
-// DOM overlay: status bar, top-left round summary, lower-left selection info with actions,
-// lower-right icon toolstrip with camera flyout, end-of-game card.
+// DOM overlay on the full-screen cave, laid out after GemTD's HUD:
+// - top bar: wave and the coming creep, castle HP, gold, build level and XP, and the menu;
+// - top left: this round's five gems, compact;
+// - bottom centre: the command card (hero and skills, or the selection) with its hotkeys;
+// - right edge: a small vertical tool strip; beside it pinned recipes, the recipe book and the
+//   damage meter.
 // Panels marked data-exclude are measured and kept clear of playable cells by the camera fit.
 
-const WAYPOINT_NAMES = [
-  'Spawn (S)',
-  'Checkpoint 1',
-  'Checkpoint 2',
-  'Checkpoint 3',
-  'Checkpoint 4',
-  'Checkpoint 5',
-  'Castle exit (E)',
-];
-const QUALITY = ['', 'Chipped', 'Flawed', 'Normal', 'Flawless', 'Perfect', 'Huge'];
-const XP_NEXT = [250, 650, 1200, 1900];
+const XP_LEVELS = [0, 250, 650, 1200, 1900];
 const CASTLE_MAX = 100;
+const SPEEDS = [
+  [1, 'Normal speed'],
+  [2, 'Double speed'],
+  [4, 'Quadruple speed'],
+] as const;
 
 type Props = {
   sim: Sim;
   ticked: Signal<number>;
   paused: Signal<boolean>;
+  speed: Signal<number>;
   send: (cmd: Cmd) => void;
   actions: CameraActions;
   mode: string;
   feedback: Feedback;
   audio: Audio;
   routeVisible: Signal<boolean>;
+  aurasVisible: Signal<boolean>;
+  /** The title screen instead of a run. */
+  title?: boolean;
 };
 
-/** English display name from the original localization, e.g. "chipped sapphire/B1" -> "Chipped sapphire". */
-function displayName(sim: Sim, unit: string) {
-  const tokens = (
-    sim.data.files['localization/english.json'] as { lang: { Tokens: Record<string, string> } }
-  ).lang.Tokens;
-  const text = (tokens[unit] ?? unit).split('/')[0];
-  return text.charAt(0).toUpperCase() + text.slice(1);
-}
-const code = (name: string) =>
-  isBasicGem(name) ? `${name[6].toUpperCase()}${qualityOf(name)}` : '★';
-const gemType = (name: string) => (isBasicGem(name) ? name[6] : undefined);
 const same = (a: Cell, b: Cell) => a.x === b.x && a.y === b.y;
+const typing = (e: KeyboardEvent) =>
+  e.target instanceof HTMLInputElement ||
+  e.target instanceof HTMLSelectElement ||
+  e.target instanceof HTMLTextAreaElement;
 
-export function Hud({
-  sim,
-  ticked,
-  paused,
-  send,
-  actions,
-  mode,
-  feedback,
-  audio,
-  routeVisible,
-}: Props) {
+export function Hud(props: Props) {
+  const { sim, ticked, paused, speed, send, actions, mode, feedback, audio, routeVisible } = props;
+  const aurasVisible = props.aurasVisible;
   // Passed down as a prop: signal-aware components skip re-renders when only their parent's signals change.
   const tick = ticked.value;
   const game = sim.game;
   const flyout = useSignal(false);
   const heroOpen = useSignal(false);
+  const menuOpen = useSignal(false);
+  const recipesOpen = useSignal(false);
+  const meterOpen = useSignal(matchMedia('(min-width: 1101px)').matches);
   const cameraButton = useRef<HTMLButtonElement>(null);
-  const heroButton = useRef<HTMLButtonElement>(null);
+  const menuButton = useRef<HTMLButtonElement>(null);
   const v = view.value;
-  const level = game.heroLevel;
-  const phase = paused.value
-    ? 'Paused'
-    : game.phase === 'build'
-      ? 'Build'
-      : game.phase === 'wave'
-        ? game.enraged
-          ? 'Wave · Enraged'
-          : 'Wave'
-        : 'Game over';
-  const hp = Math.max(0, game.castleHp);
   const closeFlyout = () => {
     flyout.value = false;
     cameraButton.current?.focus();
   };
+  const togglePause = () => {
+    paused.value = !paused.value;
+    announcement.value = paused.value ? 'Paused' : 'Resumed';
+  };
+  const setSpeed = (s: number, label: string) => {
+    speed.value = s;
+    announcement.value = label;
+  };
+  const openMenu = () => {
+    menuOpen.value = true;
+    paused.value = true;
+  };
+
+  // Global shortcuts; the board canvas keeps its own arrows, Enter, B and zoom keys.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (typing(e) || e.ctrlKey || e.metaKey || e.altKey || document.querySelector('dialog[open]'))
+        return;
+      const k = e.key.toLowerCase();
+      if (k === 'p') togglePause();
+      else if (k === '1' || k === '2' || k === '3') {
+        const [s, label] = SPEEDS[Number(k) - 1];
+        setSpeed(s, label);
+      } else if (k === 'r') recipesOpen.value = !recipesOpen.value;
+      else if (k === 'd') meterOpen.value = !meterOpen.value;
+      else if (k === 'h') heroOpen.value = true;
+      else if (k === 't') actions.toggleMode();
+      else if (k === 'a') {
+        aurasVisible.value = !aurasVisible.value;
+        announcement.value = aurasVisible.value ? 'Auras shown' : 'Auras hidden';
+      } else if (k === 'escape') {
+        // Close the book, else drop the selection, else open the menu (GemTD's Esc).
+        if (recipesOpen.value) recipesOpen.value = false;
+        else if (selected.value || selectedCreep.value !== null) {
+          selected.value = null;
+          selectedCreep.value = null;
+          announcement.value = 'Selection cleared';
+        } else openMenu();
+      } else if (SKILL_KEYS.includes(e.key.toUpperCase())) {
+        const g = sim.game;
+        const skill = g.heroActions().filter((a) => a.supported)[
+          SKILL_KEYS.indexOf(e.key.toUpperCase())
+        ];
+        if (!skill) return;
+        const { point, target } = heroTarget(g);
+        send({ type: 'hero-cast', action: skill.name, target, point });
+      } else if (k === 's') {
+        // Hold fire / resume on the selected tower (Dota's stop and attack).
+        const gem = selected.value && sim.game.gemAt(selected.value);
+        if (!gem || gem.name.includes('shiban')) return;
+        send({ type: 'hold', id: gem.id, hold: !gem.holdFire });
+      } else if (k === 'k' || k === 'c') {
+        const gem = selected.value && sim.game.gemAt(selected.value);
+        if (!gem) return;
+        if (k === 'k' && sim.game.keepResult(gem.id, 0).ok)
+          send({ type: 'keep', id: gem.id, upgrade: 0 });
+        const option = sim.game.combineOptions(gem.id)[0];
+        if (k === 'c' && option && option.placement !== 'separate')
+          send({
+            type: 'combine',
+            id: gem.id,
+            kind: option.kind as RecipeKind,
+            result: option.result,
+          });
+      } else return;
+      e.preventDefault();
+    };
+    addEventListener('keydown', onKey);
+    return () => removeEventListener('keydown', onKey);
+  }, []);
+
+  if (props.title) return <TitleScreen />;
   return (
     <>
-      <header class="status" data-exclude>
-        <div class="status-row">
-          <strong class="brand">Facet TD</strong>
-          <span class="tag">{mode === 'classic' ? 'Classic' : 'Facet'}</span>
-          <span class="tabular">
-            {game.level > LAST_LEVEL
-              ? `Endless wave ${game.level}`
-              : `Wave ${game.level}/${LAST_LEVEL}`}
-          </span>
-          <span class={`phase ${game.enraged && !paused.value ? 'danger' : ''}`}>{phase}</span>
-        </div>
-        <div class="status-row resources">
-          <span
-            class={`castle tabular ${hp <= 25 ? 'danger' : ''}`}
-            aria-label={`Castle ${game.castleHp} of ${CASTLE_MAX} HP`}
-          >
-            Castle {game.castleHp}
-            <span class="meter" aria-hidden="true">
-              <span style={{ width: `${Math.min(100, (hp / CASTLE_MAX) * 100)}%` }} />
-            </span>
-          </span>
-          <span class="tabular">Gold {game.gold}</span>
-          <span
-            class="tabular"
-            title={
-              level < 5
-                ? `${game.xp} of ${XP_NEXT[level - 1]} XP to the next build level`
-                : 'Highest build level'
-            }
-          >
-            Build Lv {level}
-          </span>
-        </div>
-      </header>
-
-      <RoundSummary sim={sim} tick={tick} feedback={feedback} />
-      <SelectionPanel sim={sim} send={send} tick={tick} />
-      {heroOpen.value && (
-        <HeroPanel
-          sim={sim}
-          send={send}
+      <GlyphDefs />
+      <TopBar
+        sim={sim}
+        paused={paused.value}
+        mode={mode}
+        menuButton={menuButton}
+        openMenu={openMenu}
+      />
+      <PhaseCard sim={sim} tick={tick} feedback={feedback} paused={paused.value} />
+      <CommandCard sim={sim} send={send} tick={tick} openHero={() => (heroOpen.value = true)} />
+      <div class="side">
+        <PinnedRecipes data={sim.data} game={game} />
+        {recipesOpen.value ? (
+          <RecipeBook data={sim.data} game={game} close={() => (recipesOpen.value = false)} />
+        ) : (
+          meterOpen.value &&
+          (game.phase === 'wave' || Object.keys(game.damageThisWave).length > 0) && (
+            <DamageMeter data={sim.data} game={game} />
+          )
+        )}
+      </div>
+      {heroOpen.value && <HeroPanel sim={sim} send={send} close={() => (heroOpen.value = false)} />}
+      {menuOpen.value && (
+        <GameMenu
+          seed={sim.seed}
           close={() => {
-            heroOpen.value = false;
-            heroButton.current?.focus();
+            menuOpen.value = false;
+            paused.value = false;
+            menuButton.current?.focus();
           }}
         />
       )}
@@ -161,6 +211,13 @@ export function Hud({
               Show routes
             </button>
             <button
+              aria-pressed={aurasVisible.value}
+              aria-keyshortcuts="A"
+              onClick={() => (aurasVisible.value = !aurasVisible.value)}
+            >
+              Show auras <kbd aria-hidden="true">A</kbd>
+            </button>
+            <button
               disabled={!audio.available.value}
               aria-pressed={audio.enabled.value}
               onClick={() => audio.toggle()}
@@ -172,9 +229,59 @@ export function Hud({
             <small class="muted legend">Routes: ground solid · flying dashed</small>
           </div>
         )}
-        <div class="strip panel" role="toolbar" aria-label="Tools" onKeyDown={rovingFocus}>
+        <div
+          class="strip panel"
+          role="toolbar"
+          aria-label="Tools"
+          aria-orientation="vertical"
+          onKeyDown={rovingFocus}
+        >
+          <Tool label="Pause" hint="P" pressed={paused.value} onClick={togglePause}>
+            {paused.value ? ICONS.play : ICONS.pause}
+          </Tool>
+          {SPEEDS.map(([s, label], i) => (
+            <button
+              class="tool speed tabular"
+              aria-label={label}
+              aria-keyshortcuts={`${i + 1}`}
+              data-tip={`${label} (${i + 1})`}
+              aria-pressed={speed.value === s}
+              onClick={() => setSpeed(s, label)}
+            >
+              {s}×
+            </button>
+          ))}
+          <span class="sep" aria-hidden="true" />
+          <Tool
+            label="Recipes"
+            hint="R"
+            pressed={recipesOpen.value}
+            onClick={() => (recipesOpen.value = !recipesOpen.value)}
+          >
+            {ICONS.book}
+          </Tool>
+          <Tool
+            label="Damage"
+            hint="D"
+            pressed={meterOpen.value && !recipesOpen.value}
+            onClick={() => {
+              recipesOpen.value = false;
+              meterOpen.value = !meterOpen.value;
+            }}
+          >
+            {ICONS.meter}
+          </Tool>
+          <Tool
+            label="Routes"
+            pressed={routeVisible.value}
+            onClick={() => (routeVisible.value = !routeVisible.value)}
+          >
+            {ICONS.route}
+          </Tool>
+          <span class="sep" aria-hidden="true" />
           <Tool
             label={v.mode === 'iso' ? 'Switch to top view' : 'Switch to isometric view'}
+            hint="T"
             onClick={actions.toggleMode}
           >
             {v.mode === 'iso' ? ICONS.iso : ICONS.top}
@@ -195,24 +302,6 @@ export function Hud({
           >
             {ICONS.camera}
           </Tool>
-          <Tool
-            label="Hero"
-            haspopup="dialog"
-            ref={heroButton}
-            onClick={() => (heroOpen.value = true)}
-          >
-            {ICONS.hero}
-          </Tool>
-          <Tool
-            label="Pause"
-            pressed={paused.value}
-            onClick={() => {
-              paused.value = !paused.value;
-              announcement.value = paused.value ? 'Paused' : 'Resumed';
-            }}
-          >
-            {paused.value ? ICONS.play : ICONS.pause}
-          </Tool>
         </div>
       </div>
 
@@ -225,7 +314,6 @@ export function Hud({
   );
 }
 
-/** Arrow keys move focus along the toolbar (WAI-ARIA toolbar pattern); Tab leaves it. */
 function rovingFocus(e: KeyboardEvent) {
   const step = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[e.key];
   if (!step) return;
@@ -236,27 +324,135 @@ function rovingFocus(e: KeyboardEvent) {
   e.preventDefault();
 }
 
+function TopBar({
+  sim,
+  paused,
+  mode,
+  menuButton,
+  openMenu,
+}: {
+  sim: Sim;
+  paused: boolean;
+  mode: string;
+  menuButton: Ref<HTMLButtonElement>;
+  openMenu: () => void;
+}) {
+  const game = sim.game;
+  const hp = Math.max(0, game.castleHp);
+  const level = game.heroLevel;
+  const [from, to] = [XP_LEVELS[level - 1] ?? 0, XP_LEVELS[level]];
+  const xpShare = to ? Math.min(1, (game.xp - from) / (to - from)) : 1;
+  const wave = game.wavePreview;
+  const creep = wave.names.map((n) => displayName(sim.data, n)).join(' or ');
+  return (
+    <header class="topbar" data-exclude>
+      <strong class="brand">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 2.5 20 8l-3 11.5H7L4 8z M4 8h16 M12 2.5 9 8l3 11.5L15 8z" />
+        </svg>
+        Facet TD
+      </strong>
+      <span class="tag">{mode === 'classic' ? 'Classic' : 'Facet'}</span>
+      <span class="wave tabular">
+        <span class="label">Wave</span>
+        <b>{game.level > LAST_LEVEL ? `∞${game.level}` : game.level}</b>
+        {game.level <= LAST_LEVEL && <span class="of">/{LAST_LEVEL}</span>}
+      </span>
+      <span class="next" title={creep}>
+        <span class="label">{game.phase === 'wave' ? 'Now' : 'Next'}</span>
+        <span class="next-name">{creep}</span>
+        <span class="tabular muted">×{wave.count}</span>
+      </span>
+      {(paused || game.enraged) && (
+        <span class={`flag ${game.enraged && !paused ? 'danger' : ''}`}>
+          {paused ? 'Paused' : 'Enraged'}
+        </span>
+      )}
+      <span class="spacer" />
+      <span
+        class={`castle tabular ${hp <= 25 ? 'danger' : ''}`}
+        aria-label={`Castle ${game.castleHp} of ${CASTLE_MAX} HP`}
+      >
+        <Icon name="heart" />
+        <span class="blocks" aria-hidden="true">
+          {Array.from({ length: 10 }, (_, i) => (
+            <i class={hp > i * 10 ? (hp >= (i + 1) * 10 ? 'on' : 'part') : ''} />
+          ))}
+        </span>
+        {game.castleHp}
+      </span>
+      <span class="gold tabular" aria-label={`Gold ${game.gold}`}>
+        <Icon name="coin" />
+        {compact(game.gold)}
+      </span>
+      <span
+        class="level tabular"
+        title={level < 5 ? `${game.xp} of ${to} XP to the next build level` : 'Highest build level'}
+      >
+        <span class="label">Lv</span>
+        <b>{level}</b>
+        <span class="meter xp" aria-hidden="true">
+          <span style={{ width: `${xpShare * 100}%` }} />
+        </span>
+      </span>
+      <button
+        class="menu-button"
+        ref={menuButton}
+        aria-haspopup="dialog"
+        aria-keyshortcuts="Escape"
+        onClick={openMenu}
+      >
+        <Icon name="menu" />
+        Menu
+        <kbd aria-hidden="true">Esc</kbd>
+      </button>
+    </header>
+  );
+}
+
 /** The five gems placed this round (IMPLEMENTATION.md "HUD and input"); a filled slot selects its gem. */
-function RoundSummary({ sim, feedback }: { sim: Sim; tick: number; feedback: Feedback }) {
+function PhaseCard({
+  sim,
+  feedback,
+  paused,
+}: {
+  sim: Sim;
+  tick: number;
+  feedback: Feedback;
+  paused: boolean;
+}) {
   const game = sim.game;
   const draft = game.draft.map((id) => game.gems.find((g) => g.id === id)!);
   const reward = feedback.reward.value;
+  const picking = game.phase === 'build' && draft.length === DRAFT_SIZE;
+  const chip = paused
+    ? 'Paused'
+    : game.phase === 'wave'
+      ? 'Wave'
+      : picking
+        ? 'Picking'
+        : game.phase === 'build'
+          ? 'Building'
+          : 'Over';
   return (
     <section class="panel summary" data-exclude aria-label="This round">
       <div class="panel-head">
-        <h2 class="panel-title">
-          {game.phase === 'wave' ? (
-            `Wave ${game.level}`
-          ) : (
-            <>
-              Place gems <span class="tabular">({draft.length}/5)</span>
-            </>
-          )}
-        </h2>
+        <span class={`chip phase-chip ${game.phase === 'wave' ? 'wave' : ''}`}>{chip}</span>
         <p class="reward tabular" aria-label="Wave rewards" title="Kills and gold this wave">
           {reward.kills} kills · +{reward.gold} gold
         </p>
       </div>
+      <h2 class="panel-title">
+        {game.phase === 'wave' ? (
+          `Wave ${game.level}`
+        ) : picking ? (
+          'Keep one gem or combine'
+        ) : (
+          <>
+            Place gems <span class="tabular">({draft.length}/5)</span>
+          </>
+        )}
+      </h2>
       {game.phase === 'wave' ? (
         <p class="wave-line tabular">
           {game.creeps.length} {game.creeps.length === 1 ? 'creep' : 'creeps'} on the board
@@ -272,22 +468,25 @@ function RoundSummary({ sim, feedback }: { sim: Sim; tick: number; feedback: Fee
                   <span class="slot-code">—</span>
                 </button>
               );
-            const label = `Gem ${i + 1} of 5: ${displayName(sim, g.name)}, cell ${g.cell.x}, ${g.cell.y}`;
+            const name = displayName(sim.data, g.name);
+            const label = `Gem ${i + 1} of 5: ${name}, cell ${g.cell.x}, ${g.cell.y}`;
             const active = selected.value !== null && same(selected.value, g.cell);
+            const combines = game.combineOptions(g.id).length > 0;
             return (
               <button
                 class={`slot gem-${g.name[6]}`}
                 aria-label={label}
-                title={label}
+                title={combines ? `${label}. Can combine.` : label}
                 aria-pressed={active}
                 onClick={() => {
                   selected.value = { ...g.cell };
-                  announcement.value = `Selected ${displayName(sim, g.name)}`;
+                  announcement.value = `Selected ${name}`;
                 }}
               >
                 <span class="slot-n">{i + 1}</span>
-                <GemGlyph type={gemType(g.name)} />
+                <TowerIcon name={g.name} />
                 <span class="slot-code">{code(g.name)}</span>
+                {combines && <span class="combine-dot" aria-hidden="true" />}
               </button>
             );
           })}
@@ -301,220 +500,6 @@ function RoundSummary({ sim, feedback }: { sim: Sim; tick: number; feedback: Fee
       >
         {feedback.notice.value.text}
       </p>
-    </section>
-  );
-}
-
-function abilityNotes(game: Game, name: string) {
-  const notes: string[] = [];
-  for (const a of game.abilities(name)) {
-    if (a.kind === 'slow') notes.push(`On hit: ${a.amount} movement speed for ${a.duration}s`);
-    else if (a.kind === 'armor') notes.push(`On hit: ${a.amount} armor for ${a.duration}s`);
-    else if (a.kind === 'speed') notes.push(`+${a.amount} attack speed`);
-    else if (a.kind === 'aura')
-      notes.push(`Aura: +${a.amount} attack speed within ${a.radius.toFixed(2)} cells`);
-    else if (a.kind === 'damage') notes.push(`+${a.amount}% base attack damage`);
-    else if (a.kind === 'split') notes.push(`${a.count} additional targets`);
-    else if (a.kind === 'splash')
-      notes.push(`${a.amount * 100}% pure splash within ${a.radius.toFixed(2)} cells`);
-    else if (a.kind === 'poison')
-      notes.push(
-        `Stacking poison: ${a.amount} magic damage every ${a.interval}s for ${a.duration}s`,
-      );
-  }
-  return notes;
-}
-
-function SelectionPanel({ sim, send }: { sim: Sim; send: (cmd: Cmd) => void; tick: number }) {
-  const game = sim.game;
-  const pending = useSignal<{ id: number; kind: RecipeKind; result: string } | null>(null);
-  // Short phones start with the sheet collapsed to its title and actions so the board keeps room.
-  const collapsed = useSignal(matchMedia('(max-width: 600px) and (max-height: 700px)').matches);
-  const cell = selected.value;
-  const toggle = (
-    <button
-      class="tool collapse"
-      aria-label={collapsed.value ? 'Show details' : 'Hide details'}
-      aria-expanded={!collapsed.value}
-      aria-controls="info-body"
-      onClick={() => (collapsed.value = !collapsed.value)}
-    >
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        {collapsed.value ? ICONS.chevronUp : ICONS.chevronDown}
-      </svg>
-    </button>
-  );
-  const cls = `panel info ${collapsed.value ? 'collapsed' : ''}`;
-  if (!cell)
-    return (
-      <section class={cls} data-exclude aria-label="Selection">
-        <div class="info-head">
-          <div class="info-title">
-            <h2>{game.phase === 'build' ? 'Build' : 'Inspect'}</h2>
-          </div>
-          {toggle}
-        </div>
-        <div class="info-body" id="info-body">
-          <p>
-            {game.phase === 'build'
-              ? `Select an open cell and place gem ${game.draft.length + 1} of 5.`
-              : 'Click or tap a cell to inspect it.'}
-          </p>
-          <p class="muted">Arrow keys move the board cursor; Enter selects.</p>
-        </div>
-      </section>
-    );
-  const gem = game.gemAt(cell);
-  const kind = sim.board.kind(cell);
-  let title = 'Open cell';
-  let subtitle = '';
-  let detail = '';
-  const stats: [string, string][] = [];
-  const notes: string[] = [];
-  const buttons: [string, Check, Cmd][] = [];
-  if (gem) {
-    const u = game.unit(gem.name);
-    title = displayName(sim, gem.name);
-    subtitle = isBasicGem(gem.name)
-      ? `${code(gem.name)} · ${QUALITY[qualityOf(gem.name)]} ${qualityOf(gem.name)}/6`
-      : 'Combined';
-    stats.push(
-      ['Damage', `${u.AttackDamageMin ?? 0}–${u.AttackDamageMax ?? 0}`],
-      ['Attack', `every ${game.attackInterval(gem).toFixed(2)}s`],
-      ['Range', `${(Number(u.AttackRange ?? 0) / 128).toFixed(1)} cells`],
-    );
-    notes.push(...abilityNotes(game, gem.name));
-    if (game.draft.includes(gem.id))
-      for (const up of [0, 1, 2] as const) {
-        const r = game.keepResult(gem.id, up);
-        if (up === 0 || r.ok || game.draft.length === DRAFT_SIZE)
-          buttons.push([up ? `Keep +${up}` : 'Keep', r, { type: 'keep', id: gem.id, upgrade: up }]);
-        if (up && r.ok) notes.push(`Keep +${up} makes ${displayName(sim, r.name).toLowerCase()}`);
-      }
-    if (game.draft.includes(gem.id) && qualityOf(gem.name) > 1)
-      buttons.push([
-        'Downgrade and keep',
-        game.canDowngrade(gem.id),
-        { type: 'downgrade', id: gem.id },
-      ]);
-    if (game.draft.includes(gem.id) && game.hero.abilities.gemtd_hero_fengbaozhichui)
-      buttons.push([
-        'Hammer: −1 level and keep',
-        game.canHammer(gem.id),
-        { type: 'downgrade', id: gem.id, hammer: true },
-      ]);
-  } else if (game.stoneAt(cell)) {
-    title = 'Stone';
-    detail = 'Blocks the creep route. A gem can be built over it.';
-    buttons.push(['Remove stone', game.canRemove(cell), { type: 'remove', cell }]);
-  } else if (kind === 'waypoint') {
-    title = WAYPOINT_NAMES[sim.board.waypoints.findIndex((w) => same(w.cell, cell))];
-    detail = 'Creep route waypoint. Cannot build here.';
-  } else if (kind === 'no-build') {
-    title = 'No-build zone';
-    detail = cell.x <= 9 ? 'Reserved around the spawn.' : 'Reserved around the castle.';
-  }
-  if (!gem && kind !== 'waypoint' && kind !== 'no-build')
-    buttons.unshift(['Place gem', game.canBuild(cell), { type: 'build', cell }]);
-  const refusal = buttons.find(([, check]) => !check.ok)?.[1];
-  const combines = gem ? game.combineOptions(gem.id) : [];
-  // The first enabled command is the primary action and takes the pale action fill.
-  const primary = buttons.findIndex(([, check]) => check.ok);
-  return (
-    <section class={cls} data-exclude aria-label="Selection">
-      <div class="info-head">
-        {gem && (
-          <span class={`swatch ${gemType(gem.name) ? `gem-${gemType(gem.name)}` : ''}`}>
-            <GemGlyph type={gemType(gem.name)} />
-          </span>
-        )}
-        <div class="info-title">
-          <h2>{title}</h2>
-          <p class="muted tabular">
-            {subtitle && `${subtitle} · `}Cell {cell.x}, {cell.y}
-          </p>
-        </div>
-        {toggle}
-      </div>
-      <div class="info-body" id="info-body">
-        {detail && <p>{detail}</p>}
-        {stats.length > 0 && (
-          <dl class="stats tabular">
-            {stats.map(([k, val]) => (
-              <div key={k}>
-                <dt>{k}</dt>
-                <dd>{val}</dd>
-              </div>
-            ))}
-          </dl>
-        )}
-        {notes.length > 0 && (
-          <ul class="notes">
-            {notes.map((n) => (
-              <li key={n}>{n}</li>
-            ))}
-          </ul>
-        )}
-        {refusal && !refusal.ok && <p class="muted reason">{refusal.reason}</p>}
-      </div>
-      {pending.value && (
-        <div class="actions">
-          <p>Select an empty cell for {displayName(sim, pending.value.result)}.</p>
-          <button
-            class="primary"
-            disabled={
-              !game.canCombine(pending.value.id, pending.value.kind, pending.value.result, cell).ok
-            }
-            onClick={() => {
-              const p = pending.value!;
-              send({ type: 'combine', ...p, cell });
-              pending.value = null;
-            }}
-          >
-            Place tablet here
-          </button>
-          <button onClick={() => (pending.value = null)}>Cancel tablet placement</button>
-        </div>
-      )}
-      <div class="actions">
-        {combines.map((p) => (
-          <button
-            onClick={() => {
-              if (p.placement === 'separate') {
-                pending.value = { id: gem!.id, kind: p.kind as RecipeKind, result: p.result };
-                announcement.value = 'Select an empty cell to place the tablet.';
-              } else
-                send({
-                  type: 'combine',
-                  id: gem!.id,
-                  kind: p.kind as RecipeKind,
-                  result: p.result,
-                });
-            }}
-          >
-            Combine: {displayName(sim, p.result)}
-          </button>
-        ))}
-        {buttons.map(([label, check, cmd], i) => (
-          <button
-            class={i === primary ? 'primary' : undefined}
-            disabled={!check.ok}
-            onClick={() => send(cmd)}
-          >
-            {label}
-          </button>
-        ))}
-        <button
-          onClick={() => {
-            selected.value = null;
-            pending.value = null;
-            announcement.value = 'Selection cleared';
-            document.querySelector('canvas')?.focus();
-          }}
-        >
-          Deselect
-        </button>
-      </div>
     </section>
   );
 }
@@ -533,7 +518,7 @@ function EndCard({ game }: { game: Game; tick: number }) {
               : `All ${LAST_LEVEL} waves cleared.`}
         </p>
         <p class="tabular">
-          Gold {game.gold} · Build level {game.heroLevel}
+          Gold {compact(game.gold)} · Build level {game.heroLevel}
         </p>
         <div class="actions">
           <button
@@ -551,6 +536,8 @@ function EndCard({ game }: { game: Game; tick: number }) {
 
 function Tool(p: {
   label: string;
+  /** Keyboard shortcut, shown in the tooltip and exposed to assistive technology. */
+  hint?: string;
   pressed?: boolean;
   expanded?: boolean;
   controls?: string;
@@ -564,7 +551,8 @@ function Tool(p: {
       ref={p.ref}
       class="tool"
       aria-label={p.label}
-      data-tip={p.label}
+      aria-keyshortcuts={p.hint}
+      data-tip={p.hint ? `${p.label} (${p.hint})` : p.label}
       aria-pressed={p.pressed}
       aria-expanded={p.expanded}
       aria-controls={p.expanded ? p.controls : undefined}
