@@ -1029,6 +1029,21 @@ export class Game {
     const count = names[0]?.includes('boss') ? 1 : this.luaValue<number>('wave_enemy_count');
     return { names, count };
   }
+  /**
+   * Creeps still to spawn this wave, for the view's tunnel approach: how many, the ticks until the
+   * next one (after the latest step), the ticks between them, and their speed in cells per tick.
+   * Read-only; the variant some levels swap in at random is not known until it spawns.
+   */
+  get spawning(): { name: string; count: number; next: number; every: number; speed: number } | null {
+    if (this.phase !== 'wave' || this.toSpawn <= 0) return null;
+    return {
+      name: this.spawnName,
+      count: this.toSpawn,
+      next: Math.max(0, this.nextSpawn - this.time),
+      every: SPAWN_TICKS,
+      speed: this.speedOf(this.spawnName),
+    };
+  }
   /** Damage each tower has dealt this wave, by tower id (read-only view for the damage meter). */
   get damageThisWave(): Readonly<Record<number, number>> {
     return this.waveDamage;
@@ -1057,13 +1072,12 @@ export class Game {
     if ([35, 36, 38].includes(this.guaiLevel) && this.rng.int(1, 100) > 50) name += '1';
     const u = this.units[name] ?? this.units[this.spawnName];
     const difficulty = this.luaValue<Record<string, number>>('gem_difficulty')[1];
-    const speedFactor = this.luaValue<Record<string, number>>('gem_difficulty_speed')[1];
     const elite = !name.includes('boss') && !name.includes('tester') && this.rng.int(1, 400) === 1;
     let hp =
       num(u, 'StatusHealth') *
       difficulty *
       (elite ? ((51 - Math.min(this.level, 50)) / 50) * 6 + 2 : 1);
-    let speed = (num(u, 'MovementSpeed') * speedFactor) / CELL_UNITS / TICK_HZ;
+    const speed = this.speedOf(name);
     const skills = new Set([
       ...this.skills(name),
       ...(this.luaValue<Record<string, string[]>>('guai_ability')[this.guaiLevel] ?? []),
@@ -1080,7 +1094,6 @@ export class Game {
         skills.add(skill);
       }
       hp = hp > 10000 ? 999999999 : hp * 100000;
-      speed *= 1.8;
     }
     hp = Math.max(1, Math.floor(hp));
     const damage =
@@ -1105,6 +1118,14 @@ export class Game {
       skills: [...skills],
     });
     this.toSpawn--;
+  }
+
+  /** Spawn movement speed in cells per tick, before modifiers; endless creeps run 1.8 times faster. */
+  private speedOf(name: string) {
+    const u = this.units[name] ?? this.units[this.spawnName];
+    const factor = this.luaValue<Record<string, number>>('gem_difficulty_speed')[1];
+    const speed = (num(u, 'MovementSpeed') * factor) / CELL_UNITS / TICK_HZ;
+    return this.level > LAST_LEVEL ? speed * 1.8 : speed;
   }
 
   private move(c: Creep) {

@@ -45,3 +45,20 @@ test('labels: compact numbers and tower roles', () => {
   expect(roleOf(game.abilities('gemtd_r1'))).toBe('Splash damage');
   expect(roleOf(game.abilities('gemtd_e1'))).toBe('Empowers nearby towers');
 });
+
+test('the spawn queue counts down the creeps still to come, for their walk out of the cave', () => {
+  const sim = new Sim(data, 1);
+  const game = sim.game;
+  expect(game.spawning).toBeNull(); // building: nothing on its way
+  for (const x of [20, 22, 24, 26, 28]) sim.send(0, { type: 'build', cell: { x, y: 12 } });
+  sim.step();
+  sim.send(0, { type: 'keep', id: game.draft[0], upgrade: 0 });
+  sim.step();
+  sim.step();
+  const first = game.spawning!;
+  expect(first.name).toBe(game.wavePreview.names[0]);
+  expect(first.speed).toBeGreaterThan(0);
+  expect(first.count + game.creeps.length).toBe(game.wavePreview.count);
+  for (let t = 0; t < first.next + first.every; t++) sim.step();
+  expect(game.spawning!.count).toBeLessThan(first.count);
+});
