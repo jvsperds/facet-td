@@ -84,7 +84,7 @@ test('speed, recipe book, damage meter and shortcuts work from the toolbar and k
   await expect(book.getByRole('listitem').first()).toBeVisible();
   await book.getByRole('button', { name: 'Close recipes' }).click();
   await expect(book).toHaveCount(0);
-  await page.keyboard.press('r');
+  await page.keyboard.press('g');
   await expect(book).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(book).toHaveCount(0);
@@ -93,7 +93,7 @@ test('speed, recipe book, damage meter and shortcuts work from the toolbar and k
   await expect(page.getByRole('button', { name: 'Pause' })).toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('p');
 
-  // The top bar previews the next wave's creep.
+  // The round clock previews the next wave's creep.
   await expect(page.locator('.next')).toContainText('×');
 });
 
@@ -135,4 +135,46 @@ test('T toggles the view; Esc with nothing selected opens the menu; recipes pin 
   await expect(pinnedPanel).toContainText('Malachite');
   await pinnedPanel.getByRole('button', { name: 'Unpin Malachite' }).click();
   await expect(pinnedPanel).toHaveCount(0);
+});
+
+test('Q arms placing so the next picked cell gets a gem; W removes a stone; Esc cancels', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/?seed=5');
+  await page.waitForFunction(() => window.facet);
+  await page.waitForFunction(() => !window.facet.world.moving);
+  const game = () =>
+    page.evaluate(() => {
+      const g = (window.facet as unknown as { sim: { game: Game } }).sim.game;
+      return { draft: g.draft.length, stones: g.stones.size };
+    });
+  type Game = { draft: number[]; stones: Map<number, unknown> };
+  type Cell = { x: number; y: number };
+
+  const place = page.getByLabel('Selection').getByRole('button', { name: 'Place gem' });
+  await page.keyboard.press('q');
+  await expect(place).toHaveAttribute('aria-pressed', 'true');
+  const p = await page.evaluate(() => window.facet.world.screenOf({ x: 12, y: 12 }));
+  await page.mouse.click(p.x, p.y);
+  await expect.poll(async () => (await game()).draft).toBe(1);
+  // One cast per press, as in Dota: the next click selects again.
+  await expect(place).toHaveAttribute('aria-pressed', 'false');
+
+  await page.keyboard.press('q');
+  await expect(place).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('Escape');
+  await expect(place).toHaveAttribute('aria-pressed', 'false');
+
+  // W on a stone removes it.
+  const stone = await page.evaluate(() => {
+    const g = (window.facet as unknown as { sim: { game: { stones: Map<number, Cell> } } }).sim
+      .game;
+    return [...g.stones.values()][0];
+  });
+  const before = (await game()).stones;
+  await page.keyboard.press('w');
+  const s = await page.evaluate((c) => window.facet.world.screenOf(c), stone);
+  await page.mouse.click(s.x, s.y);
+  await expect.poll(async () => (await game()).stones).toBe(before - 1);
 });

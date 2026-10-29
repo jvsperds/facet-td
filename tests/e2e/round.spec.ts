@@ -70,7 +70,9 @@ test('placing five gems fills the slots; slots select their gem; keep starts the
   }
 
   await page.getByRole('button', { name: 'Keep', exact: true }).click();
-  await expect(page.getByLabel('This round')).toContainText('Wave 1');
+  // The slots float only while placing; the round clock counts the creeps left.
+  await expect(page.getByLabel('This round')).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Round', exact: true })).toContainText('Left');
   expect((await facet(page)).phase).toBe('wave');
   // The four others became stones; the board refuses building during the wave.
   await select(page, { x: 12, y: 12 });

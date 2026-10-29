@@ -8,6 +8,15 @@ export type Feedback = ReturnType<typeof createFeedback>;
 export function createFeedback(game: Game) {
   const notice = signal({ text: 'Place five gems, then keep one to start wave 1.', danger: false });
   const reward = signal({ gold: 0, kills: 0 });
+  /** Whole-run tallies for the top-right stats: creeps killed and creeps that reached the castle. */
+  const totals = signal({ kills: 0, leaks: 0 });
+  /** The last wave's MVP tower id, from the wave's end until the next wave starts. */
+  const mvp = signal<number | null>(null);
+  /** Sim ticks since the run began, and the tick the current round (build or wave) began. */
+  let ticks = 0;
+  const roundStart = signal(0);
+  /** Tower MVP levels when the wave began; the one that rose at its end is the MVP. */
+  let levels = new Map<number, number>();
   let phase = game.phase;
   let level = game.level;
   let gems = game.draft.length;
@@ -16,9 +25,24 @@ export function createFeedback(game: Game) {
   return {
     notice,
     reward,
+    totals,
+    mvp,
+    roundStart,
+    /** Sim ticks seen so far. */
+    get ticks() {
+      return ticks;
+    },
     afterStep(): Cue | undefined {
       let cue: Cue | undefined;
-      if (game.phase === 'wave' && phase !== 'wave') reward.value = { gold: 0, kills: 0 };
+      ticks++;
+      if (game.phase === 'wave' && phase !== 'wave') {
+        reward.value = { gold: 0, kills: 0 };
+        levels = new Map(game.gems.map((g) => [g.id, g.level ?? 0]));
+        mvp.value = null;
+      }
+      if (game.phase === 'build' && phase === 'wave')
+        mvp.value = game.gems.find((g) => (g.level ?? 0) > (levels.get(g.id) ?? 0))?.id ?? null;
+      if (game.phase !== phase) roundStart.value = ticks;
       if (game.draft.length > gems) cue = 'build';
       gems = game.draft.length;
       if (game.events.some((e) => e.type === 'attack')) cue = 'attack';
@@ -30,6 +54,12 @@ export function createFeedback(game: Game) {
         };
         cue = 'kill';
       }
+      const leaks = game.events.filter((e) => e.type === 'leak').length;
+      if (kills.length || leaks)
+        totals.value = {
+          kills: totals.value.kills + kills.length,
+          leaks: totals.value.leaks + leaks,
+        };
       const damage = game.events.reduce((sum, e) => sum + (e.type === 'leak' ? e.damage : 0), 0);
       if (warningTicks > 0 && --warningTicks === 0) notice.value = { text: status, danger: false };
       if (game.phase !== phase || game.level !== level) {

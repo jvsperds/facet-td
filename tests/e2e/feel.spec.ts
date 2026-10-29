@@ -59,6 +59,8 @@ test('sound preference, route toggle and wave/kill/castle feedback work through 
     Object.assign(g, { toSpawn: 0, creeps: [] });
   });
   await expect(page.getByRole('status')).toContainText('Wave 1 cleared');
+  // The tower that dealt the wave's damage is its MVP, shown at the bottom right.
+  await expect(page.getByRole('region', { name: 'Wave MVP' })).toBeVisible();
   expect(errors).toEqual([]);
 });
 

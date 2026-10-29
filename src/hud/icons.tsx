@@ -106,6 +106,21 @@ export const ICONS: Record<string, ComponentChildren> = {
   stone: <path d="M5 17.5 7 9l5-3.5 5.5 2.5L19.5 17 12 19.5z M7 9l5 2.5 5.5-3.5 M12 11.5v8" />,
   menu: <path d="M4.5 7h15 M4.5 12h15 M4.5 17h15" />,
   pin: <path d="M9 4h6l-1 6 3 3H7l3-3z M12 13v7" />,
+  gear: (
+    <path d="M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6 M12 3v3 M12 18v3 M3 12h3 M18 12h3 M5.6 5.6l2.1 2.1 M16.3 16.3l2.1 2.1 M18.4 5.6l-2.1 2.1 M7.7 16.3l-2.1 2.1" />
+  ),
+  sword: <path d="M5 19 16 8l1-4-4 1L2 16 M7 14l3 3 M4 20l2-2" />,
+  bolt: <path d="M13 3 6 13h5l-1 8 7-10h-5z" />,
+  target: <path d="M12 3v4 M12 17v4 M3 12h4 M17 12h4 M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8" />,
+  shield: <path d="M12 3 5 6v6c0 4 3 7 7 9 4-2 7-5 7-9V6z" />,
+  sparkle: <path d="M12 3v6 M12 15v6 M3 12h6 M15 12h6 M6 6l3 3 M15 15l3 3 M18 6l-3 3 M9 15l-3 3" />,
+  boot: <path d="M7 4h5v9l7 3v4H5v-4z M5 16h14" />,
+  flag: <path d="M6 21V4 M6 4h11l-2.5 4L17 12H6" />,
+  paw: (
+    <path d="M12 12c-3 0-5 3-5 5s2 3 5 3 5-1 5-3-2-5-5-5 M6 8.5a1.5 2 0 1 0 0 .1 M10 5.5a1.5 2 0 1 0 0 .1 M14 5.5a1.5 2 0 1 0 0 .1 M18 8.5a1.5 2 0 1 0 0 .1" />
+  ),
+  castle: <path d="M4 20V9h3V6h3v3h4V6h3v3h3v11z M10 20v-5h4v5" />,
+  tower: <path d="M8 20h8 M9 20V10h6v10 M8 10l4-6 4 6" />,
   coin: (
     <path d="M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16 M14.5 9.5c-.5-1-1.4-1.5-2.5-1.5-1.5 0-2.5.8-2.5 2s1 1.6 2.5 2 2.5.9 2.5 2-1 2-2.5 2c-1.2 0-2.1-.6-2.6-1.6 M12 6.5V8 M12 16v1.5" />
   ),

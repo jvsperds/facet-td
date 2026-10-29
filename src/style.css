@@ -280,79 +280,223 @@ img.glyph.mini {
 }
 
 /* Top bar: one carved ledge across the top, its lower edge catching amber light. */
-.topbar {
+/* Layout after Gem TD's Dota 2 HUD: clusters in the top corners and centre, the command bar at
+   the bottom centre and the showcase at the bottom right. */
+.top-left {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
+  top: var(--edge-gap);
+  left: var(--safe-l);
   z-index: 3;
-  box-sizing: border-box;
-  height: var(--bar-h);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  width: min(470px, calc(50vw - 170px));
+  pointer-events: none;
+}
+.top-left > * {
+  pointer-events: auto;
+}
+.tools {
+  position: relative;
+  z-index: 1; /* the camera flyout opens over the status line and the slots */
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 0 var(--safe-r) 0 var(--safe-l);
+  gap: 4px;
+  max-width: 100%;
+}
+.strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px;
+}
+.tool {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: var(--tool);
+  min-height: var(--tool);
+  height: var(--tool);
+  padding: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 35%, #3b4047, #1b1e22);
+  border: 2px solid rgb(255 255 255 / 0.12);
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.6);
+}
+.tool.speed {
+  font-size: 11px;
+  font-weight: 900;
+}
+.sep {
+  width: 2px;
+  height: 20px;
+  margin: 0 3px;
+  background: rgb(255 255 255 / 0.12);
+}
+/* Tool and item names on hover and focus, below the icon. */
+.tool[data-tip]:hover::after,
+.tool[data-tip]:focus-visible::after,
+.item[data-tip]:hover::after,
+.item[data-tip]:focus-visible::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 700;
   white-space: nowrap;
-  background:
-    linear-gradient(90deg, rgb(0 0 0 / 0.14) 1px, transparent 1px) 0 0 / 8px 8px,
-    linear-gradient(180deg, #2f3237, #1a1c20);
-  border-bottom: 2px solid var(--stone-edge);
+  color: var(--ink);
+  background: var(--stone-edge);
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 5;
+}
+.item[data-tip]:hover::after,
+.item[data-tip]:focus-visible::after {
+  top: auto;
+  bottom: calc(100% + 8px);
+  left: auto;
+  right: 0;
+  transform: none;
+}
+.flyout {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 168px;
+  padding: 8px;
+}
+.flyout button {
+  min-height: 32px;
+  font-size: 13px;
+}
+.legend {
+  font-size: 11px;
+}
+.quest {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 100%;
+  padding: 4px 10px 4px 8px;
+  background: linear-gradient(90deg, rgb(10 12 15 / 0.82), rgb(10 12 15 / 0.45) 75%, transparent);
+  border-left: 3px solid var(--amber);
+}
+.notice {
+  font-size: 13px;
+  color: var(--ink);
+  text-shadow: 0 1px 2px #000;
+}
+.notice::after {
+  content: ' ✓';
+  color: #8fd47c;
+}
+.notice.danger {
+  color: var(--danger);
+}
+.notice.danger::after,
+.notice:empty::after {
+  content: none;
+}
+.reward {
+  font-size: 11px;
+  color: var(--ink-2);
+}
+
+/* DPS list: Gem TD's "DPS STAT", bars under the quest line. */
+.meter-panel.dps {
+  width: 240px;
+  padding: 0;
+  gap: 4px;
+  background: none;
+  border: 0;
+  box-shadow: none;
+}
+.dps .drawer-head {
+  padding: 0 2px;
+  text-shadow: 0 1px 2px #000;
+}
+.dps .damage-list li {
+  padding: 2px 6px;
+  background: rgb(10 12 15 / 0.65);
+  border-color: rgb(0 0 0 / 0.6);
+}
+.dps .damage-list .bar {
+  opacity: 0.45;
+}
+
+/* Top centre: round, clocks and creeps left. */
+.round-clock {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  z-index: 3;
+  transform: translateX(-50%);
+  display: grid;
+  grid-template-columns: auto auto auto;
+  align-items: end;
+  gap: 2px;
+  padding: 4px 6px 6px;
+  white-space: nowrap;
+  background: linear-gradient(180deg, #2b3036, #15181c);
+  border: 2px solid var(--stone-edge);
+  border-top: 0;
+  border-radius: 0 0 8px 8px;
   box-shadow:
     inset 0 -1px 0 rgb(242 184 75 / 0.35),
     0 6px 18px rgb(0 0 0 / 0.5);
 }
-.brand {
+.clock-cell {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 6px;
-  font-size: 15px;
-  font-weight: 900;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--amber);
-  text-shadow: 0 2px 0 #000;
+  gap: 1px;
+  min-width: 64px;
+  padding: 2px 10px;
 }
-.tag {
-  padding: 1px 7px;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--ink-2);
-  border: 1px solid rgb(255 255 255 / 0.18);
-  border-radius: 2px;
-}
-.wave {
-  display: flex;
-  align-items: baseline;
-  gap: 5px;
-}
-.wave b {
-  font-size: 19px;
-  font-weight: 900;
-}
-.wave .of {
-  color: var(--ink-3);
-}
-.next {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  max-width: 280px;
-  padding: 3px 8px;
-  font-size: 13px;
+.clock-main {
+  min-width: 96px;
   background: var(--well);
   border: 1px solid var(--stone-edge);
   border-radius: 3px;
   box-shadow: inset 0 2px 0 rgb(0 0 0 / 0.4);
 }
-.next-name {
+.clock-value {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 1.1;
+}
+.clock-value .icon {
+  width: 16px;
+  height: 16px;
+  color: var(--hp);
+}
+.clock-value.big {
+  font-size: 26px;
+}
+.round-clock .next-name {
+  grid-column: 1 / -1;
+  max-width: 300px;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-size: 11px;
+  text-align: center;
+  color: var(--ink-3);
 }
 .flag {
-  padding: 2px 8px;
+  grid-column: 1 / -1;
+  justify-self: center;
+  padding: 1px 8px;
   font-size: 11px;
   font-weight: 900;
   letter-spacing: 0.08em;
@@ -365,116 +509,190 @@ img.glyph.mini {
   color: #fff;
   background: #b4302a;
 }
-.spacer {
-  flex: 1;
+.targeting {
+  position: fixed;
+  top: 96px;
+  left: 50%;
+  z-index: 3;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  background: rgb(10 12 15 / 0.85);
+  border: 1px solid var(--amber);
+  border-radius: 3px;
 }
-.castle,
-.gold,
-.level {
+
+/* Top right: the run's stats and the player card. */
+.stats-panel {
+  position: fixed;
+  top: var(--edge-gap);
+  right: var(--safe-r);
+  z-index: 3;
+  width: 236px;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 6px;
+}
+.run-stats {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 1px 12px;
+  margin: 0;
+  padding: 4px 8px;
+  font-size: 12px;
+  text-align: right;
+  background: linear-gradient(270deg, rgb(10 12 15 / 0.82), rgb(10 12 15 / 0.45) 80%, transparent);
+}
+.run-stats div {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+.run-stats dt {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.run-stats dd {
+  margin: 0;
   font-weight: 800;
 }
-.castle .icon {
-  color: var(--hp);
-  fill: var(--hp);
-}
-.castle.danger {
-  color: var(--danger);
-}
-/* Castle HP as ten voxel blocks. */
-.blocks {
+.player {
   display: flex;
+  gap: 6px;
+  padding: 4px;
+  background: linear-gradient(180deg, #2b3036, #15181c);
+  border: 2px solid var(--stone-edge);
+  border-radius: 3px;
+  box-shadow: var(--bevel);
+}
+.player-art {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 52px;
+  height: 52px;
+  background: linear-gradient(135deg, #1f4fae, #10285c);
+  border: 1px solid var(--stone-edge);
+}
+.player-art svg {
+  width: 32px;
+  height: 32px;
+  fill: none;
+  stroke: var(--amber);
+  stroke-width: 1.5;
+}
+.player-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.player-name {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  overflow: hidden;
+  font-size: 13px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.player-name .muted {
+  font-size: 11px;
+}
+.player-badges {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+.player-badges > span {
+  display: flex;
+  align-items: center;
   gap: 2px;
 }
-.blocks i {
-  width: 7px;
-  height: 12px;
-  background: #2a2d31;
-  box-shadow: inset 0 -2px 0 rgb(0 0 0 / 0.4);
-}
-.blocks i.on {
-  background: var(--hp);
-  box-shadow:
-    inset 0 2px 0 rgb(255 255 255 / 0.3),
-    inset 0 -2px 0 rgb(0 0 0 / 0.3);
-}
-.blocks i.part {
-  background: linear-gradient(0deg, var(--hp) 50%, #2a2d31 50%);
+.player-badges .icon {
+  width: 14px;
+  height: 14px;
 }
 .gold .icon {
   color: var(--gold);
 }
-.level b {
-  font-size: 16px;
-  font-weight: 900;
-}
-.meter {
+.player-hp,
+.bar {
   position: relative;
   display: block;
-  width: 72px;
-  height: 8px;
+  height: 14px;
   overflow: hidden;
-  background: var(--well);
-  border: 1px solid var(--stone-edge);
+  background: #0c0e10;
+  border: 1px solid #000;
 }
-.meter > span {
+.player-hp i,
+.bar i {
   position: absolute;
   inset: 0 auto 0 0;
-  background: repeating-linear-gradient(90deg, var(--ice) 0 6px, #4a8fd6 6px 8px);
+  background: linear-gradient(180deg, #5fcf4a, #2f8a24);
 }
-.menu-button {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 30px;
-  padding: 0 8px;
-  font-size: 13px;
+.player-hp.danger i,
+.bar.hp.low i {
+  background: linear-gradient(180deg, #e0605a, #9c2f2a);
+}
+.bar.mana i {
+  background: linear-gradient(180deg, #4b7ee8, #1d3f9c);
+}
+.player-hp span,
+.bar span {
+  position: relative;
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 12px;
+  text-align: center;
+  text-shadow:
+    0 1px 0 #000,
+    0 0 2px #000;
 }
 
-/* Top left: this round's five gems, compact. A fixed size, so the board never refits when the
-   round moves from placing to picking to the wave. */
-.summary {
+/* Under the stats: pinned recipes and the recipe book. */
+.side {
   position: fixed;
-  top: calc(var(--bar-h) + 8px);
-  left: var(--safe-l);
+  top: 150px;
+  right: var(--safe-r);
   z-index: 2;
-  box-sizing: border-box;
-  width: 256px;
-  height: 150px;
-  overflow: hidden;
+  width: 300px;
+  max-height: calc(100dvh - 150px - 210px);
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 8px 10px 10px;
+  gap: 8px;
+  pointer-events: none;
 }
-.panel-head {
+.side > * {
+  pointer-events: auto;
+}
+.side:empty {
+  display: none;
+}
+
+/* Floating while placing: this round's five gems, upper left under the status line. */
+.draft {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px 8px;
+  background: rgb(10 12 15 / 0.72);
+  border: 1px solid rgb(242 184 75 / 0.4);
+  border-radius: 4px;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.5);
 }
-.phase-chip {
-  padding: 1px 6px;
-  font-size: 10px;
-  font-weight: 900;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--on-amber);
-  background: var(--amber);
-  border-radius: 2px;
-}
-.phase-chip.wave {
-  color: #fff;
-  background: #b4302a;
-}
-.reward {
-  font-size: 11px;
-  color: var(--ink-3);
-}
-.panel-title {
-  font-size: 14px;
+.draft-title {
+  font-size: 13px;
   font-weight: 800;
 }
 .slots {
@@ -483,8 +701,8 @@ img.glyph.mini {
 }
 .slot {
   position: relative;
-  width: 42px;
-  height: 50px;
+  width: 44px;
+  height: 52px;
   padding: 10px 0 2px;
   display: flex;
   flex-direction: column;
@@ -527,61 +745,79 @@ img.glyph.mini {
   background: var(--amber);
   box-shadow: 0 0 6px var(--amber);
 }
-.wave-line,
-.notice {
-  font-size: 12px;
-  color: var(--ink-2);
-  max-width: 236px;
-}
-.notice.danger {
-  color: var(--danger);
-}
-.notice:empty {
-  display: none;
-}
 
-/* Bottom centre: the command card. Fixed height on desktop so content changes never refit the
-   board under the pointer. */
+/* Bottom centre: the command card, Dota's bottom bar. Fixed height on desktop so content changes
+   never refit the board under the pointer. */
 .card {
+  --showcase-w: 196px;
   position: fixed;
   left: 50%;
-  bottom: var(--safe-b);
+  bottom: 0;
   z-index: 2;
   transform: translateX(-50%);
-  width: min(880px, calc(100vw - var(--strip-w) - 2 * var(--edge-gap) - 16px));
-  height: 172px;
+  box-sizing: border-box;
+  width: min(900px, calc(100vw - 2 * (var(--showcase-w) + var(--edge-gap) + 8px)));
+  height: 178px;
   display: grid;
-  grid-template-columns: 104px minmax(0, 1fr) auto;
-  gap: 12px;
-  padding: 10px 12px;
+  grid-template-columns: 150px minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 8px 10px calc(6px + env(safe-area-inset-bottom));
+  color: var(--ink);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.05), transparent 30%),
+    linear-gradient(180deg, #2a2e33, #121417);
+  border: 2px solid var(--stone-edge);
+  border-bottom: 0;
+  border-radius: 6px 6px 0 0;
+  box-shadow:
+    inset 0 1px 0 rgb(242 184 75 / 0.3),
+    0 -6px 24px rgb(0 0 0 / 0.55);
 }
 .card-portrait {
   position: relative;
+  overflow: hidden;
+  width: 150px;
+  height: 150px;
+  background:
+    radial-gradient(circle at 40% 45%, rgb(255 255 255 / 0.1), transparent 70%),
+    linear-gradient(180deg, #2c3a44, #0f1418);
+  border: 2px solid #000;
+  box-shadow: inset 0 0 18px rgb(0 0 0 / 0.8);
+}
+.portrait-name {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 1;
+  overflow: hidden;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-align: center;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+  background: linear-gradient(180deg, rgb(0 0 0 / 0.75), transparent);
+  text-shadow: 0 1px 2px #000;
+}
+.portrait-art {
+  position: absolute;
+  inset: 14px 34px 0 0;
   display: grid;
   place-items: center;
-  align-self: start;
-  width: 104px;
-  height: 104px;
-  background:
-    radial-gradient(circle at 50% 40%, rgb(255 255 255 / 0.06), transparent 70%), var(--well);
-  border: 2px solid var(--stone-edge);
-  border-radius: 3px;
-  box-shadow:
-    inset 0 3px 0 rgb(0 0 0 / 0.55),
-    0 1px 0 rgb(255 255 255 / 0.06);
 }
-.card-portrait img.glyph {
-  width: 92px;
-  height: 92px;
+.portrait-art img.glyph {
+  width: 116px;
+  height: 116px;
 }
-.card-portrait .glyph:not(img) {
-  width: 48px;
-  height: 48px;
+.portrait-art .glyph:not(img) {
+  width: 56px;
+  height: 56px;
 }
 .hero-mark,
 .cell-mark {
-  width: 56px;
-  height: 56px;
+  width: 64px;
+  height: 64px;
   fill: none;
   stroke: var(--amber);
   stroke-width: 1.4;
@@ -592,147 +828,318 @@ img.glyph.mini {
   stroke: var(--ink-2);
   filter: none;
 }
-.badge {
+/* Stats down the portrait's right edge, as Dota overlays them. */
+.stats {
   position: absolute;
-  bottom: -8px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 0 5px;
+  top: 18px;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  width: 40px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-evenly;
+  margin: 0;
+  padding: 2px 3px;
+  background: linear-gradient(270deg, rgb(0 0 0 / 0.75), rgb(0 0 0 / 0.35));
+}
+.stats div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.stats .icon {
+  width: 13px;
+  height: 13px;
+  color: var(--ink-3);
+}
+.stats dd {
+  margin: 0;
   font-size: 11px;
+  font-weight: 800;
+  line-height: 1.1;
+  text-shadow: 0 1px 0 #000;
+}
+.level-disc {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  font-size: 13px;
   font-weight: 900;
-  color: var(--on-amber);
-  background: var(--amber);
-  border: 1px solid var(--stone-edge);
-  border-radius: 2px;
+  color: var(--amber-1);
+  background: radial-gradient(circle at 50% 35%, #3a2a12, #120c05);
+  border: 2px solid var(--amber-2);
+  border-radius: 50%;
+  box-shadow: 0 0 8px rgb(242 184 75 / 0.5);
 }
 .card-main {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 .card-head {
   display: flex;
-  align-items: flex-start;
-  gap: 6px;
-}
-.card-title {
-  flex: 1;
-  min-width: 0;
-}
-.card-title h2 {
-  display: flex;
   align-items: center;
   gap: 6px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-height: 26px;
 }
-.card-title p {
+.card-effects {
+  display: contents;
+}
+.card-subtitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
   font-size: 12px;
-  overflow: hidden;
+  text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.quality {
-  display: inline-grid;
-  place-items: center;
-  width: 18px;
-  height: 18px;
-  font-size: 11px;
-  font-weight: 900;
-  color: var(--on-amber);
-  background: var(--amber);
-  border-radius: 2px;
+.card-head .icon-button {
+  width: 24px;
+  height: 24px;
+  min-height: 24px;
 }
 .collapse {
   display: none;
+}
+/* One line: passives, then actions, then hero skills, each with its hotkey above. */
+.abilities {
+  display: flex;
+  align-items: flex-end;
+  gap: 5px;
+  min-height: 70px;
+}
+.slot-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.slot-key {
+  min-width: 12px;
+  min-height: 14px;
+  padding: 0 3px;
+  color: var(--ink-2);
+  background: none;
+  border: 0;
+}
+.slot-key:empty {
+  visibility: hidden;
+}
+.slot-sep {
+  align-self: stretch;
+  width: 2px;
+  margin: 16px 2px 0;
+  background: rgb(255 255 255 / 0.08);
+}
+.cmd {
+  position: relative;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 54px;
+  height: 54px;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 2px solid #000;
+  border-radius: 2px;
+  background: radial-gradient(circle at 50% 30%, #4a5058, #1d2024);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.08),
+    0 2px 0 rgb(0 0 0 / 0.7);
+}
+.cmd.empty {
+  background: #0e1012;
+  box-shadow: inset 0 2px 6px rgb(0 0 0 / 0.8);
+}
+.cmd.passive {
+  border-radius: 50%;
+  cursor: help;
+  background: radial-gradient(circle at 50% 30%, #3b3428, #17140f);
+  border-color: #4a3d22;
+}
+.cmd.passive:focus-visible {
+  outline: 2px dashed var(--focus);
+  outline-offset: 2px;
+}
+.cmd.primary {
+  border-color: var(--amber-2);
+}
+.cmd:disabled .cmd-icon {
+  opacity: 0.35;
+}
+.cmd-icon {
+  display: grid;
+  place-items: center;
+}
+.cmd-icon svg:not(.glyph) {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+}
+.cmd-icon .glyph {
+  width: 44px;
+  height: 44px;
+}
+.cmd-letter {
+  font-size: 20px;
+  font-weight: 900;
+  color: var(--amber-1);
+}
+.cmd-label {
+  position: absolute;
+  inset: auto 0 0;
+  overflow: hidden;
+  padding: 0 2px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 12px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: rgb(0 0 0 / 0.6);
+}
+.cmd-cooldown {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  font-weight: 900;
+  background: rgb(0 0 0 / 0.6);
+}
+/* Something to act on: combines glow and breathe. */
+.cmd.glow {
+  animation: glow 1.6s ease-in-out infinite;
+}
+@keyframes glow {
+  50% {
+    box-shadow:
+      inset 0 0 0 1px rgb(255 255 255 / 0.08),
+      0 0 18px rgb(242 184 75 / 0.7);
+  }
+}
+/* Dota's ability tooltip, above the slot on hover or focus. */
+.tip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  z-index: 6;
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+  width: 260px;
+  padding: 8px 10px;
+  transform: translateX(-50%);
+  font-size: 12px;
+  text-align: left;
+  color: var(--ink-2);
+  background: linear-gradient(180deg, #1f2328, #0f1114);
+  border: 1px solid #000;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.7);
+  pointer-events: none;
+}
+.slot-cell:hover .tip,
+.slot-cell:focus-within .tip {
+  display: flex;
+}
+.tip-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgb(255 255 255 / 0.1);
+}
+.tip-head b {
+  flex: 1;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.tip-level {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.tip-reason {
+  color: var(--danger);
 }
 .card-body {
   min-height: 0;
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 3px;
   overflow: auto;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--ink-2);
 }
-.stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 4px;
-  margin: 0;
+.card-body .bar {
+  flex: none;
+  height: 16px;
 }
-.stats div {
-  padding: 3px 7px;
-  background: var(--well);
-  border: 1px solid var(--stone-edge);
-  border-radius: 2px;
-  box-shadow: inset 0 2px 0 rgb(0 0 0 / 0.35);
+.card-body .bar span {
+  line-height: 14px;
 }
-.stats dt {
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-}
-.stats dd {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 800;
-  color: var(--ink);
-}
-.stats dd.sub {
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--ink-3);
-}
-.ability-cards {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.ability-cards li {
-  display: flex;
-  flex-direction: column;
-  max-width: 220px;
-  padding: 3px 8px;
-  background: linear-gradient(180deg, #34383e, #272a2f);
-  border: 1px solid var(--stone-edge);
-  border-left: 3px solid var(--amber);
-  border-radius: 2px;
-}
-.ability-cards b {
-  font-size: 11px;
-  color: var(--amber);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-.ability-cards span {
-  font-size: 11px;
-  color: var(--ink-2);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.reason {
+.reason,
+.hint {
   font-size: 12px;
 }
-.card-commands {
-  display: flex;
-  flex-direction: column;
+/* The 3 × 2 item grid on the right. */
+.items {
+  display: grid;
+  grid-template-columns: repeat(3, 46px);
+  grid-auto-rows: 40px;
+  align-content: end;
   gap: 4px;
-  min-height: 0;
+  padding-bottom: 2px;
 }
-.aim {
+.item {
+  position: relative;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  min-height: 0;
+  padding: 0;
+  background: radial-gradient(circle at 50% 30%, #3d434a, #1a1d21);
+  border: 1px solid #000;
+  border-radius: 2px;
+}
+.item.empty {
+  background: #0e1012;
+  box-shadow: inset 0 2px 6px rgb(0 0 0 / 0.8);
+}
+.item svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+}
+.item kbd {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  font-size: 9px;
+  line-height: 11px;
+}
+.item.aim {
+  grid-column: span 3;
   display: flex;
   align-items: center;
   gap: 4px;
+  padding: 0 4px;
 }
 .aim label {
   font-size: 10px;
@@ -747,136 +1154,110 @@ img.glyph.mini {
   min-height: 28px;
   font-size: 12px;
 }
-.aim button {
-  min-height: 28px;
-  padding: 0 8px;
-  font-size: 11px;
+
+/* Bottom right: the showcase, a model on its plinth, over castle HP and gold. */
+.showcase {
+  position: fixed;
+  right: var(--safe-r);
+  bottom: var(--safe-b);
+  z-index: 2;
+  width: 196px;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, rgb(10 12 15 / 0), rgb(10 12 15 / 0.85) 40%);
 }
-.cmd-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 64px);
-  grid-auto-rows: 58px;
-  gap: 4px;
-  min-height: 0;
-  overflow: auto;
-}
-.card.hero .card-commands {
-  display: grid;
-  grid-template-columns: repeat(4, 64px);
-  grid-auto-rows: 58px;
-  align-content: start;
-  gap: 4px;
-}
-.cmd {
+.showcase-stage {
   position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 2px;
-  min-height: 0;
-  padding: 14px 3px 4px;
-  font-size: 10.5px;
-  line-height: 1.1;
-  text-align: center;
-}
-.cmd.wide {
-  grid-column: span 2;
-  flex-direction: row;
-  justify-content: flex-start;
-  gap: 6px;
-  padding: 4px 6px 4px 8px;
-  text-align: left;
-}
-.cmd.wide .cmd-icon .glyph {
-  width: 40px;
-  height: 40px;
-}
-.cmd-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.cmd-caption {
-  font-size: 9px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  opacity: 0.75;
-}
-.cmd-key {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-}
-.cmd-icon {
+  height: 150px;
   display: grid;
   place-items: center;
 }
-.cmd-icon svg {
-  width: 20px;
-  height: 20px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-}
-.cmd-icon .glyph {
-  width: 30px;
-  height: 30px;
-}
-.cmd-label {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
-/* Something to act on: combines glow and breathe. */
-.cmd.glow {
-  animation: glow 1.6s ease-in-out infinite;
-}
-@keyframes glow {
-  50% {
-    box-shadow:
-      var(--key-bevel),
-      0 0 18px rgb(242 184 75 / 0.6);
-  }
-}
-.hp {
+.showcase-model {
   position: relative;
-  flex: none;
-  height: 18px;
-  overflow: hidden;
-  background: var(--well);
-  border: 2px solid var(--stone-edge);
+  z-index: 1;
+}
+img.showcase-model {
+  width: 128px;
+  height: 128px;
+}
+.showcase-model:not(img) {
+  width: 64px;
+  height: 64px;
+}
+.showcase-plinth {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  width: 110px;
+  height: 22px;
+  transform: translateX(-50%);
+  background: radial-gradient(ellipse at 50% 40%, #4a5560, #1a1f24 70%);
+  border-radius: 50%;
+}
+.showcase.mvp .showcase-plinth {
+  box-shadow: 0 0 22px rgb(226 69 60 / 0.6);
+}
+.showcase-tag {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  padding: 0 6px;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  background: rgb(0 0 0 / 0.6);
   border-radius: 2px;
 }
-.hp i {
+.showcase.mvp .showcase-tag {
+  color: #fff;
+  background: #b4302a;
+}
+.showcase-name {
   position: absolute;
-  inset: 0 auto 0 0;
-  background: repeating-linear-gradient(90deg, #6cbf5f 0 10px, #5aa64f 10px 12px);
+  right: 8px;
+  bottom: 0;
+  left: 8px;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px #000;
 }
-.hp i.low {
-  background: repeating-linear-gradient(90deg, #d4564e 0 10px, #b8433c 10px 12px);
-}
-.hp span {
-  position: relative;
-  display: block;
-  font-size: 11px;
+.showcase-foot {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 10px;
+  font-size: 16px;
   font-weight: 800;
-  line-height: 14px;
-  text-align: center;
-  text-shadow: 0 1px 0 #000;
+  background: rgb(0 0 0 / 0.6);
+  border-top: 1px solid rgb(255 255 255 / 0.1);
+}
+.showcase-foot span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.showcase-foot .castle .icon {
+  color: var(--ink);
+}
+.showcase-foot .castle.danger {
+  color: var(--danger);
+}
+.showcase-foot .gold {
+  color: var(--gold);
 }
 
-/* Effect icons (Statuses.tsx): a row of small tiles riding on the card's top edge. Buffs glow
+/* Effect icons (Statuses.tsx): Dota's buff row, round tiles above the abilities. Buffs glow
    ice blue; debuffs are edged red and pulse. */
 .effects {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 12px;
   display: flex;
-  flex-wrap: wrap-reverse;
+  flex-wrap: wrap;
   gap: 4px;
-  max-width: calc(100% - 24px);
+  min-width: 0;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -890,7 +1271,7 @@ img.glyph.mini {
   color: var(--ice);
   background: linear-gradient(180deg, #2b3138, #1b1f24);
   border: 1px solid var(--ice);
-  border-radius: 3px;
+  border-radius: 50%;
   box-shadow:
     0 2px 0 var(--stone-edge),
     0 0 6px rgb(111 183 255 / 0.35);
@@ -937,94 +1318,6 @@ img.glyph.mini {
   }
 }
 
-/* Right edge: the small vertical tool strip. */
-.tools {
-  position: fixed;
-  right: var(--safe-r);
-  top: 50%;
-  z-index: 3;
-  transform: translateY(-50%);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.strip {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 4px;
-}
-.tool {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: var(--tool);
-  min-height: var(--tool);
-  height: var(--tool);
-  padding: 0;
-}
-.tool.speed {
-  font-size: 11px;
-  font-weight: 900;
-}
-.sep {
-  height: 2px;
-  margin: 2px 4px;
-  background: var(--stone-edge);
-  box-shadow: 0 1px 0 rgb(255 255 255 / 0.06);
-}
-/* Tool names on hover and focus, to the strip's left. */
-.tool[data-tip]:hover::after,
-.tool[data-tip]:focus-visible::after {
-  content: attr(data-tip);
-  position: absolute;
-  right: calc(100% + 10px);
-  top: 50%;
-  transform: translateY(-50%);
-  padding: 4px 8px;
-  font-size: 12px;
-  font-weight: 700;
-  white-space: nowrap;
-  color: var(--ink);
-  background: var(--stone-edge);
-  border-radius: 2px;
-  pointer-events: none;
-  z-index: 1;
-}
-.flyout {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  width: 168px;
-  padding: 8px;
-}
-.flyout button {
-  min-height: 32px;
-  font-size: 13px;
-}
-.legend {
-  font-size: 11px;
-}
-
-/* Beside the strip: pinned recipes, the recipe book and the damage meter. */
-.side {
-  position: fixed;
-  top: calc(var(--bar-h) + 8px);
-  right: calc(var(--safe-r) + var(--strip-w) + 8px);
-  z-index: 2;
-  width: 300px;
-  max-height: calc(100dvh - var(--bar-h) - 210px);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  pointer-events: none;
-}
-.side > * {
-  pointer-events: auto;
-}
-.side:empty {
-  display: none;
-}
 .drawer,
 .pinned,
 .meter-panel {
@@ -1335,96 +1628,194 @@ button.big {
   letter-spacing: 0.06em;
 }
 
-/* Tablets and narrow windows: the card spans the width and can collapse to its commands. */
+/* Narrower windows: a smaller showcase and stats; the card can collapse. */
 @media (max-width: 1100px) {
   .collapse {
     display: grid;
   }
-  .next {
-    max-width: 180px;
+  .top-left {
+    width: calc(50vw - 150px);
   }
-  .tag,
-  .meter.xp {
-    display: none;
+  .card {
+    --showcase-w: 150px;
+  }
+  .showcase {
+    width: 150px;
+  }
+  .showcase-stage {
+    height: 116px;
+  }
+  img.showcase-model {
+    width: 96px;
+    height: 96px;
+  }
+  .stats-panel {
+    width: 200px;
   }
 }
+/* Tablets and phones: the card spans the width with its items under the abilities; the showcase
+   and the run stats give way to the board. */
 @media (max-width: 900px) {
   .card {
-    left: var(--safe-l);
+    left: 0;
+    right: 0;
     transform: none;
-    width: calc(100vw - var(--safe-l) - var(--safe-r) - var(--strip-w) - 8px);
+    width: auto;
     height: auto;
-    max-height: 44dvh;
-    grid-template-columns: 64px minmax(0, 1fr);
-    gap: 8px;
-    padding: 8px;
+    max-height: 48dvh;
+    grid-template-columns: 84px minmax(0, 1fr);
+    gap: 6px;
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
   }
   .card-portrait {
-    width: 64px;
-    height: 64px;
+    width: 84px;
+    height: 84px;
   }
-  .card-portrait img.glyph {
-    width: 58px;
-    height: 58px;
+  .portrait-art {
+    inset: 14px 30px 0 0;
+  }
+  .portrait-art img.glyph {
+    width: 60px;
+    height: 60px;
   }
   .hero-mark,
   .cell-mark {
     width: 36px;
     height: 36px;
   }
-  .card-commands,
-  .card.hero .card-commands {
-    grid-column: 1 / -1;
+  .stats {
+    width: 30px;
   }
-  .cmd-grid,
-  .card.hero .card-commands {
-    display: grid;
-    grid-auto-flow: column;
-    grid-template-columns: none;
-    grid-template-rows: 52px;
-    grid-auto-columns: 64px;
+  .stats .icon {
+    display: none;
+  }
+  .level-disc {
+    width: 20px;
+    height: 20px;
+    font-size: 11px;
+  }
+  .abilities {
+    min-height: 0;
     overflow-x: auto;
   }
-  .cmd.wide {
-    grid-column: span 2;
+  .cmd {
+    width: 46px;
+    height: 46px;
   }
-  .card.collapsed .card-body {
+  .items {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+  }
+  .items .item {
+    width: 44px;
+    height: 36px;
+  }
+  .items .item.aim {
+    width: auto;
+    flex: 1 1 180px;
+  }
+  .items .item.empty {
     display: none;
   }
-  .stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .card.collapsed .card-body,
+  .card.collapsed .items {
+    display: none;
+  }
+  .card.collapsed .card-portrait {
+    width: 52px;
+    height: 52px;
+  }
+  .card.collapsed .stats,
+  .card.collapsed .portrait-name {
+    display: none;
+  }
+  .card.collapsed .portrait-art {
+    inset: 0;
+  }
+  .card.collapsed .portrait-art img.glyph {
+    width: 46px;
+    height: 46px;
+  }
+  .showcase,
+  .run-stats {
+    display: none;
   }
   .side {
-    width: min(300px, calc(100vw - var(--strip-w) - 32px));
-    max-height: calc(100dvh - var(--bar-h) - 48dvh);
+    top: 92px;
+    width: min(300px, calc(100vw - 32px));
+    max-height: calc(100dvh - 92px - 48dvh);
   }
-  .brand {
-    display: none;
+  .tip {
+    left: 0;
+    transform: none;
   }
 }
+/* Phones: the clock compact at the top right, the tools beside it, the stats under it. */
 @media (max-width: 600px) {
-  .topbar {
-    gap: 8px;
+  :root {
+    --tool: 30px;
   }
-  .next .label,
-  .menu-button kbd,
-  .blocks {
+  .tool svg {
+    width: 15px;
+    height: 15px;
+  }
+  .strip {
+    gap: 2px;
+  }
+  .sep,
+  .tool.speed:not([aria-pressed='true']) {
     display: none;
   }
-  .next {
-    max-width: 110px;
+  .round-clock {
+    left: auto;
+    right: var(--safe-r);
+    transform: none;
+    padding: 2px 4px 4px;
   }
-  .menu-button {
-    padding: 0 6px;
-    font-size: 0;
+  .clock-cell {
+    min-width: 0;
+    padding: 1px 4px;
   }
-  .menu-button svg {
-    width: 18px;
+  .clock-main {
+    min-width: 56px;
   }
-  .summary {
-    width: 216px;
-    height: 136px;
-    padding: 6px 8px 8px;
+  .clock-value {
+    font-size: 15px;
+  }
+  .clock-value.big {
+    font-size: 18px;
+  }
+  .round-clock .next-name {
+    display: none;
+  }
+  .top-left {
+    top: 78px;
+    width: calc(100vw - var(--safe-l) - var(--safe-r) - 150px);
+  }
+  .top-left .tools {
+    position: fixed;
+    top: var(--edge-gap);
+    left: var(--safe-l);
+    width: calc(100vw - var(--safe-l) - var(--safe-r) - 180px);
+  }
+  /* One scrolling row, so the tools never run into the status line. */
+  .top-left .strip {
+    flex-wrap: nowrap;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .top-left .strip .tool {
+    flex: none;
+  }
+  .stats-panel {
+    top: 78px;
+    width: 140px;
+  }
+  .player-art,
+  .player-name .muted {
+    display: none;
   }
   .slot {
     width: 36px;
@@ -1434,52 +1825,37 @@ button.big {
     width: 24px;
     height: 24px;
   }
-  .wave-line,
   .notice {
-    max-width: 200px;
+    font-size: 12px;
+  }
+  .side {
+    top: 150px;
   }
 }
-@media (max-width: 360px) {
-  .next {
-    display: none;
-  }
-}
-/* Short landscape phones: a lower bar and a tighter strip. */
+/* Short landscape phones: smaller tools and a tighter card. */
 @media (max-height: 500px) {
   :root {
     --tool: 28px;
-    --bar-h: 34px;
   }
   .tool svg {
     width: 15px;
     height: 15px;
   }
-  .strip {
-    gap: 2px;
-    padding: 3px;
-  }
   .card {
     max-height: 50dvh;
+  }
+  .stats-panel {
+    top: var(--edge-gap);
   }
 }
 @media (prefers-reduced-motion: reduce) {
   .cmd.glow {
     animation: none;
     box-shadow:
-      var(--key-bevel),
-      0 0 14px rgb(242 184 75 / 0.5);
+      inset 0 0 0 1px rgb(255 255 255 / 0.08),
+      0 0 14px rgb(242 184 75 / 0.6);
   }
   button {
     transition: none;
-  }
-}
-@media (max-width: 900px) {
-  .card.collapsed .card-portrait {
-    width: 40px;
-    height: 40px;
-  }
-  .card.collapsed .card-portrait img.glyph {
-    width: 36px;
-    height: 36px;
   }
 }

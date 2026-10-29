@@ -90,6 +90,13 @@ measure();
 
 effect(() => world.setMarks(selected.value, cursor.value));
 effect(() => world.markCreep(selectedCreep.value));
+// The last wave's MVP stays circled on the board through the build phase.
+effect(() => {
+  void ticked.value;
+  const gem =
+    sim.game.phase === 'build' ? sim.game.gems.find((g) => g.id === feedback.mvp.value) : undefined;
+  world.setMvp(gem ? gem.cell : null);
+});
 // Row and column guides follow the pointer, else the keyboard cursor, else the selection.
 effect(() => world.setGuides(hovered.value ?? cursor.value ?? selected.value));
 // The selected tower's attack range, refreshed when the selection or the towers change.
@@ -161,7 +168,8 @@ setInterval(() => {
       .map((gem) => `${gem.name}:${gem.level ?? 0}:${gem.aim ?? 0}:${gem.holdFire ?? 0}`)
       .join(),
     JSON.stringify(g.hero),
-    g.hero.selected ? Math.floor(sim.tick / 30) : 0,
+    // Once a second: the round clock and hero cooldowns.
+    Math.floor(sim.tick / TICK_HZ),
   ].join();
   if (stepped && shown !== lastShown) {
     lastShown = shown;

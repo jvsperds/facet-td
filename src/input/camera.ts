@@ -1,4 +1,4 @@
-import { signal } from '@preact/signals';
+import { effect, signal } from '@preact/signals';
 import type { Board, Cell } from '../sim/board';
 import type { Cmd } from '../sim/sim';
 import {
@@ -31,6 +31,12 @@ export const selectedCreep = signal<number | null>(null);
 export const cursor = signal<Cell | null>(null);
 /** The board cell under a mouse pointer that is not pressed, for the row and column guides. */
 export const hovered = signal<Cell | null>(null);
+/**
+ * A hero command waiting for its cell (Dota's targeting cursor): the next board pick sends it
+ * there instead of selecting. Shift keeps it armed for another cell; Escape or a right click
+ * cancels it.
+ */
+export const targeting = signal<'build' | 'remove' | null>(null);
 /** Polite screen-reader announcement; set to a new string to announce it once. */
 export const announcement = signal('');
 
@@ -102,6 +108,24 @@ export function createCameraInput(
   let pinch = 0;
   let lastPick: { cell: Cell; time: number } | null = null;
   canvas.style.touchAction = 'none';
+  effect(() => {
+    canvas.style.cursor = targeting.value ? 'crosshair' : '';
+  });
+  /** Send the armed command at `cell`; true when one was armed. */
+  const cast = (cell: Cell, keep: boolean) => {
+    const type = targeting.value;
+    if (!type) return false;
+    send({ type, cell: { ...cell } });
+    announcement.value = `${type === 'build' ? 'Placing a gem' : 'Removing the stone'} at cell ${cell.x}, ${cell.y}`;
+    if (!keep) targeting.value = null;
+    return true;
+  };
+  canvas.addEventListener('contextmenu', (e) => {
+    if (!targeting.value) return;
+    e.preventDefault();
+    targeting.value = null;
+    announcement.value = 'Cancelled';
+  });
   canvas.addEventListener('pointerdown', (e) => {
     canvas.setPointerCapture(e.pointerId);
     down.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -138,8 +162,14 @@ export function createCameraInput(
   });
   const up = (e: PointerEvent) => {
     if (!down.delete(e.pointerId)) return;
-    if (down.size > 0 || travel >= DRAG_PX || world.moving) return;
+    if (down.size > 0 || travel >= DRAG_PX || world.moving || e.button === 2) return;
     const r = canvas.getBoundingClientRect();
+    if (targeting.value) {
+      const at = world.pick(e.clientX - r.left, e.clientY - r.top);
+      if (at) cast(at, e.shiftKey);
+      lastPick = null;
+      return;
+    }
     // A creep under the pointer wins over the cell beneath it.
     const creep = world.creepAt(e.clientX - r.left, e.clientY - r.top);
     if (creep !== null) {
@@ -182,8 +212,16 @@ export function createCameraInput(
   // Keyboard board cursor: arrows move relative to the screen, Enter selects.
   canvas.tabIndex = 0;
   canvas.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') {
+    if (e.key === 'Escape' && targeting.value) {
+      targeting.value = null;
+      announcement.value = 'Cancelled';
+      e.stopPropagation();
+    } else if (e.key === 'Enter' || e.key === ' ') {
       if (!cursor.value || world.moving) return;
+      if (cast(cursor.value, e.shiftKey)) {
+        e.preventDefault();
+        return;
+      }
       actions.select(cursor.value);
       announcement.value = `Selected cell ${cursor.value.x}, ${cursor.value.y}`;
     } else if (
