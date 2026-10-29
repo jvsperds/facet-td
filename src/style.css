@@ -1,31 +1,32 @@
-/* HUD: cave-grey frosted panels floating over the full-screen arena, one teal accent for active
-   and primary controls, gold for currency and red for castle HP. References: the user's Facet
-   prototype (top bar, phase card, inspector tiles, grouped toolbar) and GemTD (recipe book,
-   damage meter). Colours are tokens so the palette can be swapped in one place. */
+/* HUD in the P1.5 direction (docs/art/IMPLEMENTATION.md "Palette and type"): opaque charcoal panels
+   floating in the arena's safe corners, raised grey controls with a visible boundary, pale grey for
+   the primary or active control with dark ink, white dashed focus, no coloured HUD tint. Gold marks
+   currency and red castle HP; gem colours keep their meaning. Colours are tokens. */
 :root {
   --backdrop: #656d74;
-  --surface: rgb(30 33 37 / 0.88);
-  --surface-solid: #1e2125;
-  --raised: rgb(255 255 255 / 0.07);
-  --raised-hover: rgb(255 255 255 / 0.12);
-  --line: rgb(255 255 255 / 0.1);
-  --edge: #7d868e;
+  --surface: #25282c;
+  --surface-solid: #25282c;
+  --raised: #393e43;
+  --raised-hover: #434950;
+  --line: rgb(138 147 155 / 0.35);
+  --edge: #8a939b;
   --ink: #f4f3ef;
   --ink-2: #bdc3c7;
-  --ink-3: #959da3;
-  --accent: #3dd6b5;
-  --accent-soft: rgb(61 214 181 / 0.16);
-  --on-accent: #0c231e;
-  --gold: #f2c14e;
+  --ink-3: #9aa2a8;
+  /* Pale grey action with dark ink (the direction's "action / on action"). */
+  --accent: #d4d8dc;
+  --accent-soft: rgb(212 216 220 / 0.14);
+  --on-accent: #202429;
+  --gold: #e9c46a;
   --hp: #e0605a;
   --focus: #ffffff;
   --danger: #ffb3af;
   --gap: 8px;
   --edge-gap: 12px;
-  --tool: 44px;
-  --status-h: 52px;
-  --radius: 12px;
-  --shadow: 0 10px 30px rgb(0 0 0 / 0.3);
+  --tool: 48px;
+  --status-h: 56px;
+  --radius: 10px;
+  --shadow: 0 8px 24px rgb(0 0 0 / 0.28);
   --safe-l: max(var(--edge-gap), env(safe-area-inset-left));
   --safe-r: max(var(--edge-gap), env(safe-area-inset-right));
   --safe-b: max(var(--edge-gap), env(safe-area-inset-bottom));
@@ -40,8 +41,7 @@ body {
   background: var(--backdrop);
   color: var(--ink);
   font:
-    15px 'Segoe UI',
-    system-ui,
+    16px 'Segoe UI',
     Arial,
     sans-serif;
 }
@@ -117,7 +117,6 @@ kbd {
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   box-sizing: border-box;
-  backdrop-filter: blur(10px) saturate(1.1);
 }
 .panel-head {
   display: flex;
@@ -157,12 +156,12 @@ button:focus-visible {
   outline: 2px dashed var(--focus);
   outline-offset: 2px;
 }
-/* Active state changes shape (thicker accent border) as well as tone. */
+/* Active state: pale grey fill with dark ink, and a thicker border so shape changes too. */
 button[aria-pressed='true'],
 button[aria-expanded='true']:not(.collapse) {
-  color: var(--ink);
-  background: var(--accent-soft);
-  border: 2px solid var(--accent);
+  color: var(--on-accent);
+  background: var(--accent);
+  border: 3px solid var(--accent);
 }
 button.primary {
   color: var(--on-accent);
@@ -230,7 +229,6 @@ button:disabled {
   padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left));
   background: var(--surface);
   border-bottom: 1px solid var(--line);
-  backdrop-filter: blur(10px);
   box-sizing: border-box;
 }
 .status-row {
@@ -334,9 +332,9 @@ button:disabled {
   gap: 6px;
 }
 .phase-chip {
-  color: var(--accent);
-  background: var(--accent-soft);
-  border-color: transparent;
+  color: var(--ink);
+  background: var(--raised);
+  border-color: var(--edge);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -372,8 +370,8 @@ button:disabled {
 .slot {
   position: relative;
   width: 50px;
-  height: 60px;
-  padding: 14px 0 3px;
+  height: 62px;
+  padding: 12px 0 3px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -382,22 +380,23 @@ button:disabled {
   font-variant-numeric: tabular-nums;
   font-weight: 700;
   font-size: 12px;
-  background: rgb(0 0 0 / 0.2);
-  border: 1px solid var(--line);
-  border-bottom: 3px solid var(--gem, var(--edge));
+  background: var(--raised);
+  border: 1px solid var(--edge);
 }
+/* Selected slot: the white outline of the P1.5 mockups, matching the board selection. */
 .slot[aria-pressed='true'] {
-  background: var(--accent-soft);
-  border: 2px solid var(--accent);
-  border-bottom: 3px solid var(--gem, var(--edge));
+  color: var(--ink);
+  background: var(--raised);
+  border: 2px solid var(--focus);
+  box-shadow: 0 0 0 2px var(--surface);
 }
 .slot:disabled {
   opacity: 0.45;
   cursor: default;
 }
 .slot .glyph {
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
 }
 .slot-n {
   position: absolute;
@@ -421,10 +420,21 @@ button:disabled {
   flex: none;
   width: 22px;
   height: 22px;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.glyph .gem-body {
   fill: var(--gem, var(--ink-2));
+}
+.glyph .gem-facets {
+  fill: none;
+  stroke: rgb(255 255 255 / 0.45);
+  stroke-width: 0.8;
+}
+.glyph .gem-rim {
+  fill: none;
   stroke: #15171a;
   stroke-width: 1.2;
-  stroke-linejoin: round;
 }
 .glyph.mini {
   width: 14px;
@@ -642,9 +652,6 @@ button:disabled {
   padding: 12px;
 }
 .drawer {
-  /* Solid: a blurred backdrop under a re-sorting list can leave stale text in some renderers. */
-  background: var(--surface-solid);
-  backdrop-filter: none;
   bottom: calc(var(--safe-b) + var(--tool) + 28px);
   display: flex;
   flex-direction: column;
@@ -711,10 +718,13 @@ button:disabled {
 .recipe.ready {
   border-color: var(--accent);
 }
-.recipe-icon .glyph {
+.recipe-icon .glyph,
+.recipe-icon .icon {
   width: 26px;
   height: 26px;
-  fill: var(--ink-3);
+}
+.recipe-icon .icon {
+  color: var(--ink-2);
 }
 .recipe-body {
   flex: 1;
@@ -808,22 +818,14 @@ button:disabled {
   justify-content: center;
   gap: 6px;
 }
-.tool.labelled {
-  width: auto;
-  padding: 0 12px;
-}
 .tool svg {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 2;
+  stroke-width: 1.75;
   stroke-linejoin: round;
   stroke-linecap: round;
-}
-.tool-text {
-  font-size: 13px;
-  font-weight: 600;
 }
 /* Tooltip on hover and keyboard focus; touch users read names in the flyout and announcements. */
 .tool[data-tip]:hover::after,
@@ -894,16 +896,6 @@ button:disabled {
   border-radius: 6px;
 }
 
-/* Medium widths: toolbar labels give way to icons; the inspector can collapse. */
-@media (max-width: 1279px) {
-  .tool.labelled {
-    width: var(--tool);
-    padding: 0;
-  }
-  .tool-text {
-    display: none;
-  }
-}
 @media (max-width: 1100px) {
   .collapse {
     display: grid;

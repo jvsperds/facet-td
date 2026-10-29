@@ -9,7 +9,7 @@ import type { RecipeKind } from '../sim/progression';
 import type { Cmd, Sim } from '../sim/sim';
 import { DamageMeter } from './DamageMeter';
 import { HeroPanel } from './HeroPanel';
-import { GemGlyph, ICONS, Icon } from './icons';
+import { GemGlyph, GlyphDefs, ICONS, Icon } from './icons';
 import { QUALITY, code, compact, displayName, gemType, isTablet, roleOf } from './names';
 import { Ingredient, RecipeBook, recipesUsing } from './RecipeBook';
 import { announcement, rotateMode, selected, view, type CameraActions } from '../input/camera';
@@ -119,6 +119,7 @@ export function Hud(props: Props) {
 
   return (
     <>
+      <GlyphDefs />
       <TopBar sim={sim} paused={paused.value} mode={mode} />
       <PhaseCard sim={sim} tick={tick} feedback={feedback} paused={paused.value} />
       <Inspector sim={sim} send={send} tick={tick} />
@@ -198,7 +199,6 @@ export function Hud(props: Props) {
             <Tool
               label="Recipes"
               hint="R"
-              text
               pressed={recipesOpen.value}
               onClick={() => (recipesOpen.value = !recipesOpen.value)}
             >
@@ -207,7 +207,6 @@ export function Hud(props: Props) {
             <Tool
               label="Damage"
               hint="D"
-              text
               pressed={meterOpen.value && !recipesOpen.value}
               onClick={() => {
                 recipesOpen.value = false;
@@ -219,7 +218,6 @@ export function Hud(props: Props) {
             <Tool
               label="Hero"
               hint="H"
-              text
               haspopup="dialog"
               ref={heroButton}
               onClick={() => (heroOpen.value = true)}
@@ -228,7 +226,6 @@ export function Hud(props: Props) {
             </Tool>
             <Tool
               label="Routes"
-              text
               pressed={routeVisible.value}
               onClick={() => (routeVisible.value = !routeVisible.value)}
             >
@@ -777,8 +774,6 @@ function Tool(p: {
   label: string;
   /** Keyboard shortcut, shown in the tooltip and exposed to assistive technology. */
   hint?: string;
-  /** Show the label beside the icon on wide screens. */
-  text?: boolean;
   pressed?: boolean;
   expanded?: boolean;
   controls?: string;
@@ -790,7 +785,7 @@ function Tool(p: {
   return (
     <button
       ref={p.ref}
-      class={`tool ${p.text ? 'labelled' : ''}`}
+      class="tool"
       aria-label={p.label}
       aria-keyshortcuts={p.hint}
       data-tip={p.hint ? `${p.label} (${p.hint})` : p.label}
@@ -803,11 +798,6 @@ function Tool(p: {
       <svg viewBox="0 0 24 24" aria-hidden="true">
         {p.children}
       </svg>
-      {p.text && (
-        <span class="tool-text" aria-hidden="true">
-          {p.label}
-        </span>
-      )}
     </button>
   );
 }

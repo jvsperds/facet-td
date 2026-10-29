@@ -128,7 +128,7 @@ export function RecipeBook({
             >
               <span class="recipe-icon">
                 {isTablet(r.result) ? (
-                  <svg class="glyph" viewBox="0 0 24 24" aria-hidden="true">
+                  <svg class="icon pedal-icon" viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M4 15 12 11l8 4-8 4z M12 11V5" />
                   </svg>
                 ) : (

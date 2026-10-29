@@ -2,13 +2,15 @@ import * as THREE from 'three';
 import type { Board, Cell } from '../sim/board';
 import type { Game } from '../sim/game';
 import { TICK_HZ } from '../sim/game';
+import { createEnvironment } from './environment';
 import { createPieces } from './pieces';
 import { azimuth, elevation, frame, toCell, toScene, type Rect, type ViewState } from './view';
 
 // Draws the board and owns the orthographic camera. Reads sim state, never changes it.
 
 const PALETTE = {
-  backdrop: '#656D74',
+  // Deep cave rock beyond the voxel chamber.
+  backdrop: '#2B2F34',
   cellA: '#C7CAC9',
   cellB: '#BCC2C2',
   noBuild: '#A7AEB1',
@@ -19,6 +21,7 @@ const PALETTE = {
   focus: '#164FAD',
 };
 const TRANSITION_MS = 250;
+const CASTLE_MAX_HP = 100;
 const LABELS = ['S', '1', '2', '3', '4', '5', 'E'];
 const LABEL_MIN_PX = 22;
 
@@ -87,6 +90,9 @@ export function createWorld(board: Board, game: Game) {
   slab.position.y = -0.17; // top 2 cm under the ground: closer z-fights
   slab.receiveShadow = true;
   scene.add(ground, slab);
+
+  // The sunken voxel cave, its entrance above S and the crystal vault behind E (environment.ts).
+  const cave = createEnvironment(scene, board.waypoints[0].cell, board.waypoints.at(-1)!.cell);
 
   // Stones, towers and creeps follow the sim (pieces.ts).
   const pieces = createPieces(scene, game);
@@ -195,6 +201,8 @@ export function createWorld(board: Board, game: Game) {
   let from = shown;
   let started = -Infinity;
   let duration = 0;
+  /** False from a setView until a frame has placed the camera at the target. */
+  let settled = true;
   let viewport: Rect = { x: 0, y: 0, w: 1, h: 1 };
   let panels: Rect[] = [];
   let current = frame(target, shown.e, shown.a, viewport, panels);
@@ -205,11 +213,15 @@ export function createWorld(board: Board, game: Game) {
     from = { ...shown };
     started = performance.now();
     duration = animate && !reducedMotion.matches ? TRANSITION_MS : 0;
+    settled = false;
+    // An instant change takes effect now, so picks never see the old projection.
+    if (!duration) place(started);
   }
 
   function place(now: number) {
     const t = duration ? Math.min(1, (now - started) / duration) : 1;
     const k = t * t * (3 - 2 * t);
+    settled = t >= 1;
     const to = {
       e: elevation(target),
       a: azimuth(target),
@@ -250,6 +262,7 @@ export function createWorld(board: Board, game: Game) {
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld();
     for (const s of labels) s.scale.setScalar(Math.max(0.8, LABEL_MIN_PX / current.scale));
+    cave.view(shown.e, shown.a);
   }
 
   // Fade walls between the camera and the cursor or selection (IMPLEMENTATION.md occluder rule).
@@ -289,11 +302,9 @@ export function createWorld(board: Board, game: Game) {
   let lastFrame = performance.now();
   renderer.setAnimationLoop((now) => {
     place(now);
-    pieces.frame(
-      Math.min(1, (now - lastStep) * (TICK_HZ / 1000)),
-      Math.min(0.1, (now - lastFrame) / 1000),
-      reducedMotion.matches,
-    );
+    const dt = Math.min(0.1, (now - lastFrame) / 1000);
+    pieces.frame(Math.min(1, (now - lastStep) * (TICK_HZ / 1000)), dt, reducedMotion.matches);
+    cave.frame(dt, reducedMotion.matches);
     lastFrame = now;
     const key = `${shown.e},${shown.a},${focusCells.map((c) => `${c.x}:${c.y}`)},${pieces.version}`;
     if (key !== lastKey) updateOccluders();
@@ -315,15 +326,20 @@ export function createWorld(board: Board, game: Game) {
     /** Call after every sim tick so pieces follow the sim. */
     afterStep() {
       pieces.afterStep();
+      const leaked = game.events.reduce((sum, e) => sum + (e.type === 'leak' ? e.damage : 0), 0);
+      cave.castle(game.castleHp / CASTLE_MAX_HP, leaked);
       if (routes.visible) syncRoute();
       lastStep = performance.now();
     },
     get scale() {
       return current.scale;
     },
-    /** True while a view transition runs; picks are refused until the shown projection settles. */
+    /**
+     * True until a frame has drawn the end of the latest view change; picks are refused until the
+     * shown projection settles. Measured by frames, not the clock, so slow frames cannot race it.
+     */
     get moving() {
-      return performance.now() < started + duration;
+      return !settled;
     },
     resize(w: number, h: number) {
       if (viewport.w === w && viewport.h === h) return;
