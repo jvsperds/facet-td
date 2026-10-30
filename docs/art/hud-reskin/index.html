@@ -1,0 +1,1286 @@
+<title>Facet TD HUD Reskin</title>
+<meta name="claude:viewport-fit-sides" content="cover" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
+/>
+<style>
+  /* Layout: a parts catalogue. Map of the screen first, then one row per HUD part:
+   captures on the left, its inventory and problems on the right. Single dark look, like the game. */
+  :root {
+    --bg: #16181b;
+    --surface: #1f2226;
+    --raised: #2a2e33;
+    --line: #363b41;
+    --fg: #eeeae1;
+    --muted: #a7a196;
+    --accent: #f2c14e; /* the game's own gold */
+    --accent-ink: #231806;
+    --p1: #ff9f97;
+    --p2: #f2c14e;
+    --p3: #9fb7c9;
+    --display: 'Barlow Condensed', 'Arial Narrow', system-ui, sans-serif;
+    --body: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
+    --mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+    color-scheme: dark;
+  }
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font: 15px/1.55 var(--body);
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 32px 64px;
+  }
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    display: grid;
+    gap: 48px;
+  }
+  h1,
+  h2,
+  h3 {
+    font-family: var(--display);
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  h1 {
+    font-size: clamp(36px, 6vw, 56px);
+    line-height: 1;
+  }
+  h2 {
+    font-size: 30px;
+    line-height: 1.1;
+  }
+  h3 {
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  p {
+    margin: 0;
+    max-width: 68ch;
+  }
+  a {
+    color: var(--accent);
+  }
+  .eyebrow {
+    font: 600 13px var(--display);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  header {
+    display: grid;
+    gap: 14px;
+  }
+  .lede {
+    color: var(--muted);
+    font-size: 17px;
+  }
+  .meta {
+    font: 13px var(--mono);
+    color: var(--muted);
+  }
+
+  /* Screen map */
+  .map {
+    position: relative;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .map img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  .pin {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    min-width: 30px;
+    height: 30px;
+    padding: 0 7px;
+    border-radius: 15px;
+    background: var(--accent);
+    color: var(--accent-ink);
+    font: 700 15px/30px var(--display);
+    text-align: center;
+    text-decoration: none;
+    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.55);
+  }
+  .pin:focus-visible,
+  .chip:focus-visible {
+    outline: 2px dashed var(--fg);
+    outline-offset: 3px;
+  }
+  @media (max-width: 600px) {
+    .pin {
+      min-width: 22px;
+      height: 22px;
+      font-size: 12px;
+      line-height: 22px;
+      padding: 0 5px;
+    }
+  }
+  .caption {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 8px;
+  }
+
+  /* Index */
+  .index {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .chip {
+    display: inline-flex;
+    gap: 8px;
+    align-items: baseline;
+    padding: 6px 12px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--fg);
+    text-decoration: none;
+    font-size: 14px;
+  }
+  .chip b {
+    font: 700 14px var(--display);
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+  .chip:hover {
+    border-color: var(--accent);
+  }
+  .groups {
+    display: grid;
+    gap: 14px;
+  }
+  .group {
+    display: grid;
+    gap: 8px;
+  }
+
+  /* Plan */
+  .plan {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 12px;
+    counter-reset: step;
+  }
+  .plan li {
+    list-style: none;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 14px 16px;
+    display: grid;
+    gap: 4px;
+  }
+  .plan li::before {
+    counter-increment: step;
+    content: 'Step ' counter(step);
+    font: 600 12px var(--display);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .plan ol {
+    padding: 0;
+    margin: 0;
+    display: contents;
+  }
+  .plan strong {
+    font-family: var(--display);
+    font-size: 19px;
+    font-weight: 600;
+  }
+  .plan span {
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  /* Parts */
+  .part {
+    display: grid;
+    gap: 20px;
+    padding-top: 28px;
+    border-top: 1px solid var(--line);
+    scroll-margin-top: 16px;
+  }
+  .part-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    align-items: baseline;
+  }
+  .num {
+    font: 700 30px var(--display);
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+  .where {
+    font: 13px var(--mono);
+    color: var(--muted);
+  }
+  .status {
+    margin-left: auto;
+    font: 600 12px var(--display);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 3px 10px;
+    border-radius: 3px;
+    border: 1px solid var(--line);
+    color: var(--muted);
+  }
+  .part-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+    gap: 28px;
+  }
+  @media (max-width: 860px) {
+    .part-body {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+  .shots {
+    display: grid;
+    gap: 14px;
+    align-content: start;
+  }
+  .shots-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    align-items: flex-start;
+  }
+  figure {
+    margin: 0;
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+    max-width: 100%;
+  }
+  figure img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    border-radius: 4px;
+    background: #000;
+  }
+  figcaption {
+    font: 12px var(--mono);
+    color: var(--muted);
+  }
+  .phone img {
+    max-height: 340px;
+    width: auto;
+  }
+  .notes {
+    display: grid;
+    gap: 18px;
+    align-content: start;
+    min-width: 0;
+  }
+  .notes ul {
+    margin: 6px 0 0;
+    padding-left: 18px;
+    display: grid;
+    gap: 4px;
+  }
+  .notes li {
+    font-size: 14.5px;
+  }
+  kbd {
+    font: 12px var(--mono);
+    padding: 1px 5px;
+    border: 1px solid var(--line);
+    border-bottom-width: 2px;
+    border-radius: 3px;
+    background: var(--raised);
+  }
+  .issue {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 4px 10px;
+    align-items: baseline;
+    margin-top: 6px;
+  }
+  .sev {
+    font: 700 12px var(--display);
+    letter-spacing: 0.06em;
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: var(--accent-ink);
+  }
+  .sev.p1 {
+    background: var(--p1);
+  }
+  .sev.p2 {
+    background: var(--p2);
+  }
+  .sev.p3 {
+    background: var(--p3);
+  }
+  .issue p {
+    font-size: 14.5px;
+  }
+  .callout {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 16px 18px;
+    display: grid;
+    gap: 8px;
+  }
+  .callout ul {
+    margin: 0;
+    padding-left: 18px;
+    display: grid;
+    gap: 6px;
+  }
+  footer {
+    color: var(--muted);
+    font-size: 13px;
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Facet TD · HUD reskin study</p>
+    <h1>Every HUD part, one at a time</h1>
+    <p class="lede">
+      The HUD as built today, split into 17 parts. Each part shows its current look on desktop and
+      phone, everything it has to show or do, and its known problems. We pick a part, agree on its
+      new look, and mark it done here.
+    </p>
+    <p class="meta">
+      Captured 30 Oct 2026 from main @ da21e57 · seed 5 · 1440×900 and 390×844 · Chromium
+    </p>
+  </header>
+
+  <section aria-labelledby="map-title" style="display: grid; gap: 12px">
+    <h2 id="map-title">Where each part sits</h2>
+    <div class="map">
+      <img
+        src="img/desktop-00-overview-keep.jpg"
+        alt="The game at 1440 by 900 during the keep step, with the HUD parts numbered."
+        width="1440"
+        height="900"
+      />
+      <a class="pin" href="#p01" style="left: 1.9%; top: 3%">1</a>
+      <a class="pin" href="#p04" style="left: 19.5%; top: 10.5%">4</a>
+      <a class="pin" href="#p02" style="left: 50%; top: 9.5%">2</a>
+      <a class="pin" href="#p03" style="left: 84%; top: 4%">3</a>
+      <a class="pin" href="#p05" style="left: 26%; top: 84%">5–9</a>
+      <a class="pin" href="#p12" style="left: 86%; top: 79%">12</a>
+      <a class="pin" href="#p14" style="left: 78%; top: 30%">14</a>
+    </div>
+    <p class="caption">
+      Keep step, gem 1 selected. Not visible in this frame: DPS list (13) appears under the menu
+      during waves; tooltip (10) and targeting banner (11) float over the command card; the recipe
+      book (14) opens on the right; dialogs 15–17 cover the board.
+    </p>
+  </section>
+
+  <section aria-labelledby="plan-title" style="display: grid; gap: 14px">
+    <h2 id="plan-title">Suggested order</h2>
+    <ol class="plan">
+      <li>
+        <strong>Kit</strong
+        ><span
+          >Type scale, colours, panel frame, button and bar styles. Every part reuses these, so we
+          settle them first.</span
+        >
+      </li>
+      <li>
+        <strong>Command card (5–11)</strong
+        ><span
+          >The most-used part: one frame with five contents, the tooltip and the targeting
+          banner.</span
+        >
+      </li>
+      <li>
+        <strong>Top bar (2, 3, 12 footer)</strong
+        ><span
+          >Round clock, run stats, and castle HP and gold in one status bar that survives every
+          width.</span
+        >
+      </li>
+      <li>
+        <strong>Draft slots (4)</strong
+        ><span>The keep decision. Reskin once the card's gem style is set.</span>
+      </li>
+      <li>
+        <strong>Showcase, DPS, recipes (12–14)</strong><span>Side panels that share the kit.</span>
+      </li>
+      <li>
+        <strong>Menus and screens (1, 15–17)</strong
+        ><span>Settings, game menu, end card and title.</span>
+      </li>
+    </ol>
+  </section>
+
+  <nav aria-labelledby="idx-title" class="groups">
+    <h2 id="idx-title">Parts</h2>
+    <div class="group">
+      <h3>Top</h3>
+      <div class="index">
+        <a class="chip" href="#p01"><b>01</b>Menu and settings</a>
+        <a class="chip" href="#p02"><b>02</b>Round clock</a>
+        <a class="chip" href="#p03"><b>03</b>Run stats</a>
+        <a class="chip" href="#p04"><b>04</b>Draft slots</a>
+        <a class="chip" href="#p13"><b>13</b>DPS list</a>
+      </div>
+    </div>
+    <div class="group">
+      <h3>Bottom: command card</h3>
+      <div class="index">
+        <a class="chip" href="#p05"><b>05</b>Builder</a>
+        <a class="chip" href="#p06"><b>06</b>Gem being placed</a>
+        <a class="chip" href="#p07"><b>07</b>Tower and stone</a>
+        <a class="chip" href="#p08"><b>08</b>Creep</a>
+        <a class="chip" href="#p09"><b>09</b>Cell and waypoint</a>
+        <a class="chip" href="#p10"><b>10</b>Tooltip</a>
+        <a class="chip" href="#p11"><b>11</b>Targeting banner</a>
+      </div>
+    </div>
+    <div class="group">
+      <h3>Right</h3>
+      <div class="index">
+        <a class="chip" href="#p12"><b>12</b>Showcase</a>
+        <a class="chip" href="#p14"><b>14</b>Recipes</a>
+      </div>
+    </div>
+    <div class="group">
+      <h3>Full screen</h3>
+      <div class="index">
+        <a class="chip" href="#p15"><b>15</b>Game menu</a>
+        <a class="chip" href="#p16"><b>16</b>End card</a>
+        <a class="chip" href="#p17"><b>17</b>Title screen</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- 01 -->
+  <section class="part" id="p01" aria-labelledby="h01">
+    <div class="part-head">
+      <span class="num">01</span>
+      <h2 id="h01">Menu button and settings</h2>
+      <span class="where">top left · Hud.tsx · .tools, #settings</span
+      ><span class="status">Current</span>
+    </div>
+    <div class="part-body">
+      <div class="shots">
+        <div class="shots-row">
+          <figure>
+            <img
+              src="img/desktop-01-menu-button.jpg"
+              alt="Round menu button"
+              width="54"
+              height="54"
+            />
+            <figcaption>closed</figcaption>
+          </figure>
+          <figure>
+            <img
+              src="img/desktop-01-settings.jpg"
+              alt="Settings flyout with Game, Camera and Show groups"
+            />
+            <figcaption>desktop, open</figcaption>
+          </figure>
+          <figure class="phone">
+            <img src="img/phone-01-settings.jpg" alt="Settings flyout on phone" />
+            <figcaption>phone, open</figcaption>
+          </figure>
+        </div>
+      </div>
+      <div class="notes">
+        <div>
+          <h3>Must show</h3>
+          <ul>
+            <li>Game: Pause <kbd>P</kbd>, speed 1× / 2× / 4× <kbd>1</kbd>–<kbd>3</kbd></li>
+            <li>
+              Camera: Top/Isometric <kbd>T</kbd>, Drag rotates, Turn left/right, Zoom in/out, Reset
+              view
+            </li>
+            <li>
+              Show: Recipes <kbd>G</kbd>, DPS list <kbd>M</kbd>, Routes, Auras <kbd>A</kbd>, Sound;
+              Hero loadout <kbd>H</kbd> (hidden, WIP)
+            </li>
+            <li>Route legend; “New run, restart or exit” <kbd>Esc</kbd></li>
+          </ul>
+        </div>
+        <div>
+          <h3>Problems now</h3>
+          <div class="issue">
+            <span class="sev p2">P2</span>
+            <p>Button is 34 px on desktop, 30 px on phone; target is 48.</p>
+          </div>
+          <div class="issue">
+            <span class="sev p3">P3</span>
+            <p>
+              Toggles and one-shot actions (Turn, Zoom) look the same; on/off reads only by gold
+              fill.
+            </p>
+          </div>
+          <div class="issue">
+            <span class="sev p2">P2</span>
+            <p>On phone the open panel covers the round clock.</p>
+          </div>
+          <div class="issue">
+            <span class="sev p3">P3</span>
+            <p>Speed is two clicks away during a wave; it may belong on the top bar.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 02 -->
+  <section class="part" id="p02" aria-labelledby="h02">
+    <div class="part-head">
+      <span class="num">02</span>
+      <h2 id="h02">Round clock</h2>
+      <span class="where">top centre · Hud.tsx RoundClock · .round-clock</span
+      ><span class="status">Current</span>
+    </div>
+    <div class="part-body">
+      <div class="shots">
+        <div class="shots-row">
+          <figure>
+            <img src="img/desktop-02-round-clock-build.jpg" alt="Round clock during build" />
+            <figcaption>build</figcaption>
+          </figure>
+          <figure>
+            <img src="img/desktop-02-round-clock-wave.jpg" alt="Round clock during wave" />
+            <figcaption>wave</figcaption>
+          </figure>
+          <figure>
+            <img
+              src="img/desktop-02-round-clock-paused.jpg"
+              alt="Round clock paused, with Paused flag"
+            />
+            <figcaption>paused</figcaption>
+          </figure>
+          <figure class="phone">
+            <img src="img/phone-02-round-clock-build.jpg" alt="Round clock on phone" />
+            <figcaption>phone</figcaption>
+          </figure>
+        </div>
+      </div>
+      <div class="notes">
+        <div>
+          <h3>Must show</h3>
+          <ul>
+            <li>Round number (∞N in endless)</li>
+            <li>Run time (small) and round time (large)</li>
+            <li>“Next” or “Left” with creep count; next creep name</li>
+            <li>Paused or Enraged flag</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Problems now</h3>
+          <div class="issue">
+            <span class="sev p1">P1</span>
+            <p>
+              Castle HP and gold are not here, and the panels that hold them vanish at ≤900 px. The
+              top bar is the natural home for both.
+            </p>
+          </div>
+          <div class="issue">
+            <span class="sev p3">P3</span>
+            <p>Two unlabelled clocks; labels at 10 px. Creep name repeats in the showcase.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 03 -->
+  <section class="part" id="p03" aria-labelledby="h03">
+    <div class="part-head">
+      <span class="num">03</span>
+      <h2 id="h03">Run stats</h2>
+      <span class="where">top right · Hud.tsx StatsPanel · .stats-panel</span
+      ><span class="status">Current</span>
+    </div>
+    <div class="part-body">
+      <div class="shots">
+        <div class="shots-row">
+          <figure>
+            <img
+              src="img/desktop-03-run-stats.jpg"
+              alt="Run stats: mode, kills and misses, length, enemy, progress"
+            />
+            <figcaption>desktop (hidden at ≤900 px)</figcaption>
+          </figure>
+        </div>
+      </div>
+      <div class="notes">
+        <div>
+          <h3>Must show</h3>
+          <ul>
+            <li>Mode (Classic / Facet)</li>
+            <li>Kills / leaks, maze length, creeps on board, wave progress %</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Problems now</h3>
+          <div class="issue">
+            <span class="sev p2">P2</span>
+            <p>No panel behind it; sits on the cave scenery. Labels 10 px.</p>
+          </div>
+          <div class="issue">
+            <span class="sev p3">P3</span>
+            <p>“K/M” and “Length” explained only in hover tooltips.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 04 -->
+  <section class="part" id="p04" aria-labelledby="h04">
+    <div class="part-head">
+      <span class="num">04</span>
+      <h2 id="h04">Draft slots</h2>
+      <span class="where">top left, build only · Hud.tsx DraftSlots · .draft</span
+      ><span class="status">Current</span>
+    </div>
+    <div class="part-body">
+      <div class="shots">
+        <div class="shots-row">
+          <figure>
+            <img src="img/desktop-04-draft-empty.jpg" alt="Five empty draft slots" />
+            <figcaption>placing (0/5)</figcaption>
+          </figure>
+          <figure>
+            <img src="img/desktop-04-draft-keep.jpg" alt="Five filled slots, first selected" />
+            <figcaption>keep or combine</figcaption>
+          </figure>
+        </div>
+        <figure class="phone">
+          <img src="img/phone-04-draft-keep.jpg" alt="Draft slots on phone" />
+          <figcaption>phone</figcaption>
+        </figure>
+      </div>
+      <div class="notes">
+        <div>
+          <h3>Must show</h3>
+          <ul>
+            <li>Title: “Place gems (n/5)”, then “Keep one gem or combine”</li>
+            <li>
+              Per slot: number, gem model icon, code (P1, Y1…), type colour, “can combine” dot,
+              selected state
+            </li>
+            <li>Empty slots disabled; clicking a filled slot selects its gem on the board</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Problems now</h3>
+          <div class="issue">
+            <span class="sev p2">P2</span>
+            <p>Slots 36 px wide on phone; slot numbers 9 px.</p>
+          </div>
+          <div class="issue">
+            <span class="sev p3">P3</span>
+            <p>Empty slots barely visible; no hint of how to place the next gem.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 05 -->
+  <section class="part" id="p05" aria-labelledby="h05">
+    <div class="part-head">
+      <span class="num">05</span>
+      <h2 id="h05">Command card: builder</h2>
+      <span class="where">bottom centre, nothing selected · CommandCard.tsx HeroCard · .card</span
+      ><span class="status">Current</span>
+    </div>
+    <div class="part-body">
+      <div class="shots">
+        <figure>
+          <img
+            src="img/desktop-05-card-builder.jpg"
+            alt="Builder card with Place gem and Remove stone"
+          />
+          <figcaption>desktop</figcaption>
+        </figure>
+        <figure class="phone">
+          <img src="img/phone-05-card-builder.jpg" alt="Builder card on phone" />
+          <figcaption>phone</figcaption>
+        </figure>
+      </div>
+      <div class="notes">
+        <div>
+          <h3>The frame (shared by 05–09)</h3>
+          <ul>
+            <li>Portrait: name, art, level disc, four stats down the right edge</li>
+            <li>
+              Status effects row; one line of commands with hotkey above, icon, label, cooldown,
+              primary/glow/disabled states
+            </li>
+            <li>
+              Two bars (health-style green, mana-style dark) and a note line for reasons and
+              refusals
+            </li>
+            <li>Close <kbd>Esc</kbd>; collapse on tablet and phone</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Builder content</h3>
+          <ul>
+            <li>Build level, gold, towers, stones</li>
+            <li>
+              Place gem <kbd>Q</kbd>, Remove stone <kbd>W</kbd>; hero skills <kbd>E</kbd><kbd>D</kbd
+              ><kbd>F</kbd><kbd>R</kbd> (WIP)
+            </li>
+            <li>Bars: castle HP, gems placed</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Problems now</h3>
+          <div class="issue">
+            <span class="sev p2">P2</span>
+            <p>
+              760 px wide with two commands; bars unlabelled; stats are icons at 9–10 px, bare
+              numbers on phone.
+            </p>
+          </div>
+          <div class="issue">
+            <span class="sev p2">P2</span>
+            <p>Phone shows <kbd>Q</kbd>/<kbd>W</kbd> hints and cuts names to “Place …”, “Remo…”.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 06 -->
+  <section class="part" id="p06" aria-labelledby="h06">
+    <div class="part-head">
+      <span class="num">06</span>
+      <h2 id="h06">Command card: gem being placed</h2>
+      <span class="where">a draft gem selected · CommandCard.tsx CellCard</span
+      ><span class="status">Current</span>
+    </div>
+    <div class="part-body">
+      <div class="shots">
+        <figure>
+          <img
+            src="img/desktop-06-card-draft-gem.jpg"
+            alt="Card for Chipped topaz with Keep, Keep +1, Keep +2, Hold fire"
+          />
+          <figcaption>desktop · Chipped topaz</figcaption>
+        </figure>
+        <figure class="phone">
+          <img src="img/phone-06-card-draft-gem.jpg" alt="Same card on phone" />
+          <figcaption>phone</figcaption>
+        </figure>
+      </div>
+      <div class="notes">
+        <div>
+          <h3>Must show</h3>
+          <ul>
+            <li>Gem name, type and quality; damage, attack speed, range, kills</li>
+            <li>Ability (e.g. Split, Shred) as a passive slot</li>
+            <li>
+              Keep <kbd>K</kbd>, Keep +1, Keep +2, Combine <kbd>C</kbd> (when possible), Hold fire
+              <kbd>S</kbd>
+            </li>
+            <li>Bars: share of wave damage, MVP progress; note: why an action is refused</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Problems now</h3>
+          <div class="issue">
+            <span class="sev p2">P2</span>
+            <p>Name truncated (“CHIPPED AMETHYS…”) at the keep decision.</p>
+          </div>
+          <div class="issue">
+            <span class="sev p2">P2</span>
+            <p>
+              The label on every gold primary button (“Keep”, “Place gem”) is dark-on-dark and
+              unreadable.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 07 -->
+  <section class="part" id="p07" aria-labelledby="h07">
+    <div class="part-head">
+      <span class="num">07</span>
+      <h2 id="h07">Command card: tower and stone</h2>
+      <span class="where">a kept tower or a stone selected · CellCard</span
+      ><span class="status">Current</span>
+    </div>
+    <div class="part-body">
+      <div class="shots">
+        <figure>
+          <img src="img/desktop-07-card-tower.jpg" alt="Card for a kept tower" />
+          <figcaption>kept tower</figcaption>
+        </figure>
+        <figure>
+          <img src="img/desktop-07-card-stone.jpg" alt="Card for a stone" />
+          <figcaption>stone</figcaption>
+        </figure>
+      </div>
+      <div class="notes">
+        <div>
+          <h3>Must show</h3>
+          <ul>
+            <li>Tower: as 06 plus combine options, downgrade, aim modes (WIP)</li>
+            <li>Stone: build a gem over it <kbd>B</kbd>, remove it, cost after early waves</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Problems now</h3>
+          <div class="issue">
+            <span class="sev p2">P2</span>
+            <p>Stone card is mostly empty space; one sentence of help in 13 px grey.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 08 -->
+  <section class="part" id="p08" aria-labelledby="h08">
+    <div class="part-head">
+      <span class="num">08</span>
+      <h2 id="h08">Command card: creep</h2>
+      <span class="where">a creep selected · CreepCard</span><span class="status">Current</span>
+    </div>
+    <div class="part-body">
+      <div class="shots">
+        <figure>
+          <img src="img/desktop-08-card-creep.jpg" alt="Card for Frenzied pig with health bar" />
+          <figcaption>desktop · Frenzied pig</figcaption>
+        </figure>
+        <figure class="phone">
+          <img src="img/phone-08-card-creep.jpg" alt="Creep card on phone" />
+          <figcaption>phone</figcaption>
+        </figure>
+      </div>
+      <div class="notes">
+        <div>
+          <h3>Must show</h3>
+          <ul>
+            <li>Name, model, level; armor (and base), magic resist, speed, bounty</li>
+            <li>Abilities and status effects; health bar</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Problems now</h3>
+          <div class="issue">
+            <span class="sev p2">P2</span>
+            <p>An empty dark box sits where the ability or status should be.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 09 -->
+  <section class="part" id="p09" aria-labelledby="h09">
+    <div class="part-head">
+      <span class="num">09</span>
+      <h2 id="h09">Command card: cell and waypoint</h2>
+      <span class="where">open cell or route marker selected · CellCard</span
+      ><span class="status">Current</span>
+    </div>
+    <div class="part-body">
+      <div class="shots">
+        <figure>
+          <img src="img/desktop-09-card-cell.jpg" alt="Open cell card with Place gem" />
+          <figcaption>open cell</figcaption>
+        </figure>
+        <figure>
+          <img src="img/desktop-09-card-waypoint.jpg" alt="Checkpoint 1 card" />
+          <figcaption>waypoint</figcaption>
+        </figure>
+      </div>
+      <div class="notes">
+        <div>
+          <h3>Must show</h3>
+          <ul>
+            <li>
+              Cell: Place gem <kbd>B</kbd> or the reason it is refused (would block the route, wave
+              running)
+            </li>
+            <li>Waypoint: which one (S, 1–5, E) and that it cannot be built on</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Problems now</h3>
+          <div class="issue">
+            <span class="sev p3">P3</span>
+            <p>Full-size card for one line of text; could be a compact variant.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 10 -->
+  <section class="part" id="p10" aria-labelledby="h10">
+    <div class="part-head">
+      <span class="num">10</span>
+      <h2 id="h10">Tooltip</h2>
+      <span class="where">over any command · CommandCard.tsx Tip · .tip</span
+      ><span class="status">Current</span>
+    </div>
+    <div class="part-body">
+      <div class="shots">
+        <figure>
+          <img src="img/desktop-10-tooltip.jpg" alt="Place gem tooltip with hotkey Q" />
+          <figcaption>Place gem</figcaption>
+        </figure>
+      </div>
+      <div class="notes">
+        <div>
+          <h3>Must show</h3>
+          <ul>
+            <li>Title, hotkey, level, description, refusal reason</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Problems now</h3>
+          <div class="issue">
+            <span class="sev p3">P3</span>
+            <p>Stays up after a click until the pointer moves; hover-only on touch.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 11 -->
+  <section class="part" id="p11" aria-labelledby="h11">
+    <div class="part-head">
+      <span class="num">11</span>
+      <h2 id="h11">Targeting banner</h2>
+      <span class="where">above the card while placing or removing · .targeting</span
+      ><span class="status">Current</span>
+    </div>
+    <div class="part-body">
+      <div class="shots">
+        <figure>
+          <img
+            src="img/desktop-11-targeting.jpg"
+            alt="Place gem: pick a cell. Shift keeps it. Esc cancels."
+          />
+          <figcaption>place gem</figcaption>
+        </figure>
+        <figure class="phone">
+          <img src="img/phone-11-targeting.jpg" alt="Targeting banner on phone" />
+          <figcaption>phone</figcaption>
+        </figure>
+      </div>
+      <div class="notes">
+        <div>
+          <h3>Must show</h3>
+          <ul>
+            <li>What to pick, how to repeat (Shift), how to cancel (Esc, right click)</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Problems now</h3>
+          <div class="issue">
+            <span class="sev p2">P2</span>
+            <p>
+              Phone gets keyboard instructions and no Cancel button, and the banner overlaps the
+              draft-slot title.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 12 -->
+  <section class="part" id="p12" aria-labelledby="h12">
+    <div class="part-head">
+      <span class="num">12</span>
+      <h2 id="h12">Showcase</h2>
+      <span class="where">bottom right · Showcase.tsx · .showcase</span
+      ><span class="status">Current</span>
+    </div>
+    <div class="part-body">
+      <div class="shots">
+        <div class="shots-row">
+          <figure>
+            <img src="img/desktop-12-showcase-next.jpg" alt="Next creep showcase" />
+            <figcaption>next</figcaption>
+          </figure>
+          <figure>
+            <img src="img/desktop-12-showcase-wave.jpg" alt="Wave creep showcase" />
+            <figcaption>wave</figcaption>
+          </figure>
+          <figure>
+            <img src="img/desktop-12-showcase-mvp.jpg" alt="Showcase after the wave" />
+            <figcaption>after wave (MVP tag shows only when a tower dealt damage)</figcaption>
+          </figure>
+        </div>
+      </div>
+      <div class="notes">
+        <div>
+          <h3>Must show</h3>
+          <ul>
+            <li>Tag: Next / Wave / MVP; live 3D model on a plinth; name</li>
+            <li>Footer: castle HP %, gold</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Problems now</h3>
+          <div class="issue">
+            <span class="sev p1">P1</span>
+            <p>Hidden at ≤900 px, taking castle HP and gold with it.</p>
+          </div>
+          <div class="issue">
+            <span class="sev p3">P3</span>
+            <p>Castle shows as “78%” here and “100 / 100” on the builder card.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 13 -->
+  <section class="part" id="p13" aria-labelledby="h13">
+    <div class="part-head">
+      <span class="num">13</span>
+      <h2 id="h13">DPS list</h2>
+      <span class="where">top left during waves · DamageMeter.tsx · .dps</span
+      ><span class="status">Current</span>
+    </div>
+    <div class="part-body">
+      <div class="shots">
+        <figure>
+          <img src="img/desktop-13-dps-meter.jpg" alt="DPS list with no damage yet" />
+          <figcaption>wave start</figcaption>
+        </figure>
+      </div>
+      <div class="notes">
+        <div>
+          <h3>Must show</h3>
+          <ul>
+            <li>Wave number and total; per tower: icon, name, bar, damage</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Problems now</h3>
+          <div class="issue">
+            <span class="sev p3">P3</span>
+            <p>No panel behind it; 15 px grey over cave rock. Hidden on phone.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 14 -->
+  <section class="part" id="p14" aria-labelledby="h14">
+    <div class="part-head">
+      <span class="num">14</span>
+      <h2 id="h14">Recipes</h2>
+      <span class="where">right side · RecipeBook.tsx · .drawer, .pinned</span
+      ><span class="status">Current</span>
+    </div>
+    <div class="part-body">
+      <div class="shots">
+        <div class="shots-row">
+          <figure>
+            <img
+              src="img/desktop-14-recipe-book.jpg"
+              alt="Recipe book with tabs, search and recipe rows"
+            />
+            <figcaption>recipe book</figcaption>
+          </figure>
+          <div class="shots" style="gap: 14px">
+            <figure>
+              <img src="img/desktop-14-pinned.jpg" alt="One pinned recipe" />
+              <figcaption>pinned</figcaption>
+            </figure>
+            <figure class="phone">
+              <img src="img/phone-14-recipe-book.jpg" alt="Recipe book on phone" />
+              <figcaption>phone</figcaption>
+            </figure>
+          </div>
+        </div>
+      </div>
+      <div class="notes">
+        <div>
+          <h3>Must show</h3>
+          <ul>
+            <li>Tabs: Towers, Secret, Pedals; search</li>
+            <li>
+              Per recipe: result icon and name, owned count (1/3), ingredient chips (owned
+              highlighted), pin
+            </li>
+            <li>Pinned list stays on screen; pinned ingredients glow on the board</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Problems now</h3>
+          <div class="issue">
+            <span class="sev p2">P2</span>
+            <p>On phone a floating card over half the board, about 3½ rows visible.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 15 -->
+  <section class="part" id="p15" aria-labelledby="h15">
+    <div class="part-head">
+      <span class="num">15</span>
+      <h2 id="h15">Game menu</h2>
+      <span class="where">modal · Menu.tsx GameMenu · dialog.menu</span
+      ><span class="status">Current</span>
+    </div>
+    <div class="part-body">
+      <div class="shots">
+        <div class="shots-row">
+          <figure>
+            <img
+              src="img/desktop-15-game-menu.jpg"
+              alt="Menu with Resume, New run, Restart this seed, Exit to title"
+            />
+            <figcaption>menu</figcaption>
+          </figure>
+          <figure>
+            <img src="img/desktop-15-game-menu-confirm.jpg" alt="Confirm restart" />
+            <figcaption>confirm</figcaption>
+          </figure>
+        </div>
+      </div>
+      <div class="notes">
+        <div>
+          <h3>Must show</h3>
+          <ul>
+            <li>
+              Resume <kbd>Esc</kbd>, New run, Restart this seed, Exit to title, seed number; confirm
+              before losing progress
+            </li>
+          </ul>
+        </div>
+        <div>
+          <h3>Problems now</h3>
+          <div class="issue">
+            <span class="sev p3">P3</span>
+            <p>Board stays fully visible behind it; no dim.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 16 -->
+  <section class="part" id="p16" aria-labelledby="h16">
+    <div class="part-head">
+      <span class="num">16</span>
+      <h2 id="h16">End card</h2>
+      <span class="where">modal · Hud.tsx EndCard · .end-card</span
+      ><span class="status">Current</span>
+    </div>
+    <div class="part-body">
+      <div class="shots">
+        <figure>
+          <img src="img/desktop-16-end-card.jpg" alt="The castle fell end card over the board" />
+          <figcaption>loss</figcaption>
+        </figure>
+      </div>
+      <div class="notes">
+        <div>
+          <h3>Must show</h3>
+          <ul>
+            <li>Victory or loss, wave reached, gold, build level, Play again</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Problems now</h3>
+          <div class="issue">
+            <span class="sev p2">P2</span>
+            <p>
+              Thin compared with the end-of-run summary spec in docs/art/IMPLEMENTATION.md (MVP,
+              kills, leaks, best towers).
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 17 -->
+  <section class="part" id="p17" aria-labelledby="h17">
+    <div class="part-head">
+      <span class="num">17</span>
+      <h2 id="h17">Title screen</h2>
+      <span class="where">?title · Menu.tsx TitleScreen · .title-card</span
+      ><span class="status">Current</span>
+    </div>
+    <div class="part-body">
+      <div class="shots">
+        <figure>
+          <img src="img/desktop-17-title.jpg" alt="Title screen" />
+          <figcaption>desktop</figcaption>
+        </figure>
+        <figure class="phone">
+          <img src="img/phone-17-title.jpg" alt="Title screen on phone" />
+          <figcaption>phone</figcaption>
+        </figure>
+      </div>
+      <div class="notes">
+        <div>
+          <h3>Must show</h3>
+          <ul>
+            <li>Name, mode, one-line pitch, New game</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Later</h3>
+          <ul>
+            <li>Mode choice (Classic / Facet), continue, settings, co-op</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="callout">
+    <h3>Not in this study</h3>
+    <ul>
+      <li>Hero loadout panel: behind <code>?wip</code>, not shipped.</li>
+      <li>
+        Creep health bars, board markers (S, 1–5, E), range rings and highlights: drawn in the 3D
+        scene, not the DOM HUD. Say if you want them in the reskin too.
+      </li>
+    </ul>
+  </div>
+
+  <footer>
+    Source: Playwright captures of the dev build. The full findings, with measurements, are in
+    docs/art/ux-study/README.md on branch claude/hopeful-dijkstra-jhuu7b.
+  </footer>
+</div>
