@@ -7,7 +7,14 @@ import type { Cell } from '../sim/board';
 import { DRAFT_SIZE, LAST_LEVEL, TICK_HZ, type Game } from '../sim/game';
 import type { RecipeKind } from '../sim/progression';
 import type { Cmd, Sim } from '../sim/sim';
-import { CommandCard, SKILL_KEYS, arm, heroSkills, heroTarget } from './CommandCard';
+import {
+  CommandCard,
+  SKILL_KEYS,
+  arm,
+  heroSkills,
+  heroTarget,
+  pending as pendingTablet,
+} from './CommandCard';
 import { DamageMeter } from './DamageMeter';
 import { HeroPanel } from './HeroPanel';
 import { GlyphDefs, ICONS, Icon } from './icons';
@@ -16,7 +23,6 @@ import { GameMenu, TitleScreen } from './Menu';
 import { TowerIcon } from './TowerIcon';
 import { code, compact, displayName } from './names';
 import { PinnedRecipes, RecipeBook } from './RecipeBook';
-import { Showcase } from './Showcase';
 import {
   announcement,
   rotateMode,
@@ -43,6 +49,7 @@ const SPEEDS = [
   [1, 'Normal speed'],
   [2, 'Double speed'],
   [4, 'Quadruple speed'],
+  [10, 'Ten times speed'],
 ] as const;
 
 type Props = {
@@ -81,6 +88,7 @@ export function Hud(props: Props) {
   const cameraButton = useRef<HTMLButtonElement>(null);
   const toolsRef = useRef<HTMLDivElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
+  const lastDraftPress = useRef<{ id: number; time: number } | null>(null);
   const v = view.value;
   const closeFlyout = () => {
     flyout.value = false;
@@ -115,9 +123,40 @@ export function Hud(props: Props) {
         return;
       const k = e.key.toLowerCase();
       if (k === 'p') togglePause();
-      else if (k === '1' || k === '2' || k === '3') {
-        const [s, label] = SPEEDS[Number(k) - 1];
-        setSpeed(s, label);
+      else if (/^[1-5]$/.test(k)) {
+        if (
+          e.repeat ||
+          menuOpen.value ||
+          heroOpen.value ||
+          flyout.value ||
+          recipesOpen.value ||
+          pendingTablet.value
+        ) {
+          lastDraftPress.current = null;
+          return;
+        }
+        const g = sim.game;
+        const gem = g.gems.find((piece) => piece.id === g.draft[Number(k) - 1]);
+        if (!gem) {
+          lastDraftPress.current = null;
+          return;
+        }
+        const now = performance.now();
+        const previous = lastDraftPress.current;
+        const doublePress =
+          previous?.id === gem.id &&
+          now - previous.time <= 400 &&
+          selected.value !== null &&
+          same(selected.value, gem.cell) &&
+          selectedCreep.value === null;
+        selected.value = { ...gem.cell };
+        selectedCreep.value = null;
+        targeting.value = null;
+        if (doublePress) {
+          if (g.keepResult(gem.id, 0).ok) send({ type: 'keep', id: gem.id, upgrade: 0 });
+          lastDraftPress.current = null;
+        } else lastDraftPress.current = { id: gem.id, time: now };
+        announcement.value = `Selected ${displayName(sim.data, gem.name)}`;
       } else if (k === 'g') recipesOpen.value = !recipesOpen.value;
       else if (k === 'm') meterOpen.value = !meterOpen.value;
       else if (k === 'q') arm('build');
@@ -200,26 +239,6 @@ export function Hud(props: Props) {
           </button>
           {flyout.value && (
             <div class="panel settings" id="settings" role="group" aria-label="Settings">
-              <p class="section-label">Game</p>
-              <div class="settings-row">
-                <MenuToggle label="Pause" hint="P" pressed={paused.value} onClick={togglePause}>
-                  {paused.value ? ICONS.play : ICONS.pause}
-                </MenuToggle>
-                <div class="segmented" role="group" aria-label="Game speed">
-                  {SPEEDS.map(([s, label], i) => (
-                    <button
-                      class="tabular"
-                      aria-label={label}
-                      aria-keyshortcuts={`${i + 1}`}
-                      title={`${label} (${i + 1})`}
-                      aria-pressed={speed.value === s}
-                      onClick={() => setSpeed(s, label)}
-                    >
-                      {s}×
-                    </button>
-                  ))}
-                </div>
-              </div>
               <p class="section-label">Camera</p>
               <div class="settings-grid">
                 <MenuToggle
@@ -310,13 +329,13 @@ export function Hud(props: Props) {
         </div>
         <Quest game={game} feedback={feedback} tick={tick} />
         {game.phase === 'build' && <DraftSlots sim={sim} tick={tick} />}
-        {meterOpen.value &&
-          (game.phase === 'wave' || Object.keys(game.damageThisWave).length > 0) && (
-            <DamageMeter data={sim.data} game={game} />
-          )}
       </div>
       <RoundClock sim={sim} feedback={feedback} paused={paused.value} tick={tick} />
       <StatsPanel sim={sim} mode={mode} feedback={feedback} tick={tick} />
+      {meterOpen.value &&
+        (game.phase === 'wave' || Object.keys(game.damageThisWave).length > 0) && (
+          <DamageMeter data={sim.data} game={game} />
+        )}
       <div class="side">
         <PinnedRecipes data={sim.data} game={game} />
         {recipesOpen.value && (
@@ -330,7 +349,47 @@ export function Hud(props: Props) {
         </p>
       )}
       <CommandCard sim={sim} send={send} tick={tick} openHero={() => (heroOpen.value = true)} />
-      <Showcase sim={sim} feedback={feedback} tick={tick} />
+      <nav class="game-controls" data-exclude aria-label="Game controls">
+        <button
+          aria-label="Pause"
+          aria-keyshortcuts="P"
+          aria-pressed={paused.value}
+          title={paused.value ? 'Resume (P)' : 'Pause (P)'}
+          onClick={togglePause}
+        >
+          <Icon name={paused.value ? 'play' : 'pause'} />
+        </button>
+        <div class="speed-strip" role="group" aria-label="Game speed">
+          {SPEEDS.map(([s, label]) => (
+            <button
+              aria-label={label}
+              aria-pressed={speed.value === s}
+              title={label}
+              onClick={() => setSpeed(s, label)}
+            >
+              {s}×
+            </button>
+          ))}
+        </div>
+        <button
+          aria-label="Recipe book"
+          aria-keyshortcuts="G"
+          aria-pressed={recipesOpen.value}
+          title="Recipes (G)"
+          onClick={() => (recipesOpen.value = !recipesOpen.value)}
+        >
+          <Icon name="book" />
+        </button>
+        <button
+          aria-label="Camera controls"
+          aria-expanded={flyout.value}
+          aria-controls="settings"
+          title="Camera controls"
+          onClick={() => (flyout.value = true)}
+        >
+          <Icon name="iso" />
+        </button>
+      </nav>
       {heroOpen.value && <HeroPanel sim={sim} send={send} close={() => (heroOpen.value = false)} />}
       {menuOpen.value && (
         <GameMenu
@@ -455,6 +514,14 @@ function StatsPanel({
     game.phase === 'wave' && count ? Math.round(((count - creepsLeft(game)) / count) * 100) : 0;
   return (
     <section class="stats-panel" data-exclude aria-label="Game stats">
+      <div class="run-resources">
+        <span>
+          Castle <strong>{Math.max(0, game.castleHp)} / 100</strong>
+        </span>
+        <span>
+          Gold <strong>{compact(game.gold)}</strong>
+        </span>
+      </div>
       <dl class="run-stats tabular">
         <div>
           <dt>Mode</dt>
@@ -489,7 +556,7 @@ function DraftSlots({ sim }: { sim: Sim; tick: number }) {
   const draft = game.draft.map((id) => game.gems.find((g) => g.id === id)!);
   const picking = draft.length === DRAFT_SIZE;
   return (
-    <section class="draft" aria-label="This round">
+    <section class="draft" data-exclude aria-label="This round">
       <h2 class="draft-title">
         {picking ? (
           'Keep one gem or combine'
@@ -519,6 +586,7 @@ function DraftSlots({ sim }: { sim: Sim; tick: number }) {
               aria-label={label}
               title={combines ? `${label}. Can combine.` : label}
               aria-pressed={active}
+              aria-keyshortcuts={String(i + 1)}
               onClick={() => {
                 selected.value = { ...g.cell };
                 announcement.value = `Selected ${name}`;

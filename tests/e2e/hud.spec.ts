@@ -15,7 +15,7 @@ test('one hamburger menu holds every setting; Escape closes it and returns focus
   await expect(settings).toHaveCount(0);
   await menu.click();
   await expect(menu).toHaveAttribute('aria-expanded', 'true');
-  for (const name of ['Pause', 'Double speed', 'Switch to top view', 'Recipes', 'Show routes'])
+  for (const name of ['Switch to top view', 'Recipes', 'Show routes'])
     await expect(settings.getByRole('button', { name, exact: true })).toBeVisible();
   await settings.getByRole('button', { name: 'Zoom in' }).focus();
   await page.keyboard.press('Escape');
@@ -33,10 +33,18 @@ test('the inspector collapses on tablets and Deselect clears the selection', asy
   await page.goto('/?seed=5');
   await page.waitForFunction(() => window.facet);
   await page.waitForFunction(() => !window.facet.world.moving);
-  const p = await page.evaluate(() => window.facet.world.screenOf({ x: 12, y: 12 }));
+  const cell = await page.evaluate(() => {
+    const g = (
+      window.facet as unknown as {
+        sim: { game: { stones: Map<number, { x: number; y: number }> } };
+      }
+    ).sim.game;
+    return [...g.stones.values()][0];
+  });
+  const p = await page.evaluate((c) => window.facet.world.screenOf(c), cell);
   await page.mouse.click(p.x, p.y);
   const info = page.getByLabel('Selection');
-  await expect(info).toContainText('Cell 12, 12');
+  await expect(info).toContainText(`Cell ${cell.x}, ${cell.y}`);
   const before = (await info.boundingBox())!.height;
 
   await page.getByRole('button', { name: 'Hide details' }).click();
@@ -65,7 +73,7 @@ test('speed, recipe book, damage meter and shortcuts work from the toolbar and k
     'aria-pressed',
     'true',
   );
-  await page.keyboard.press('1');
+  await page.getByRole('button', { name: 'Normal speed' }).click();
   await expect(page.getByRole('button', { name: 'Normal speed' })).toHaveAttribute(
     'aria-pressed',
     'true',
@@ -157,19 +165,18 @@ test('Q arms placing so the next picked cell gets a gem; W removes a stone; Esc 
   type Game = { draft: number[]; stones: Map<number, unknown> };
   type Cell = { x: number; y: number };
 
-  const place = page.getByLabel('Selection').getByRole('button', { name: 'Place gem' });
   await page.keyboard.press('q');
-  await expect(place).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.targeting')).toBeVisible();
   const p = await page.evaluate(() => window.facet.world.screenOf({ x: 12, y: 12 }));
   await page.mouse.click(p.x, p.y);
   await expect.poll(async () => (await game()).draft).toBe(1);
   // One cast per press, as in Dota: the next click selects again.
-  await expect(place).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('.targeting')).toHaveCount(0);
 
   await page.keyboard.press('q');
-  await expect(place).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.targeting')).toBeVisible();
   await page.keyboard.press('Escape');
-  await expect(place).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('.targeting')).toHaveCount(0);
 
   // W on a stone removes it.
   const stone = await page.evaluate(() => {

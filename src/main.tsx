@@ -13,6 +13,7 @@ import { Sim, TICK_HZ, type Cmd } from './sim/sim';
 import { createWorld } from './world/world';
 import { prewarmTowers } from './world/pieces';
 import './style.css';
+import './hud/slate.css';
 
 const mode: Mode = 'classic';
 const params = new URLSearchParams(location.search);

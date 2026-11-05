@@ -63,11 +63,16 @@ function render(name: string) {
   if (!studio) return Promise.resolve(null);
   const { renderer, scene, camera } = studio;
   // `creep:<unit>` draws that creep whole; any other name is a tower.
+  const portrait = name.startsWith('portrait:');
+  if (portrait) name = name.slice(9);
+  renderer.setSize(portrait ? 256 : SIZE, portrait ? 256 : SIZE, false);
   const creep = name.startsWith('creep:') ? name.slice(6) : null;
   // The tower without its stone footing: on the board it rises from a wall turret instead.
   const subject = creep
     ? createCreep({ modelScale: 1, flying: creep.includes('fly'), boss: creep.includes('boss') })
-    : towerModel(name).children.at(-1)!;
+    : portrait
+      ? towerModel(name)
+      : towerModel(name).children.at(-1)!;
   const holder = new THREE.Group().add(subject);
   subject.position.set(0, 0, 0);
   scene.add(holder);
@@ -163,18 +168,18 @@ function save(name: string, blob: Blob) {
   });
 }
 
-type Idle = { timeRemaining(): number };
+type Idle = { timeRemaining(): number; didTimeout?: boolean };
 const whenIdle = (run: (idle: Idle) => void) =>
   typeof requestIdleCallback === 'function'
-    ? requestIdleCallback(run)
+    ? requestIdleCallback(run, { timeout: 500 })
     : setTimeout(() => run({ timeRemaining: () => 10 }), 60);
 
-/** One icon per idle period, so rendering never lands in a busy frame. */
+/** One icon per callback; a deadline prevents model portraits starving during continuous play. */
 async function drain(idle: Idle) {
   await stored;
   // The WebGL context for icons is made in the first idle period, not mid-render.
   if (studio === undefined) studio = setup();
-  const name = idle.timeRemaining() > 6 ? queue.shift() : undefined;
+  const name = idle.didTimeout || idle.timeRemaining() > 6 ? queue.shift() : undefined;
   if (name !== undefined && !cache.has(name)) {
     let url = '';
     try {
@@ -230,9 +235,17 @@ export function iconOf(name: string): string | undefined {
 }
 
 /** A gem or tower icon drawn from its 3D model; the SVG glyph until (or unless) that is ready. */
-export function TowerIcon({ name, class: cls = 'glyph' }: { name: string; class?: string }) {
+export function TowerIcon({
+  name,
+  class: cls = 'glyph',
+  portrait = false,
+}: {
+  name: string;
+  class?: string;
+  portrait?: boolean;
+}) {
   void ready.value; // redraw when queued icons arrive
-  const url = iconOf(name);
+  const url = iconOf(portrait ? `portrait:${name}` : name);
   if (url)
     return <img class={`${cls} model`} src={url} alt="" aria-hidden="true" draggable={false} />;
   return <GemGlyph type={gemType(name)} class={cls} />;

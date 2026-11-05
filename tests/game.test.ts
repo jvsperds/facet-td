@@ -7,13 +7,23 @@ import { Sim } from '../src/sim/sim';
 const data = loadData('classic');
 const free = () => false;
 
-test('path: straight, diagonal and no squeezing between two diagonal blockers', () => {
+test('path: straight, open diagonals and no clipping either blocked corner', () => {
   expect(findPath({ x: 1, y: 1 }, { x: 1, y: 5 }, free)).toHaveLength(5);
   expect(findPath({ x: 1, y: 1 }, { x: 4, y: 4 }, free)).toHaveLength(4);
   const wall = (x: number, y: number) => (x === 2 && y === 1) || (x === 1 && y === 2);
   expect(findPath({ x: 1, y: 1 }, { x: 2, y: 2 }, wall)).toBeNull();
   const corner = (x: number, y: number) => x === 2 && y === 1;
-  expect(findPath({ x: 1, y: 1 }, { x: 2, y: 2 }, corner)).toHaveLength(2); // one blocked corner may be cut
+  expect(findPath({ x: 1, y: 1 }, { x: 2, y: 2 }, corner)).toEqual([
+    { x: 1, y: 1 },
+    { x: 1, y: 2 },
+    { x: 2, y: 2 },
+  ]);
+  const otherCorner = (x: number, y: number) => x === 1 && y === 2;
+  expect(findPath({ x: 1, y: 1 }, { x: 2, y: 2 }, otherCorner)).toEqual([
+    { x: 1, y: 1 },
+    { x: 2, y: 1 },
+    { x: 2, y: 2 },
+  ]);
 });
 
 test('the empty board routes through all seven waypoints in order', () => {

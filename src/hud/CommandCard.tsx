@@ -27,7 +27,7 @@ import {
   skillName,
   skillText,
 } from './names';
-import { EFFECT_ICONS, Statuses, iconForText } from './Statuses';
+import { StatusIcon, Statuses, iconForText } from './Statuses';
 import { WIP } from './flags';
 import { CreepIcon, TowerIcon } from './TowerIcon';
 
@@ -58,11 +58,7 @@ const COMMAND_ICONS: Partial<Record<Cmd['type'], keyof typeof ICONS>> = {
 };
 
 /** An effect-style icon (Statuses.tsx) for a passive ability. */
-const effectIcon = (key: string) => (
-  <svg class="effect-icon" viewBox="0 0 24 24" aria-hidden="true">
-    {EFFECT_ICONS[key] ?? EFFECT_ICONS.other}
-  </svg>
-);
+const effectIcon = (key: string) => <StatusIcon kind={key} />;
 
 /** The hero's castable skills, in hotkey order. */
 export const heroSkills = (game: Game) =>
@@ -83,7 +79,7 @@ export function arm(type: 'build' | 'remove') {
 }
 const same = (a: Cell, b: Cell) => a.x === b.x && a.y === b.y;
 /** A tablet waiting for its cell: it stays pending while the player selects where to put it. */
-const pending = signal<{ id: number; kind: RecipeKind; result: string } | null>(null);
+export const pending = signal<{ id: number; kind: RecipeKind; result: string } | null>(null);
 
 /** What a hero skill cast at the current selection aims at: a gem, a stone, or a point. */
 export function heroTarget(game: Game) {
@@ -160,7 +156,6 @@ function Command(p: {
         hint={p.hint}
         level={p.level}
         text={p.text}
-        reason={refused}
       />
     </div>
   );
@@ -181,6 +176,7 @@ function Passive({ name, text, icon }: { name: string; text: string; icon?: Comp
       >
         <span class="cmd-icon">{icon ?? <span class="cmd-letter">{name[0]}</span>}</span>
         <span class="cmd-label">{name}</span>
+        <span class="passive-description">{text}</span>
       </span>
       <Tip id={id} title={name} level="Passive" text={text} />
     </div>
@@ -228,12 +224,12 @@ function Card(p: {
   badgeTitle?: string;
   name: string;
   subtitle?: string;
-  deselect?: () => void;
   stats?: Stat[];
   /** Free text under the bars: what the cell is, why an action is refused. */
   children?: ComponentChildren;
   effects?: ComponentChildren;
   abilities?: ComponentChildren;
+  actions?: ComponentChildren;
   bars?: Bar[];
   kind?: string;
 }) {
@@ -242,74 +238,69 @@ function Card(p: {
     matchMedia('(max-width: 600px) and (max-height: 700px), (max-height: 500px)').matches,
   );
   return (
-    <section
-      class={`card ${p.kind ?? ''} ${collapsed.value ? 'collapsed' : ''}`}
-      data-exclude
-      aria-label="Selection"
-    >
-      <div class="card-portrait">
-        <h2 class="portrait-name" title={p.name}>
-          {p.name}
-        </h2>
-        <div class="portrait-art">{p.portrait}</div>
-        {p.stats && p.stats.length > 0 && (
-          <dl class="stats tabular">
-            {p.stats.map(([icon, k, v, sub]) => (
-              <div key={k} title={sub ? `${k}: ${sub}` : k}>
-                <Icon name={icon} />
-                <dt class="sr-only">{k}</dt>
-                <dd>{v}</dd>
-                {sub && <dd class="sr-only">{sub}</dd>}
-              </div>
-            ))}
-          </dl>
-        )}
-        {p.badge && (
-          <span class="level-disc tabular" title={p.badgeTitle}>
-            {p.badge}
-          </span>
-        )}
-      </div>
-      <div class="card-main">
-        <div class="card-head">
-          <div class="card-effects">{p.effects}</div>
-          {p.subtitle && <p class="sr-only">{p.subtitle}</p>}
-          <span class="spacer" />
-          <button
-            class="icon-button collapse"
-            aria-label={collapsed.value ? 'Show details' : 'Hide details'}
-            aria-expanded={!collapsed.value}
-            aria-controls="info-body"
-            onClick={() => (collapsed.value = !collapsed.value)}
-          >
-            <Icon name={collapsed.value ? 'chevronUp' : 'chevronDown'} />
-          </button>
-          {p.deselect && (
-            <button class="icon-button" aria-label="Deselect" onClick={p.deselect}>
-              <Icon name="close" />
-            </button>
+    <div class="selection-stack" data-exclude>
+      <section
+        class={`card ${p.kind ?? ''} ${collapsed.value ? 'collapsed' : ''}`}
+        aria-label="Selection"
+      >
+        <div class="card-portrait">
+          <h2 class="portrait-name" title={p.name}>
+            {p.name}
+          </h2>
+          <div class="portrait-art">{p.portrait}</div>
+          <p class="selection-subtitle">{p.subtitle}</p>
+          {p.stats && p.stats.length > 0 && (
+            <dl class="stats tabular">
+              {p.stats.map(([icon, k, v, sub]) => (
+                <div key={k} title={sub ? `${k}: ${sub}` : k}>
+                  <Icon name={icon} />
+                  <dt>{k}</dt>
+                  <dd>{v}</dd>
+                  {sub && <dd class="sr-only">{sub}</dd>}
+                </div>
+              ))}
+            </dl>
+          )}
+          {p.badge && (
+            <span class="level-disc tabular" title={p.badgeTitle}>
+              {p.badge}
+            </span>
           )}
         </div>
-        <div class="abilities" role="group" aria-label="Commands">
-          {p.abilities}
+        <div class="card-main">
+          <div class="card-head">
+            <div class="card-effects">{p.effects}</div>
+            {p.subtitle && <p class="sr-only">{p.subtitle}</p>}
+            <span class="spacer" />
+            <button
+              class="icon-button collapse"
+              aria-label={collapsed.value ? 'Show details' : 'Hide details'}
+              aria-expanded={!collapsed.value}
+              aria-controls="info-body"
+              onClick={() => (collapsed.value = !collapsed.value)}
+            >
+              <Icon name={collapsed.value ? 'chevronUp' : 'chevronDown'} />
+            </button>
+          </div>
+          <div class="abilities" role="group" aria-label="Commands">
+            {p.abilities}
+          </div>
+          <div class="card-body" id="info-body">
+            {p.bars?.map((b) => (
+              <ResourceBar key={b.label} bar={b} />
+            ))}
+            {p.children}
+          </div>
         </div>
-        <div class="card-body" id="info-body">
-          {p.bars?.map((b) => (
-            <ResourceBar key={b.label} bar={b} />
-          ))}
-          {p.children}
-        </div>
-      </div>
-    </section>
+        {p.actions && (
+          <section class="selection-actions" aria-label="Selected gem commands">
+            <div class="context-commands">{p.actions}</div>
+          </section>
+        )}
+      </section>
+    </div>
   );
 }
-
-const clearSelection = () => {
-  selected.value = null;
-  selectedCreep.value = null;
-  announcement.value = 'Selection cleared';
-  document.querySelector<HTMLCanvasElement>('body > canvas')?.focus();
-};
 
 /** Ability cards for a tower: a short name, the ability in full, and its icon. */
 function abilityCards(game: Game, name: string): [string, string, string][] {
@@ -377,42 +368,6 @@ function HeroSkills({ sim, send, empty }: { sim: Sim; send: (cmd: Cmd) => void; 
   );
 }
 
-/** The hero's own Q and W: place a gem and remove a stone, each aimed at the next picked cell. */
-function BuildCommands({ game }: { game: Game }) {
-  const placing: Check =
-    game.phase !== 'build'
-      ? { ok: false, reason: 'You can only build between waves.' }
-      : game.draft.length >= DRAFT_SIZE
-        ? { ok: false, reason: 'All five gems are placed. Keep one to start the wave.' }
-        : { ok: true };
-  const removing: Check =
-    game.phase !== 'build'
-      ? { ok: false, reason: 'You can only remove stones between waves.' }
-      : { ok: true };
-  return (
-    <>
-      <Command
-        label="Place gem"
-        hint="Q"
-        check={placing}
-        pressed={targeting.value === 'build'}
-        icon={<Icon name="stone" />}
-        text={`Place gem ${Math.min(game.draft.length + 1, DRAFT_SIZE)} of 5: then pick an open cell or a stone. Shift keeps placing; Esc or right click cancels.`}
-        onClick={() => arm('build')}
-      />
-      <Command
-        label="Remove stone"
-        hint="W"
-        check={removing}
-        pressed={targeting.value === 'remove'}
-        icon={<Icon name="close" />}
-        text="Pick a stone to remove it. Costs gold after the first waves."
-        onClick={() => arm('remove')}
-      />
-    </>
-  );
-}
-
 /** Nothing selected: the hero, with Q/W building and the hero's skills (GemTD's idle card). */
 function HeroCard({
   sim,
@@ -456,7 +411,6 @@ function HeroCard({
       ]}
       abilities={
         <>
-          <BuildCommands game={game} />
           {WIP &&
             (game.hero.selected ? (
               <HeroSkills sim={sim} send={send} empty />
@@ -525,7 +479,6 @@ function CreepCard({ sim, id }: { sim: Sim; id: number; tick: number }) {
         creep.fly ? 'Flying' : 'Ground',
         `wave ${game.level}`,
       ].join(' · ')}
-      deselect={clearSelection}
       effects={<Statuses data={sim.data} list={game.creepStatuses(creep)} />}
       stats={[
         [
@@ -587,6 +540,8 @@ function CellCard({
   const game = sim.game;
   const gem = game.gemAt(cell);
   const kind = sim.board.kind(cell);
+  if (!gem && !game.stoneAt(cell) && (kind === 'open' || kind === 'stone') && !pending.value)
+    return null;
   let title = 'Open cell';
   let subtitle = '';
   let detail = '';
@@ -619,28 +574,28 @@ function CellCard({
       ['meter', 'Dealt', compact(dealt), 'this wave'],
     );
     cards.push(...abilityCards(game, name));
-    if (draftGem)
-      for (const up of [0, 1, 2] as const) {
-        const r = game.keepResult(gem.id, up);
-        if (up === 0 || r.ok || game.draft.length === DRAFT_SIZE)
-          buttons.push([
-            up ? `Keep +${up}` : 'Keep',
-            r,
-            { type: 'keep', id: gem.id, upgrade: up },
-            up ? undefined : 'K',
-            up && r.ok
-              ? `Keep it as ${displayName(sim.data, r.name).toLowerCase()}.`
-              : 'Keep this gem as a tower; the other four become stones and the wave starts.',
-          ]);
+    for (const up of [0, -1, 1, 2] as const) {
+      if (up === -1) {
+        buttons.push([
+          'Downgrade and keep',
+          game.canDowngrade(gem.id),
+          { type: 'downgrade', id: gem.id },
+          undefined,
+          'Keep this gem one quality lower.',
+        ]);
+        continue;
       }
-    if (draftGem && qualityOf(name) > 1)
+      const r = game.keepResult(gem.id, up);
       buttons.push([
-        'Downgrade and keep',
-        game.canDowngrade(gem.id),
-        { type: 'downgrade', id: gem.id },
-        undefined,
-        'Keep this gem one quality lower.',
+        up ? `Keep +${up}` : 'Keep',
+        r,
+        { type: 'keep', id: gem.id, upgrade: up },
+        up ? undefined : 'K',
+        up && r.ok
+          ? `Keep it as ${displayName(sim.data, r.name).toLowerCase()}.`
+          : 'Keep this gem as a tower; the other four become stones and the wave starts.',
       ]);
+    }
     if (draftGem && game.hero.abilities.gemtd_hero_fengbaozhichui)
       buttons.push([
         'Hammer: −1 level and keep',
@@ -676,19 +631,18 @@ function CellCard({
     ]);
     if (!detail) detail = 'Open floor. Place a gem here, or double-click the cell.';
   }
-  const refusal = buttons.find(([, check]) => !check.ok)?.[1];
   const combines = gem ? game.combineOptions(gem.id) : [];
   // The first enabled command is the primary action and takes the accent fill.
   const primary = combines.length ? -1 : buttons.findIndex(([, check]) => check.ok);
   const aims = !!gem && !!name && !isTablet(name);
   const portrait = name ? (
-    <TowerIcon name={name} />
+    <TowerIcon name={name} portrait />
   ) : (
     <svg class="cell-mark" viewBox="0 0 24 24" aria-hidden="true">
       {game.stoneAt(cell) ? ICONS.stone : kind === 'waypoint' ? ICONS.route : ICONS.top}
     </svg>
   );
-  const abilities = pending.value ? (
+  const actions = pending.value ? (
     <>
       <Command
         label="Place tablet here"
@@ -709,52 +663,54 @@ function CellCard({
     </>
   ) : (
     <>
-      {cards.map(([k, v, icon]) => (
-        <Passive key={k} name={k} text={v} icon={effectIcon(icon)} />
-      ))}
-      {cards.length > 0 && (combines.length > 0 || buttons.length > 0) && (
-        <span class="slot-sep" aria-hidden="true" />
-      )}
-      {combines.map((p, i) => (
-        <Command
-          key={p.result}
-          caption="Combine"
-          label={displayName(sim.data, p.result)}
-          hint={i === 0 && p.placement !== 'separate' ? 'C' : undefined}
-          primary={i === 0}
-          glow
-          icon={<TowerIcon name={p.result} class="glyph" />}
-          text={`Combine into ${displayName(sim.data, p.result).toLowerCase()}.${p.placement === 'separate' ? ' Pick an empty cell for it next.' : ''}`}
-          onClick={() => {
-            if (p.placement === 'separate') {
-              pending.value = { id: gem!.id, kind: p.kind as RecipeKind, result: p.result };
-              announcement.value = 'Select an empty cell to place the tablet.';
-            } else
-              send({ type: 'combine', id: gem!.id, kind: p.kind as RecipeKind, result: p.result });
-          }}
-        />
-      ))}
-      {buttons.map(([label, check, cmd, key, text], i) => (
-        <Command
-          key={label}
-          label={label}
-          hint={key}
-          check={check}
-          primary={i === primary}
-          icon={<Icon name={COMMAND_ICONS[cmd.type] ?? 'stone'} />}
-          text={text}
-          onClick={() => send(cmd)}
-        />
-      ))}
-      {aims && gem && (
-        <Command
-          label={gem.holdFire ? 'Holding fire' : 'Hold fire'}
-          hint="S"
-          pressed={!!gem.holdFire}
-          icon={<Icon name={gem.holdFire ? 'play' : 'pause'} />}
-          text="Stop or resume attacking, e.g. to steer the wave's MVP to another tower."
-          onClick={() => send({ type: 'hold', id: gem.id, hold: !gem.holdFire })}
-        />
+      <div class="gem-toolstrip">
+        {buttons.map(([label, check, cmd, key, text], i) => (
+          <Command
+            key={label}
+            label={label}
+            hint={key}
+            check={check}
+            primary={i === primary}
+            icon={
+              <Icon
+                name={
+                  cmd.type === 'keep' && cmd.upgrade
+                    ? cmd.upgrade === 1
+                      ? 'upgrade'
+                      : 'upgradeMax'
+                    : (COMMAND_ICONS[cmd.type] ?? 'stone')
+                }
+              />
+            }
+            text={text}
+            onClick={() => send(cmd)}
+          />
+        ))}
+      </div>
+      {combines.length > 0 && (
+        <div class="combine-options" aria-label="Available combinations">
+          {combines.map((p, i) => (
+            <Command
+              key={p.result}
+              caption="Combine"
+              label={displayName(sim.data, p.result)}
+              hint={i === 0 && p.placement !== 'separate' ? 'C' : undefined}
+              icon={<TowerIcon name={p.result} portrait />}
+              onClick={() => {
+                if (p.placement === 'separate') {
+                  pending.value = { id: gem!.id, kind: p.kind as RecipeKind, result: p.result };
+                  announcement.value = 'Select an empty cell to place the tablet.';
+                } else
+                  send({
+                    type: 'combine',
+                    id: gem!.id,
+                    kind: p.kind as RecipeKind,
+                    result: p.result,
+                  });
+              }}
+            />
+          ))}
+        </div>
       )}
       {WIP && <HeroSkills sim={sim} send={send} />}
     </>
@@ -808,10 +764,12 @@ function CellCard({
           : undefined
       }
       subtitle={`${subtitle ? `${subtitle} · ` : ''}Cell ${cell.x}, ${cell.y}`}
-      deselect={clearSelection}
       stats={stats}
       effects={gem && <Statuses data={sim.data} list={game.towerStatuses(gem)} />}
-      abilities={abilities}
+      abilities={cards.map(([k, v, icon]) => (
+        <Passive key={k} name={k} text={v} icon={effectIcon(icon)} />
+      ))}
+      actions={actions}
       bars={
         gem && !isTablet(gem.name)
           ? [
@@ -838,7 +796,6 @@ function CellCard({
       {pending.value && (
         <p>Select an empty cell for {displayName(sim.data, pending.value.result)}.</p>
       )}
-      {refusal && !refusal.ok && <p class="muted reason">{refusal.reason}</p>}
     </Card>
   );
 }
@@ -858,5 +815,7 @@ export function CommandCard({
     return <CreepCard sim={sim} id={selectedCreep.value} tick={tick} />;
   const cell = selected.value;
   if (cell) return <CellCard sim={sim} send={send} cell={cell} tick={tick} />;
-  return <HeroCard sim={sim} send={send} openHero={openHero} tick={tick} />;
+  return WIP && sim.game.hero.selected ? (
+    <HeroCard sim={sim} send={send} openHero={openHero} tick={tick} />
+  ) : null;
 }
