@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Facet TD — current HUD reskins</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        color: var(--foreground, #f4f3ef);
+        font-family: var(--font-sans, 'Segoe UI', Arial, sans-serif);
+      }
+      h2 {
+        font-size: 21px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        margin: 0 0 7px;
+      }
+      p {
+        font-size: 14px;
+        line-height: 1.5;
+        color: var(--muted-foreground, #bdc3c7);
+        margin: 0 0 14px;
+      }
+      .controls {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin: 0 0 22px;
+      }
+      button {
+        font: inherit;
+        font-size: 14px;
+        min-height: 44px;
+        padding: 0 16px;
+        border: 1px solid var(--border, #697680);
+        border-radius: 10px;
+        background: var(--secondary, #393e43);
+        color: var(--secondary-foreground, #f4f3ef);
+        cursor: pointer;
+      }
+      button[aria-pressed='true'] {
+        background: var(--primary, #d4d8dc);
+        color: var(--primary-foreground, #202429);
+      }
+      button:focus-visible {
+        outline: 2px dashed var(--foreground, #f4f3ef);
+        outline-offset: 3px;
+      }
+      .study {
+        margin-bottom: 26px;
+      }
+      img {
+        display: block;
+        width: 100%;
+        height: auto;
+        border-radius: var(--radius, 12px);
+      }
+      details {
+        margin: 22px 0;
+        color: var(--foreground, #f4f3ef);
+      }
+      summary {
+        cursor: pointer;
+        font-size: 14px;
+        padding: 12px 0;
+      }
+      .note {
+        font-size: 13px;
+      }
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        background: #171b20;
+        padding: 24px;
+        max-width: 1440px;
+        margin: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <p>
+      Reskins of the latest fetched HUD at da21e57. Command card, showcase, five-gem panel, clock,
+      stats and settings all retain their current positions.
+    </p>
+    <div class="controls" role="group" aria-label="Captured HUD state">
+      <button data-state="hud" aria-pressed="true">Builder</button
+      ><button data-state="menu" aria-pressed="false">Settings open</button
+      ><button data-state="selected" aria-pressed="false">Gem selected</button>
+    </div>
+    <section class="study">
+      <h2>A · Smooth Charcoal</h2>
+      <p>
+        Flat charcoal surfaces, softly rounded buttons and quiet pale-grey accents. Existing HUD
+        layout retained.
+      </p>
+      <img
+        data-prefix="version-a"
+        src="version-a.png"
+        alt="A · Smooth Charcoal: current Facet TD HUD, visual reskin only"
+      />
+    </section>
+    <section class="study">
+      <h2>B · Soft Graphite</h2>
+      <p>
+        Cooler slate surfaces, broader curves and fine outlines. The same HUD, content and control
+        geometry.
+      </p>
+      <img
+        data-prefix="version-b"
+        src="version-b.png"
+        alt="B · Soft Graphite: current Facet TD HUD, visual reskin only"
+      />
+    </section>
+    <details>
+      <summary>Compare with current styling</summary>
+      <img
+        data-prefix="current"
+        src="current-hud.png"
+        alt="Current HUD before applying either skin"
+      />
+    </details>
+    <p class="note">
+      Captured from the actual game with CSS-only overrides. State buttons switch screenshots;
+      controls inside the images are not interactive. Game code is unchanged.
+    </p>
+    <script>
+      const suffix = { hud: '', menu: '-menu', selected: '-selected' };
+      document.querySelectorAll('[data-state]').forEach((button) =>
+        button.addEventListener('click', () => {
+          document
+            .querySelectorAll('[data-state]')
+            .forEach((x) => x.setAttribute('aria-pressed', String(x === button)));
+          for (const img of document.querySelectorAll('[data-prefix]'))
+            img.src =
+              img.dataset.prefix +
+              (img.dataset.prefix.endsWith('current')
+                ? button.dataset.state === 'hud'
+                  ? '-hud'
+                  : suffix[button.dataset.state]
+                : suffix[button.dataset.state]) +
+              '.png';
+        }),
+      );
+    </script>
+  </body>
+</html>

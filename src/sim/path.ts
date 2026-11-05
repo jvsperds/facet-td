@@ -1,9 +1,7 @@
 import { BOARD_SIZE, type Cell } from './board';
 
-// Shortest route between two cells on the blocked grid, matching the original's Jumper settings:
-// 8 directions, diagonal steps cost sqrt(2), and a diagonal is refused only when both orthogonal
-// neighbours it passes are blocked. The original used Jump Point Search, which returns an optimal
-// path of the same length; where several optimal paths tie, this A* may pick a different one.
+// Eight-direction shortest routes. Both orthogonal neighbours must be open for a diagonal,
+// keeping the centre-to-centre movement clear of wall corners, as in the predecessor.
 
 const SQRT2 = Math.SQRT2;
 const DIRS = [
@@ -83,7 +81,7 @@ export function findPath(
       const nx = x + dx;
       const ny = y + dy;
       if (!open(nx, ny)) continue;
-      if (dx && dy && !open(x + dx, y) && !open(x, y + dy)) continue;
+      if (dx && dy && (!open(x + dx, y) || !open(x, y + dy))) continue;
       const nk = idx(nx, ny);
       const ng = g.get(k)! + (dx && dy ? SQRT2 : 1);
       if (ng >= (g.get(nk) ?? Infinity)) continue;

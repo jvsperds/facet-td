@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { closeMenu, openMenu } from './menu';
+import { expectSelected } from './selection';
 
 // IMPLEMENTATION.md "Implementation gate": fit, picking and view toggles at the five reference viewports.
 const VIEWPORTS = [
@@ -30,7 +31,7 @@ async function pickMatches(page: Page, cell: Cell) {
   await settle(page);
   const p = await screenOf(page, cell);
   await page.mouse.click(p.x, p.y);
-  await expect(page.getByLabel('Selection')).toContainText(`Cell ${cell.x}, ${cell.y}`);
+  await expectSelected(page, cell);
 }
 
 /** No board corner cell centre may sit under a HUD panel or off screen. */
@@ -98,7 +99,7 @@ test('toggling views keeps selection and camera state, and the keyboard cursor m
   for (let i = 0; i < 4; i++) await page.getByRole('button', { name: /Switch to/ }).click();
   await settle(page);
   expect(await screenOf(page, { x: 1, y: 1 })).toEqual(before);
-  await expect(page.getByLabel('Selection')).toContainText('Cell 1, 1');
+  await expectSelected(page, { x: 1, y: 1 });
 
   // Top view, rotation 0: up arrow is board north (+y).
   await page.getByRole('button', { name: 'Switch to top view' }).click();
@@ -108,7 +109,7 @@ test('toggling views keeps selection and camera state, and the keyboard cursor m
   await page.keyboard.press('ArrowRight');
   await settle(page); // activation is refused while the view is still moving
   await page.keyboard.press('Enter');
-  await expect(page.getByLabel('Selection')).toContainText('Cell 2, 2');
+  await expectSelected(page, { x: 2, y: 2 });
 });
 
 test('rotate mode drag turns the board instead of panning, and reset restores the preset', async ({

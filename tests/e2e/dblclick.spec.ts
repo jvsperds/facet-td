@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { Sim } from '../../src/sim/sim';
+import { expectSelected } from './selection';
 
 // Issue #13: double-clicking an open cell or a stone places a gem straight away.
 
@@ -41,7 +42,8 @@ test('double-click places a gem on an open cell or a stone, but not on a waypoin
   await page.waitForFunction(() => !window.facet.world.moving);
   const p = await page.evaluate(() => window.facet.world.screenOf({ x: 14, y: 12 }));
   await page.mouse.click(p.x, p.y);
-  await expect(page.getByLabel('Selection')).toContainText('Cell 14, 12');
+  await expectSelected(page, { x: 14, y: 12 });
+  await expect(page.getByLabel('Selection')).toHaveCount(0);
   await page.waitForTimeout(500);
   expect((await game(page)).draft).toBe(2);
 });

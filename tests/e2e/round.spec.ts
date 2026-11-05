@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { expectSelected } from './selection';
 
 // IMPLEMENTATION.md "HUD and input" checks for phase 3: the five-slot summary, keep rules, refusals.
 type Cell = { x: number; y: number };
@@ -20,7 +21,7 @@ async function select(page: Page, cell: Cell) {
     cell,
   );
   await page.mouse.click(p.x, p.y);
-  await expect(page.getByLabel('Selection')).toContainText(`Cell ${cell.x}, ${cell.y}`);
+  await expectSelected(page, cell);
 }
 
 test('placing five gems fills the slots; slots select their gem; keep starts the wave', async ({
@@ -46,7 +47,7 @@ test('placing five gems fills the slots; slots select their gem; keep starts the
   ];
   for (const c of cells) {
     await select(page, c);
-    await page.getByRole('button', { name: 'Place gem' }).click();
+    await page.keyboard.press('b');
     await expect(
       page.getByRole('button', { name: new RegExp(`cell ${c.x}, ${c.y}$`) }),
     ).toBeVisible();
@@ -57,7 +58,7 @@ test('placing five gems fills the slots; slots select their gem; keep starts the
   await expect(page.getByLabel('Selection')).toContainText('Place all five gems first.');
 
   await select(page, { x: 20, y: 12 });
-  await page.getByRole('button', { name: 'Place gem' }).click();
+  await page.keyboard.press('b');
   await expect(slots.nth(4)).toBeEnabled();
 
   // Each slot selects the same gem as the board.

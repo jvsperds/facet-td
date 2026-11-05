@@ -81,7 +81,10 @@ test('a tower takes an aim mode and boss priority, and shows its MVP card', asyn
   ).toBe(2 + 8);
 
   // Hold fire stops the tower (to steer the MVP), shown as an effect; S resumes.
-  await info.getByRole('button', { name: 'Hold fire' }).click();
+  await page
+    .getByLabel('Selected gem commands', { exact: true })
+    .getByRole('button', { name: 'Hold fire' })
+    .click();
   await expect(info.getByRole('listitem', { name: /Holding fire/ })).toBeVisible();
   await page.keyboard.press('s');
   await expect(info.getByRole('listitem', { name: /Holding fire/ })).toHaveCount(0);
