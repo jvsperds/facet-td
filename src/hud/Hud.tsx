@@ -117,6 +117,24 @@ export function Hud(props: Props) {
   }, []);
 
   // Global shortcuts; the board canvas keeps its own arrows, Enter, B and zoom keys.
+  /**
+   * Q keep, W downgrade and keep, E keep +1, R keep +2 on the selected gem. Sends and returns true
+   * only when that command is allowed, so otherwise Q and W still place gems and remove stones.
+   */
+  const gemCommand = (k: string) => {
+    const g = sim.game;
+    const gem = selected.value && g.gemAt(selected.value);
+    if (!gem) return false;
+    if (k === 'w') {
+      if (!g.canDowngrade(gem.id).ok) return false;
+      send({ type: 'downgrade', id: gem.id });
+      return true;
+    }
+    const upgrade = k === 'q' ? 0 : k === 'e' ? 1 : 2;
+    if (!g.keepResult(gem.id, upgrade).ok) return false;
+    send({ type: 'keep', id: gem.id, upgrade });
+    return true;
+  };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (typing(e) || e.ctrlKey || e.metaKey || e.altKey || document.querySelector('dialog[open]'))
@@ -159,7 +177,9 @@ export function Hud(props: Props) {
         announcement.value = `Selected ${displayName(sim.data, gem.name)}`;
       } else if (k === 'g') recipesOpen.value = !recipesOpen.value;
       else if (k === 'm') meterOpen.value = !meterOpen.value;
-      else if (k === 'q') arm('build');
+      else if (/^[qwer]$/.test(k) && gemCommand(k)) {
+        // Handled: a selected gem's Q/W/E/R command was available.
+      } else if (k === 'q') arm('build');
       else if (k === 'w') arm('remove');
       else if (k === 'h' && WIP) heroOpen.value = true;
       else if (k === 't') actions.toggleMode();

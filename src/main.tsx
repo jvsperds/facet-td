@@ -12,8 +12,10 @@ import { createCameraInput, cursor, hovered, selected, selectedCreep } from './i
 import { Sim, TICK_HZ, type Cmd } from './sim/sim';
 import { createWorld } from './world/world';
 import { prewarmTowers } from './world/pieces';
+import { setupPreview } from './preview';
 import './style.css';
 import './hud/slate.css';
+import './hud/skin-a.css';
 
 const mode: Mode = 'classic';
 const params = new URLSearchParams(location.search);
@@ -187,6 +189,7 @@ const towerNames = [
 ];
 prewarmTowers(towerNames);
 prewarmIcons(towerNames);
+if (params.get('preview') === 'all') setupPreview(sim, towerNames);
 
 // Test hook for the Playwright smoke test (dev server only).
 if (import.meta.env.DEV) Object.assign(window, { facet: { world, board, sim } });

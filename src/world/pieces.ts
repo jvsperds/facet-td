@@ -531,7 +531,11 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
           name: g.name,
         };
       };
-      effects.setTowers(game.gems.map(tower));
+      // Walls and tower bases standing in a field get its glaze.
+      effects.setTowers(game.gems.map(tower), [
+        ...[...game.stones.values()].map(toScene),
+        ...game.gems.map((g) => toScene(g.cell)),
+      ]);
       // Capture endpoints before removing dead creeps, so lethal shots still arrive and burst.
       const killed = new Set(game.events.filter((e) => e.type === 'kill').map((e) => e.id));
       for (const e of game.events)

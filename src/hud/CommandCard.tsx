@@ -27,7 +27,7 @@ import {
   skillName,
   skillText,
 } from './names';
-import { StatusIcon, Statuses, iconForText } from './Statuses';
+import { StatusIcon, Statuses, iconForText, levelOf } from './Statuses';
 import { WIP } from './flags';
 import { CreepIcon, TowerIcon } from './TowerIcon';
 
@@ -156,6 +156,7 @@ function Command(p: {
         hint={p.hint}
         level={p.level}
         text={p.text}
+        reason={refused}
       />
     </div>
   );
@@ -239,6 +240,7 @@ function Card(p: {
   );
   return (
     <div class="selection-stack" data-exclude>
+      {p.effects && <div class="card-effects">{p.effects}</div>}
       <section
         class={`card ${p.kind ?? ''} ${collapsed.value ? 'collapsed' : ''}`}
         aria-label="Selection"
@@ -269,7 +271,6 @@ function Card(p: {
         </div>
         <div class="card-main">
           <div class="card-head">
-            <div class="card-effects">{p.effects}</div>
             {p.subtitle && <p class="sr-only">{p.subtitle}</p>}
             <span class="spacer" />
             <button
@@ -302,40 +303,46 @@ function Card(p: {
   );
 }
 
-/** Ability cards for a tower: a short name, the ability in full, and its icon. */
-function abilityCards(game: Game, name: string): [string, string, string][] {
-  const cards: [string, string, string][] = [];
-  for (const a of game.abilities(name)) {
-    if (a.kind === 'slow')
-      cards.push(['Slow', `On hit: ${a.amount} movement speed for ${a.duration}s`, 'slow']);
-    else if (a.kind === 'armor')
-      cards.push(['Shred', `On hit: ${a.amount} armor for ${a.duration}s`, 'shred']);
-    else if (a.kind === 'speed') cards.push(['Swift', `+${a.amount} attack speed`, 'speed']);
-    else if (a.kind === 'aura')
-      cards.push([
-        'Aura',
-        `Aura: +${a.amount} attack speed within ${a.radius.toFixed(2)} cells`,
-        'aura',
-      ]);
-    else if (a.kind === 'damage')
-      cards.push(['Might', `+${a.amount}% base attack damage`, 'damage']);
-    else if (a.kind === 'split') cards.push(['Split', `${a.count} additional targets`, 'split']);
-    else if (a.kind === 'splash')
-      cards.push([
-        'Splash',
-        `${a.amount * 100}% pure splash within ${a.radius.toFixed(2)} cells`,
-        'splash',
-      ]);
-    else if (a.kind === 'poison')
-      cards.push([
-        'Poison',
-        `Stacking poison: ${a.amount} magic damage every ${a.interval}s for ${a.duration}s`,
-        'poison',
-      ]);
-    else if (a.kind === 'critical')
-      cards.push(['Critical', `${a.chance}% chance of ×${a.multiplier} damage`, 'critical']);
-  }
-  return cards;
+/** A tower's skills from its unit (Ability1..n), skipping internal ones with no tooltip. */
+function towerSkills(sim: Sim, name: string): [string, string, string][] {
+  return Object.entries(sim.game.unit(name) ?? {})
+    .filter(([k, v]) => /^Ability\d+$/.test(k) && v)
+    .map(([, k]) => [skillName(sim.data, String(k)), skillText(sim.data, String(k))] as const)
+    .filter(([, text]) => text)
+    .map(([n, text]) => [n, text, iconForText(`${n} ${text}`)]);
+}
+
+/**
+ * Abilities as a row of icons over one description panel (GemTD/Dota): the card keeps one height
+ * whether a tower has one ability or five. Hover or focus an icon to read it; the first shows by default.
+ */
+function AbilityList({ items }: { items: [string, string, string][] }) {
+  const active = useSignal(0);
+  const [name, text] = items[Math.min(active.value, items.length - 1)];
+  return (
+    <>
+      <ul class="ability-strip" role="list">
+        {items.map(([n, t, icon], i) => (
+          <li key={n}>
+            <button
+              class={`ability-icon ${i === active.value ? 'active' : ''}`}
+              aria-label={`${n}: ${t}`}
+              aria-pressed={i === active.value}
+              onMouseEnter={() => (active.value = i)}
+              onFocus={() => (active.value = i)}
+              onClick={() => (active.value = i)}
+            >
+              {effectIcon(icon)}
+              {levelOf(n) && <b class="ability-level tabular">{levelOf(n)}</b>}
+            </button>
+          </li>
+        ))}
+      </ul>
+      <p class="ability-detail" aria-hidden="true">
+        <b>{name}</b> {text}
+      </p>
+    </>
+  );
 }
 
 /** Hero skills on E, D, F, R, cast at the current selection; free keys show empty slots. */
@@ -546,7 +553,7 @@ function CellCard({
   let subtitle = '';
   let detail = '';
   const stats: Stat[] = [];
-  const cards: [string, string, string][] = [];
+  let cards: [string, string, string][] = [];
   const buttons: [string, Check, Cmd, string?, string?][] = [];
   const name = gem?.name;
   let waveTotal = 0;
@@ -573,14 +580,14 @@ function CellCard({
       ['target', 'Range', game.attackRange(gem).toFixed(1), 'tiles'],
       ['meter', 'Dealt', compact(dealt), 'this wave'],
     );
-    cards.push(...abilityCards(game, name));
+    cards = towerSkills(sim, name);
     for (const up of [0, -1, 1, 2] as const) {
       if (up === -1) {
         buttons.push([
           'Downgrade and keep',
           game.canDowngrade(gem.id),
           { type: 'downgrade', id: gem.id },
-          undefined,
+          'W',
           'Keep this gem one quality lower.',
         ]);
         continue;
@@ -590,7 +597,7 @@ function CellCard({
         up ? `Keep +${up}` : 'Keep',
         r,
         { type: 'keep', id: gem.id, upgrade: up },
-        up ? undefined : 'K',
+        up === 1 ? 'E' : up === 2 ? 'R' : 'Q',
         up && r.ok
           ? `Keep it as ${displayName(sim.data, r.name).toLowerCase()}.`
           : 'Keep this gem as a tower; the other four become stones and the wave starts.',
@@ -686,6 +693,20 @@ function CellCard({
             onClick={() => send(cmd)}
           />
         ))}
+        {gem && !gem.name.includes('shiban') && (
+          <Command
+            label={gem.holdFire ? 'Resume attacking' : 'Stop attacking'}
+            hint="S"
+            pressed={!!gem.holdFire}
+            icon={<Icon name={gem.holdFire ? 'play' : 'pause'} />}
+            text={
+              gem.holdFire
+                ? 'This tower is holding fire. Let it attack again.'
+                : 'Hold fire: this tower stops attacking until resumed.'
+            }
+            onClick={() => send({ type: 'hold', id: gem.id, hold: !gem.holdFire })}
+          />
+        )}
       </div>
       {combines.length > 0 && (
         <div class="combine-options" aria-label="Available combinations">
@@ -766,9 +787,7 @@ function CellCard({
       subtitle={`${subtitle ? `${subtitle} · ` : ''}Cell ${cell.x}, ${cell.y}`}
       stats={stats}
       effects={gem && <Statuses data={sim.data} list={game.towerStatuses(gem)} />}
-      abilities={cards.map(([k, v, icon]) => (
-        <Passive key={k} name={k} text={v} icon={effectIcon(icon)} />
-      ))}
+      abilities={cards.length > 0 && <AbilityList items={cards} />}
       actions={actions}
       bars={
         gem && !isTablet(gem.name)

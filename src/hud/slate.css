@@ -318,23 +318,78 @@ button {
 .card-head .spacer {
   display: none;
 }
-.card-head:has(.card-effects:not(:empty)) {
-  position: static;
+/* Effects sit above the card (GemTD); small enough for ten or more in one row. Details in the tooltip. */
+.selection-stack > .card-effects {
+  display: block;
+  margin-bottom: 4px;
 }
-.card-effects {
+.selection-stack .effects {
   display: flex;
   flex-wrap: wrap;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+}
+.selection-stack .effect {
+  width: 22px;
+  height: 22px;
+}
+.selection-stack .effect .effect-art {
+  width: 18px;
+  height: 18px;
+}
+.selection-stack .effect b {
+  font-size: 9px;
+  line-height: 10px;
 }
 .abilities {
   display: flex;
-  gap: 6px;
-  min-height: 0;
-  margin: 0;
   flex-wrap: wrap;
-  overflow: visible;
+  gap: 6px;
+  margin: 0;
 }
 .abilities:empty {
   display: none;
+}
+/* Tower abilities: up to five 34px icons in one row, then one fixed-height description. */
+.ability-strip {
+  display: flex;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ability-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid #75838c;
+  border-radius: 1px;
+  background: #25333e;
+  box-shadow: var(--key-bevel);
+}
+.ability-icon.active {
+  border-color: var(--amber-2, #e2b45a);
+}
+.ability-detail {
+  flex-basis: 100%;
+  box-sizing: border-box;
+  /* Four lines fits the longest tooltip (about 130 characters) at this width. */
+  height: calc(4 * 14px + 8px);
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px 6px;
+  border: 1px solid #4b5862;
+  background: #1d262dcc;
+  font-size: 11px;
+  line-height: 14px;
+  color: #b6c4cc;
+}
+.ability-detail b {
+  color: #e6eef3;
 }
 .slot-cell {
   position: relative;
@@ -343,13 +398,13 @@ button {
   display: none;
 }
 .cmd.passive {
-  width: 30px;
-  height: 30px;
+  width: 34px;
+  height: 34px;
   min-height: 30px;
   padding: 2px;
   border: 1px solid #75838c;
   border-radius: 1px;
-  background: #222c34;
+  background: #25333e;
   box-shadow: var(--key-bevel);
 }
 .cmd-icon .effect-icon {
@@ -358,7 +413,9 @@ button {
   stroke: #c8d9e4;
   filter: none;
 }
+/* One monochrome icon style: colour on screen belongs to the gems. Debuffs keep their red tile. */
 .effect-art {
+  filter: grayscale(1) brightness(1.35) contrast(1.1);
   display: block;
   width: 28px;
   height: 28px;
@@ -392,12 +449,6 @@ button {
   line-height: 12px;
   background: #14202ad9;
   text-align: center;
-}
-.cmd.passive {
-  width: 34px;
-  height: 34px;
-  padding: 2px;
-  background: #25333e;
 }
 .passive-description,
 .cmd-label {
@@ -456,7 +507,7 @@ button {
 }
 .gem-toolstrip {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 5px;
 }
 .context-commands .slot-cell {
@@ -486,8 +537,13 @@ button {
   border-color: #b5cedc #425e71 #283f50 #859faf;
   background: linear-gradient(#748c9d, #40576a);
 }
+/* Disabled stays legible (the reason is in its tooltip); only the icon dims. */
 .context-commands .cmd:disabled {
-  opacity: 0.32;
+  opacity: 1;
+  background: #2a3238;
+}
+.context-commands .cmd:disabled .cmd-icon {
+  opacity: 0.55;
 }
 .context-commands .cmd-icon {
   display: grid;

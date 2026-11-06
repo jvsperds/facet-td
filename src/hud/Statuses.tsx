@@ -28,6 +28,10 @@ const FAMILY: Record<string, string> = {
   shield: 'calm',
   heal: 'aura',
   fly: 'speed',
+  pierce: 'pierce',
+  might: 'disarm',
+  sight: 'sight',
+  aim: 'aim',
 };
 
 export function StatusIcon({ kind }: { kind: string }) {
@@ -47,8 +51,33 @@ export function StatusIcon({ kind }: { kind: string }) {
 // full effect, its source and time left are in the tile's tooltip and accessible name. Debuffs
 // are edged red and pulse.
 
-/** The icon for an ability or effect from what its text says it does. */
+const NAMED: [RegExp, string][] = [
+  [/^(Slow|Ice|Freezing)/, 'slow'],
+  [/^Cleave/, 'splash'],
+  [/^Crit/, 'critical'],
+  [/^(Damage|Inspire)/, 'might'],
+  [/^(Pierce|Corrupt|Decadent)/, 'pierce'],
+  [/^Aura/, 'aura'],
+  [/^True sight/, 'sight'],
+  [/^Resist/, 'shield'],
+  [/^Poison/, 'poison'],
+  [/^Burn/, 'fire'],
+  [/^(Stun|Stone Gaze)/, 'stun'],
+  [/^(Lightning|Forked Lightning)/, 'magic'],
+  [/^(Split|Radiation)/, 'split'],
+  [/^(Anti-fly|Overlook|Monkey King Bar)/, 'aim'],
+];
+
+/** An ability's level from its name ("Cleave 2" → "2", "Damage MAX" → "M"), or undefined. */
+export function levelOf(name: string) {
+  const m = /\s*(\d+|MAX)$/.exec(name);
+  return m ? (m[1] === 'MAX' ? 'M' : m[1]) : undefined;
+}
+
+/** The icon for an ability or effect from its name (when given first) and what it says it does. */
 export function iconForText(text: string) {
+  // The ability's name first: it names the effect exactly where the description only implies it.
+  for (const [re, kind] of NAMED) if (re.test(text)) return kind;
   if (/Stunned|Rooted|stun/i.test(text)) return 'stun';
   if (/magic damage every|poison/i.test(text)) return 'poison';
   if (/attack speed/i.test(text)) return 'speed';
@@ -65,7 +94,7 @@ export function iconForText(text: string) {
 }
 
 /** The icon for an effect, from its key or, failing that, what it does. */
-function iconOf(s: Status) {
+function iconOf(data: GameData, s: Status) {
   const byKey: Record<string, string> = {
     mvp: 'mvp',
     disarmed: 'disarm',
@@ -75,7 +104,7 @@ function iconOf(s: Status) {
     enemy_high_armor: 'armor',
     runrunrun: 'rush',
   };
-  return byKey[s.key] ?? iconForText(s.effects.join(' '));
+  return byKey[s.key] ?? iconForText(`${skillName(data, s.key)} ${s.effects.join(' ')}`);
 }
 
 export function Statuses({ data, list }: { data: GameData; list: Status[] }) {
@@ -96,8 +125,10 @@ export function Statuses({ data, list }: { data: GameData; list: Status[] }) {
             title={`${name}${s.count ? ` ${s.count}` : ''}: ${detail}`}
             aria-label={`${name}${s.count ? ` ${s.count}` : ''}: ${detail}`}
           >
-            <StatusIcon kind={iconOf(s)} />
-            {s.count !== undefined && <b class="tabular">{s.count}</b>}
+            <StatusIcon kind={iconOf(data, s)} />
+            {(s.count ?? levelOf(name)) !== undefined && (
+              <b class="tabular">{s.count ?? levelOf(name)}</b>
+            )}
           </li>
         );
       })}
