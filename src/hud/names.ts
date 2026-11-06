@@ -86,5 +86,6 @@ export function skillText(data: GameData, key: string) {
   return text
     .replace(/<[^>]+>/g, '')
     .replace(/\\n/g, ' ')
+    .replaceAll('%%', '%')
     .trim();
 }

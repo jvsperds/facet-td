@@ -12,11 +12,11 @@ import { azimuth, elevation, frame, toCell, toScene, type Rect, type ViewState }
 const PALETTE = {
   // Deep cave rock beyond the voxel chamber.
   backdrop: '#2B2F34',
-  cellA: '#C7CAC9',
-  cellB: '#BCC2C2',
-  noBuild: '#A7AEB1',
-  waypoint: '#E3E1D8',
-  slab: '#8A939B',
+  cellA: '#4F5253',
+  cellB: '#494D4E',
+  noBuild: '#414547',
+  waypoint: '#61605B',
+  slab: '#363A3D',
   selected: '#3C454C',
   selectedEdge: '#F4F3EF',
   focus: '#164FAD',
@@ -199,14 +199,14 @@ export function createWorld(board: Board, game: Game) {
   }
   selectedRim.renderOrder = cursor.renderOrder = 10;
 
-  // Row and column guides through the highlighted cell: faint gold strips across the board that fade
+  // Row and column guides through the highlighted cell: faint white strips across the board that fade
   // over the five cells nearest each edge, so the axis reads without boxing the board in.
   const guideStrip = (alongX: boolean) => {
     const pos: number[] = [];
     const col: number[] = [];
     for (let i = 1; i <= n; i++) {
       const edge = Math.min(i - 1, n - i);
-      const alpha = 0.26 * (edge >= 5 ? 1 : (edge + 1) / 6);
+      const alpha = 0.1 * (edge >= 5 ? 1 : (edge + 1) / 6);
       // Along x: scene x = i - 19 on the row's line; along z: scene z = 19 - i on the column's.
       const [a, b] = alongX ? [i - 19.5, i - 18.5] : [18.5 - i, 19.5 - i];
       const quad = alongX
@@ -214,7 +214,7 @@ export function createWorld(board: Board, game: Game) {
         : [-0.5, a, -0.5, b, 0.5, b, -0.5, a, 0.5, b, 0.5, a];
       for (let k = 0; k < 12; k += 2) {
         pos.push(quad[k], 0, quad[k + 1]);
-        col.push(0.98, 0.84, 0.45, alpha); // pale crystal gold
+        col.push(1, 1, 1, alpha); // white
       }
     }
     const g = new THREE.BufferGeometry();

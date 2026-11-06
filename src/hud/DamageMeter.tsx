@@ -19,11 +19,8 @@ export function DamageMeter({ data, game }: { data: GameData; game: Game }) {
     <section class="panel meter-panel dps" data-exclude aria-label="Damage this wave">
       <div class="drawer-head">
         <h2 class="section-label">DPS · wave {game.level}</h2>
-        <span class="muted tabular">{compact(total)}</span>
       </div>
-      {rows.length === 0 ? (
-        <p class="muted">No damage dealt yet this wave.</p>
-      ) : (
+      {rows.length > 0 && (
         <ol class="damage-list">
           {rows.map(({ g, d }) => {
             const share = total ? d / total : 0;

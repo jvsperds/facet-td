@@ -1,0 +1,380 @@
+/* A: Smooth Charcoal. Paint-only overrides for current HUD da21e57.
+   Preserve layout, sizing, typography, content and interaction semantics. */
+:root {
+  --ink: #f4f3ef;
+  --ink-2: #bdc3c7;
+  --ink-3: #b1b9bf;
+  --amber: #d4d8dc;
+  --amber-1: #e2e5e7;
+  --amber-2: #bdc5cc;
+  --on-amber: #202429;
+  --focus: #d4e4f1;
+  --bevel: 0 8px 24px rgb(0 0 0 / 0.25);
+  --key-bevel: none;
+}
+.panel,
+.card,
+.round-clock,
+.draft {
+  background: #25282c;
+  border-color: transparent;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
+}
+.panel,
+.draft {
+  border-radius: 12px;
+}
+.card {
+  border-radius: 14px 14px 0 0;
+}
+.round-clock {
+  border-radius: 0 0 14px 14px;
+}
+button,
+.cmd,
+.slot {
+  background: #393e43;
+  border-color: transparent;
+  border-radius: 9px;
+  box-shadow: none;
+}
+button:hover:not(:disabled),
+.cmd:hover:not(:disabled),
+.slot:hover:not(:disabled) {
+  background: #4b525a;
+}
+button.primary,
+button[aria-pressed='true'],
+.cmd.primary {
+  color: #202429;
+  background: #d4d8dc;
+  box-shadow: none;
+  border-color: transparent;
+}
+button.primary:hover:not(:disabled),
+button[aria-pressed='true']:hover:not(:disabled) {
+  background: #e7eaed;
+}
+button:active:not(:disabled) {
+  transform: none;
+  box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.22);
+}
+button:focus-visible {
+  outline: 2px dashed #f4f3ef;
+  outline-offset: 2px;
+}
+.tool {
+  background: #30353a;
+  border-color: transparent;
+  box-shadow: none;
+}
+.tool,
+.cmd.passive {
+  border-radius: 50%;
+}
+button:disabled {
+  opacity: 0.65;
+}
+.slot[aria-pressed='true'] {
+  color: #f4f3ef;
+  background: #46505a;
+  outline-color: #e2e5e7;
+}
+.cmd.empty {
+  background: #1d2125;
+  box-shadow: none;
+}
+.cmd.passive {
+  background: #343c43;
+  border-color: #66727c;
+}
+.card-portrait {
+  background: #30363c;
+  border-color: transparent;
+  border-radius: 9px;
+  box-shadow: none;
+}
+.portrait-name,
+.stats {
+  background: #25282c;
+  text-shadow: none;
+}
+.level-disc {
+  color: #f4f3ef;
+  background: #4a535c;
+  border-color: transparent;
+  box-shadow: none;
+}
+.hero-mark,
+.cell-mark,
+.cmd-icon .effect-icon {
+  filter: none;
+}
+.clock-main {
+  background: #30353a;
+  border-color: transparent;
+  border-radius: 9px;
+  box-shadow: none;
+}
+.quest {
+  border-left-color: #bdc5cc;
+}
+.cmd-label {
+  background: #25282c;
+  color: #f4f3ef;
+}
+.showcase-foot {
+  background: #25282c;
+  border-radius: 9px;
+}
+.showcase-tag {
+  background: #30353a;
+  border-radius: 5px;
+}
+.showcase-plinth {
+  background: radial-gradient(ellipse at 50% 45%, rgb(90 102 114 / 0.45), transparent 70%);
+}
+.bar,
+.health,
+.mana {
+  border-color: #30363c;
+  box-shadow: none;
+}
+select,
+input[type='search'] {
+  background: #30353a;
+  border-color: #66727c;
+  border-radius: 7px;
+  box-shadow: none;
+}
+kbd {
+  background: #30353a;
+  border-color: transparent;
+  border-radius: 4px;
+}
+@media (prefers-reduced-motion: reduce) {
+  button {
+    transition: none;
+  }
+}
+.run-stats {
+  background: #25282ce8;
+  border-radius: 10px;
+}
+.bar {
+  background: #1d2125;
+  border-radius: 4px;
+}
+.bar i {
+  background: #286631;
+}
+.bar.mana i {
+  background: #345982;
+}
+.bar.hp.low i {
+  background: #963f3a;
+}
+.bar span {
+  text-shadow: none;
+}
+
+/* Facet TD additions: panels and tiles added after the study (slate skin, corner HUD). */
+.stats-panel,
+.meter-panel.dps {
+  background: #25282c;
+  border-color: transparent;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
+}
+.card,
+.draft,
+.round-clock,
+.stats-panel,
+.meter-panel.dps {
+  background-image: none;
+}
+.selection-stack .card {
+  border-radius: 14px;
+}
+/* Stats float over the portrait with no panel of their own. */
+.card-portrait .stats,
+.card.collapsed .card-portrait .stats {
+  background: none;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.6);
+}
+/* Selection toolstrip and combine buttons. */
+.context-commands .cmd,
+.combine-options .cmd {
+  background: #393e43;
+  border: 0;
+  border-radius: 9px;
+  box-shadow: none;
+  color: #f4f3ef;
+}
+.context-commands .cmd:hover:not(:disabled),
+.combine-options .cmd:hover:not(:disabled) {
+  background: #4b525a;
+}
+.context-commands .cmd.primary {
+  background: #d4d8dc;
+  color: #202429;
+}
+.context-commands .cmd.primary:hover:not(:disabled) {
+  background: #e7eaed;
+}
+.context-commands .cmd:disabled {
+  background: #2c3035;
+}
+.combine-options {
+  border-top-color: #3a4046;
+}
+.effect,
+.ability-icon,
+.cmd.passive {
+  background: #343c43;
+  border-color: transparent;
+  border-radius: 6px;
+  box-shadow: none;
+}
+.effect.bad {
+  background: #4a2a2c;
+  border-color: #d9827a;
+}
+.ability-icon.active {
+  border-color: #d4d8dc;
+}
+.ability-detail {
+  background: #30353a;
+  border-color: transparent;
+  border-radius: 8px;
+}
+.selection-stack .selection-actions {
+  border-top-color: #3a4046;
+}
+
+/* Damage meter: names and numbers sit above the share bar. */
+.dps .damage-list li > :not(.bar) {
+  position: relative;
+  z-index: 1;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.7);
+}
+.dps .damage-list .bar {
+  z-index: 0;
+}
+
+/* Bottom-right game controls: pause, speed, recipes, view. */
+.game-controls button {
+  background: #393e43;
+  border: 0;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.25);
+  color: #f4f3ef;
+}
+.game-controls button:hover:not(:disabled) {
+  background: #4b525a;
+}
+.game-controls button[aria-pressed='true'] {
+  background: #d4d8dc;
+  color: #202429;
+}
+.speed-strip {
+  border-color: #3a4046;
+}
+
+/* Hotkey in the corner of each toolstrip button. */
+.context-commands .slot-key {
+  display: block;
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  z-index: 1;
+  padding: 0;
+  background: none;
+  font-size: 10px;
+  line-height: 1;
+  color: #bdc3c7;
+  pointer-events: none;
+}
+.context-commands .slot-key:empty {
+  display: none;
+}
+.context-commands .slot-cell:has(.cmd.primary) .slot-key {
+  color: #202429;
+}
+
+/* Portrait: art lifted so the gem head is not cut off; stats hug the right edge. */
+.portrait-art,
+.card.collapsed .portrait-art {
+  inset: 30px 72px 12px 0;
+}
+.card-portrait .stats,
+.card.collapsed .card-portrait .stats {
+  right: 0;
+  width: 68px;
+  padding-right: 0;
+}
+
+/* Card title gets breathing room; stats start below it. */
+.portrait-name,
+.card.collapsed .portrait-name {
+  padding: 6px 30px 4px 8px;
+}
+.card-portrait .stats,
+.card.collapsed .card-portrait .stats {
+  top: 40px;
+}
+/* Ability level in the icon's corner, e.g. Cleave 2. */
+.ability-icon {
+  position: relative;
+}
+.ability-level {
+  position: absolute;
+  right: 1px;
+  bottom: 0;
+  min-width: 10px;
+  padding: 0 2px;
+  border-radius: 3px;
+  background: #14181cd9;
+  color: #f4f3ef;
+  font-size: 10px;
+  line-height: 12px;
+  text-align: center;
+}
+
+/* Portrait sits on the card itself; its base fades out instead of a grey box. */
+.card-portrait,
+.card.collapsed .card-portrait {
+  background: none;
+}
+/* The model runs down behind the abilities; only its lowest quarter fades out. */
+.card-portrait,
+.card.collapsed .card-portrait {
+  overflow: visible;
+  z-index: 0;
+}
+.portrait-art,
+.card.collapsed .portrait-art {
+  inset: 30px 72px -104px 0;
+  place-items: start center;
+  pointer-events: none;
+  mask-image: linear-gradient(to bottom, #000 75%, transparent 100%);
+}
+.portrait-art img.glyph,
+.card.collapsed .portrait-art img.glyph {
+  width: 190px;
+  height: 190px;
+}
+.card-main,
+.selection-stack .selection-actions {
+  position: relative;
+  z-index: 1;
+}
+.ability-detail {
+  background: rgb(37 40 44 / 0.7);
+}
+
+/* Towers keep one card height: the ability row and its description are always reserved, so a
+   tower with no abilities neither shrinks the card nor lets the portrait overflow into a scrollbar. */
+.card.tower .card-main {
+  min-height: 104px;
+}

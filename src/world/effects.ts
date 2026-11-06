@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { TowerAbility } from '../sim/abilities';
+import { BOARD_SIZE } from '../sim/board';
 import type { HitVia } from '../sim/game';
 import { createStrokes } from './strokes';
+import { toCell } from './view';
 
 // Combat and aura effects (issue #10). Each tower's family comes from its VPK abilities, read the
 // same way the sim reads them, so a tower looks like what it does (EFFECT-IDENTITIES.md):
@@ -130,6 +132,153 @@ const AURA_OPACITY: Record<AuraFamily, [number, number, number]> = {
   shred: [0.32, 0.04, 0.35],
 };
 const MAX_AURAS = 256;
+const MAX_FIELD_TILES = 4096;
+const MAX_FIELD_MOTES = 6000;
+/** Enemy fields drawn on the ground (tiles, glaze, motes) instead of as rings. */
+export type GroundFamily = 'burn' | 'frost' | 'shred';
+/** Tile and glaze tint by field level 1-3 (e.g. tower_huiyao, huiyao2, huiyao3): stronger as it grows. */
+/** Burn's wall band is untextured, so it takes the full colour the burn texture bakes in. */
+const BURN_BAND = ['#F8A060', '#F56A28', '#F23A12'].map((c) => new THREE.Color(c));
+const FIELD_TINT: Record<GroundFamily, THREE.Color[]> = {
+  burn: ['#FFE2C8', '#FFB08A', '#FF6A50'].map((c) => new THREE.Color(c)),
+  frost: ['#CFEFFF', '#7FC8F8', '#2E8CF0'].map((c) => new THREE.Color(c)),
+  shred: ['#9BE3D6', '#4FC4B0', '#23907E'].map((c) => new THREE.Color(c)),
+};
+/** Rising motes per family: ember, snow, corrosion. */
+const MOTE_COLOR: Record<GroundFamily, THREE.Color> = {
+  burn: new THREE.Color('#FF7A2A'),
+  frost: new THREE.Color('#FFFFFF'),
+  shred: new THREE.Color('#5FE0C8'),
+};
+/** Mote rise height (cells) and cycle length (seconds) per family. */
+const MOTE_MOTION: Record<GroundFamily, [height: number, period: number]> = {
+  burn: [0.9, 1.4],
+  frost: [0.45, 3.2],
+  shred: [0.6, 2.4],
+};
+/** A field's level, from its ability name's trailing digit (1 when there is none), at most 3. */
+export const fieldLevel = (name: string) => Math.min(3, Number(/(\d+)$/.exec(name)?.[1] ?? 1));
+
+/** Height of the field glaze band on walls and tower bases, in cells. */
+const GLAZE_HEIGHT = 0.12;
+
+/**
+ * An open octagonal band hugging a wall or turret footprint (a cell with its corners cut, the
+ * shape walls.ts gives an isolated turret, and flush with a straight wall's faces), just outside
+ * the stone so it shows. Opaque at the ground, fading to clear at the top; no caps.
+ */
+function sideBand(width: number, height: number, sides: 4 | 8) {
+  const radius = width / 2 / Math.cos(Math.PI / sides); // flat-to-flat = width
+  const band = new THREE.CylinderGeometry(radius, radius, height, sides, 1, true)
+    .rotateY(Math.PI / sides)
+    .translate(0, height / 2, 0);
+  const position = band.attributes.position;
+  const alpha = new Float32Array(position.count * 4);
+  for (let i = 0; i < position.count; i++)
+    alpha.set([1, 1, 1, position.getY(i) > height / 2 ? 0 : 1], i * 4);
+  band.setAttribute('color', new THREE.BufferAttribute(alpha, 4));
+  return band;
+}
+
+/**
+ * Burn: smouldering ground. Two octaves of tileable value noise pick, per pixel, clear ground,
+ * dull red embers, orange heat or a yellow hot spot, so patches glow unevenly like coals. The
+ * colour is baked in (the level tint only deepens it); edges wrap so cells join seamlessly.
+ */
+function burnPixels() {
+  const N = 16;
+  let seed = 7;
+  const rand = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+  const grid = (g: number) => Array.from({ length: g * g }, rand);
+  const octaves = [
+    { g: 4, w: 0.65, v: grid(4) },
+    { g: 8, w: 0.35, v: grid(8) },
+  ];
+  const smooth = (t: number) => t * t * (3 - 2 * t);
+  const noise = (x: number, y: number) =>
+    octaves.reduce((sum, { g, w, v }) => {
+      const fx = (x / N) * g;
+      const fy = (y / N) * g;
+      const x0 = Math.floor(fx);
+      const y0 = Math.floor(fy);
+      const at = (i: number, j: number) => v[((j + g) % g) * g + ((i + g) % g)];
+      const tx = smooth(fx - x0);
+      const ty = smooth(fy - y0);
+      const top = at(x0, y0) + (at(x0 + 1, y0) - at(x0, y0)) * tx;
+      const bottom = at(x0, y0 + 1) + (at(x0 + 1, y0 + 1) - at(x0, y0 + 1)) * tx;
+      return sum + w * (top + (bottom - top) * ty);
+    }, 0);
+  const px = new Uint8Array(N * N * 4);
+  for (let y = 0; y < N; y++)
+    for (let x = 0; x < N; x++) {
+      const n = noise(x, y);
+      const [r, g, b, a] =
+        n > 0.72
+          ? [255, 214, 120, 0.55] // hot spot
+          : n > 0.58
+            ? [255, 140, 60, 0.42] // heat
+            : n > 0.44
+              ? [226, 72, 36, 0.28] // embers
+              : [240, 120, 70, 0.1]; // warm ground
+      px.set([r, g, b, Math.round(a * 255)], (y * N + x) * 4);
+    }
+  return px;
+}
+
+/**
+ * A 16x16 pixel texture per field family, white so the instance colour tints it, with alpha
+ * carrying the pattern: burn is a warm haze with glowing cracks, frost is rime with ice
+ * crystals, shred is pitted, corroded stone. Nearest filtering keeps the pixels crisp.
+ */
+export function fieldTexturePixels(family: GroundFamily) {
+  if (family === 'burn') return burnPixels();
+  const N = 16;
+  const px = new Uint8Array(N * N * 4);
+  let seed = { burn: 7, frost: 11, shred: 13 }[family];
+  const rand = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+  const set = (x: number, y: number, value: number, alpha: number) => {
+    const i = (((y + N) % N) * N + ((x + N) % N)) * 4;
+    px[i] = px[i + 1] = px[i + 2] = Math.round(value * 255);
+    px[i + 3] = Math.round(alpha * 255);
+  };
+  // Base: a faint mottled layer over the whole cell.
+  for (let y = 0; y < N; y++)
+    for (let x = 0; x < N; x++) {
+      const r = rand();
+      if (family === 'frost')
+        set(x, y, 0.9 + r * 0.1, 0.1 + r * 0.14); // rime
+      else set(x, y, 0.75 + r * 0.25, 0.1 + r * 0.14); // stain
+    }
+  // Pattern: random walks (crystal branches) or blotches (pits). Edges wrap so
+  // neighbouring cells read as one surface.
+  const walks = family === 'shred' ? 0 : 4;
+  for (let w = 0; w < walks; w++) {
+    let x = Math.floor(rand() * N);
+    let y = Math.floor(rand() * N);
+    for (let step = 0; step < 9; step++) {
+      set(x, y, 1, 0.4); // ice branch
+      const d = Math.floor(rand() * 4);
+      x += [1, -1, 0, 0][d] + (family === 'frost' ? [0, 0, 1, -1][d] : 0);
+      y += [0, 0, 1, -1][d];
+    }
+  }
+  if (family === 'shred')
+    for (let n = 0; n < 7; n++) {
+      const cx = Math.floor(rand() * N);
+      const cy = Math.floor(rand() * N);
+      for (const [dx, dy] of [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+        [1, 1],
+      ])
+        set(cx + dx, cy + dy, 0.6, 0.4); // pit
+      set(cx - 1, cy, 1, 0.35); // pit rim
+    }
+  if (family === 'frost')
+    for (let n = 0; n < 12; n++) set(Math.floor(rand() * N), Math.floor(rand() * N), 1, 0.5); // glint
+  return px;
+}
 const AURA_PERIOD = { support: 2.6, burn: 1.4, frost: 3.2, shred: 2.2 };
 const FROST_TINT = new THREE.Color('#E4F6FF');
 // Saturated electric blue reads on the pale board; the tower colour tints it.
@@ -155,6 +304,59 @@ export function shotStyle(abilities: readonly TowerAbility[]): ShotStyle {
   return 'shard';
 }
 
+/** What an enemy field does on the ground: burn (damage), shred (armor/resist) or frost (slow). */
+export function groundFamily(a: TowerAbility): GroundFamily | null {
+  if (a.kind !== 'field' || a.ally) return null;
+  const p = a.properties;
+  if (a.damage > 0) return 'burn';
+  if (
+    (p.MODIFIER_PROPERTY_PHYSICAL_ARMOR_BONUS ?? 0) < 0 ||
+    (p.MODIFIER_PROPERTY_MAGICAL_RESISTANCE_BONUS ?? 0) < 0
+  )
+    return 'shred';
+  return 'frost';
+}
+
+/** Board cells inside towers' enemy fields: each family's highest level reaching each cell. */
+export function fieldCells(
+  towers: readonly { x: number; z: number; abilities: readonly TowerAbility[] }[],
+) {
+  const level = new Map<string, number>();
+  for (const t of towers)
+    for (const a of t.abilities) {
+      const family = groundFamily(a);
+      if (!family || a.kind !== 'field') continue;
+      // Same reach as the sim: cell centres within the radius (squared distance in cells).
+      const r = Math.floor(a.radius);
+      for (let dx = -r; dx <= r; dx++)
+        for (let dz = -r; dz <= r; dz++) {
+          if (dx * dx + dz * dz > a.radius * a.radius) continue;
+          const x = t.x + dx;
+          const z = t.z + dz;
+          const c = toCell(x, z);
+          // Board cells run 1..BOARD_SIZE (Board.inside); the rim and cave stay clean.
+          if (c.x < 1 || c.y < 1 || c.x > BOARD_SIZE || c.y > BOARD_SIZE) continue;
+          const k = `${family},${x},${z}`;
+          level.set(k, Math.max(level.get(k) ?? 0, fieldLevel(a.name)));
+        }
+    }
+  // One effect per cell, never stacked: the highest level wins, then burn over frost over shred.
+  const ORDER: GroundFamily[] = ['burn', 'frost', 'shred'];
+  const cells = new Map<string, { family: GroundFamily; x: number; z: number; level: number }>();
+  for (const [k, lvl] of level) {
+    const [family, x, z] = k.split(',') as [GroundFamily, string, string];
+    const at = `${x},${z}`;
+    const held = cells.get(at);
+    if (
+      !held ||
+      lvl > held.level ||
+      (lvl === held.level && ORDER.indexOf(family) < ORDER.indexOf(held.family))
+    )
+      cells.set(at, { family, x: Number(x), z: Number(z), level: lvl });
+  }
+  return [...cells.values()];
+}
+
 /** Ground rings for a tower's auras and fields, one per distinct family and radius. */
 export function auraRings(abilities: readonly TowerAbility[]) {
   const rings: { family: AuraFamily; radius: number }[] = [];
@@ -164,16 +366,8 @@ export function auraRings(abilities: readonly TowerAbility[]) {
   };
   for (const a of abilities) {
     if (a.kind === 'aura') add('support', a.radius);
-    if (a.kind !== 'field') continue;
-    const p = a.properties;
-    if (a.ally) add('support', a.radius);
-    else if (a.damage > 0) add('burn', a.radius);
-    else if (
-      (p.MODIFIER_PROPERTY_PHYSICAL_ARMOR_BONUS ?? 0) < 0 ||
-      (p.MODIFIER_PROPERTY_MAGICAL_RESISTANCE_BONUS ?? 0) < 0
-    )
-      add('shred', a.radius);
-    else add('frost', a.radius);
+    // Enemy fields are drawn on the ground instead (fieldCells).
+    if (a.kind === 'field' && a.ally) add('support', a.radius);
   }
   return rings;
 }
@@ -320,6 +514,94 @@ export function createEffects(scene: THREE.Scene) {
     AuraFamily,
     { ring: THREE.InstancedMesh; disc: THREE.InstancedMesh; pulse: THREE.InstancedMesh }
   >;
+  // Enemy fields (burn, frost, shred) are drawn on the ground they reach instead of as rings:
+  // a tinted quad per cell, a translucent glaze over the walls and tower bases standing in it,
+  // and motes rising from each cell (embers, snow, corrosion). Stronger tint for a higher level;
+  // overlapping fields of one family keep the strongest.
+  // Field ground effects are part of the board, not the aura overlay: the auras toggle leaves them.
+  const fieldGroup = new THREE.Group();
+  fieldGroup.name = 'field-ground';
+  scene.add(fieldGroup);
+  const tileGeometry = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+  // The glaze is a low band on the sides of walls and tower bases standing in a field, strongest
+  // at the ground and fading out a short way up: no top face, nothing on the tower itself.
+  // Square along connected walls (no gaps at the joins), octagonal round a lone turret.
+  const glazeGeometry = sideBand(1.02, GLAZE_HEIGHT, 4);
+  const turretGlazeGeometry = sideBand(1.02, GLAZE_HEIGHT, 8);
+  const fieldMesh = (
+    geometry: THREE.BufferGeometry,
+    map: THREE.Texture | null,
+    name: string,
+    opacity: number,
+  ) => {
+    const mesh = new THREE.InstancedMesh(
+      geometry,
+      new THREE.MeshBasicMaterial({
+        map,
+        transparent: true,
+        opacity,
+        depthWrite: false,
+        vertexColors: !!geometry.attributes.color,
+        side: THREE.DoubleSide,
+      }),
+      MAX_FIELD_TILES,
+    );
+    mesh.name = name;
+    mesh.count = 0;
+    mesh.visible = false;
+    mesh.renderOrder = 1;
+    mesh.frustumCulled = false;
+    fieldGroup.add(mesh);
+    return mesh;
+  };
+  const GROUND: GroundFamily[] = ['burn', 'frost', 'shred'];
+  const fieldLayers = Object.fromEntries(
+    GROUND.map((f) => {
+      const map = new THREE.DataTexture(fieldTexturePixels(f), 16, 16);
+      map.magFilter = map.minFilter = THREE.NearestFilter;
+      map.wrapS = map.wrapT = THREE.RepeatWrapping;
+      map.colorSpace = THREE.SRGBColorSpace;
+      map.needsUpdate = true;
+      return [
+        f,
+        {
+          tiles: fieldMesh(tileGeometry, map, `field-tiles-${f}`, 1),
+          // Solid tint, no texture: the band is thin and the texture's faint alpha would vanish.
+          glaze: fieldMesh(glazeGeometry, null, `field-glaze-${f}`, 0.55),
+          turret: fieldMesh(turretGlazeGeometry, null, `field-turret-${f}`, 0.55),
+        },
+      ];
+    }),
+  ) as unknown as Record<
+    GroundFamily,
+    { tiles: THREE.InstancedMesh; glaze: THREE.InstancedMesh; turret: THREE.InstancedMesh }
+  >;
+  /** Overlapping families stack a hair apart instead of z-fighting. */
+  const FIELD_LIFT: Record<GroundFamily, number> = { burn: 0.014, frost: 0.017, shred: 0.02 };
+  const turn = new THREE.Quaternion();
+  const motePositions = new Float32Array(MAX_FIELD_MOTES * 3);
+  const moteColors = new Float32Array(MAX_FIELD_MOTES * 3);
+  const moteGeometry = new THREE.BufferGeometry();
+  moteGeometry.setAttribute('position', new THREE.BufferAttribute(motePositions, 3));
+  moteGeometry.setAttribute('color', new THREE.BufferAttribute(moteColors, 3));
+  moteGeometry.setDrawRange(0, 0);
+  const fieldMotes = new THREE.Points(
+    moteGeometry,
+    new THREE.PointsMaterial({
+      size: 2,
+      sizeAttenuation: false,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.85,
+      depthWrite: false,
+    }),
+  );
+  fieldMotes.name = 'field-motes';
+  fieldMotes.frustumCulled = false;
+  fieldMotes.renderOrder = 2;
+  fieldMotes.visible = false;
+  fieldGroup.add(fieldMotes);
+  let motes: { x: number; z: number; phase: number; family: GroundFamily }[] = [];
   let auras: {
     x: number;
     z: number;
@@ -416,8 +698,10 @@ export function createEffects(scene: THREE.Scene) {
     },
 
     /** Rebuild aura rings when the set of towers changes. */
-    setTowers(towers: Tower[]) {
-      const key = towers.map((t) => `${t.id}:${t.x}:${t.z}:${t.color}`).join();
+    setTowers(towers: Tower[], blocked: readonly { x: number; z: number }[] = []) {
+      const key =
+        towers.map((t) => `${t.id}:${t.x}:${t.z}:${t.color}`).join() +
+        `|${blocked.map((c) => `${c.x}:${c.z}`).join()}`;
       if (key === auraKey) return;
       auraKey = key;
       auras = [];
@@ -437,6 +721,64 @@ export function createEffects(scene: THREE.Scene) {
             auraPose.compose(auraAt.set(t.x, 0.012, t.z), flat, auraScale.setScalar(radius)),
           );
         }
+      const tiles = fieldCells(towers).slice(0, MAX_FIELD_TILES);
+      const solid = new Set(blocked.map((c) => `${c.x},${c.z}`));
+      const placed = {
+        burn: { tiles: 0, glaze: 0, turret: 0 },
+        frost: { tiles: 0, glaze: 0, turret: 0 },
+        shred: { tiles: 0, glaze: 0, turret: 0 },
+      };
+      motes = [];
+      let rnd = 1;
+      const random = () => ((rnd = (rnd * 16807) % 2147483647) - 1) / 2147483646;
+      for (const tile of tiles) {
+        const tint = FIELD_TINT[tile.family][tile.level - 1];
+        const layer = fieldLayers[tile.family];
+        const n = placed[tile.family];
+        // A quarter turn per cell (fixed by position) so the 16x16 texture does not visibly repeat.
+        turn.setFromAxisAngle(UP, ((((tile.x * 7 + tile.z * 13) % 4) + 4) % 4) * (Math.PI / 2));
+        auraPose.compose(
+          auraAt.set(tile.x, FIELD_LIFT[tile.family], tile.z),
+          turn,
+          auraScale.setScalar(1),
+        );
+        layer.tiles.setMatrixAt(n.tiles, auraPose);
+        layer.tiles.setColorAt(n.tiles++, tint);
+        if (solid.has(`${tile.x},${tile.z}`)) {
+          auraPose.compose(auraAt.set(tile.x, 0, tile.z), turn, auraScale.setScalar(1));
+          const lone = ![
+            [1, 0],
+            [-1, 0],
+            [0, 1],
+            [0, -1],
+          ].some(([dx, dz]) => solid.has(`${tile.x + dx},${tile.z + dz}`));
+          const part = lone ? 'turret' : 'glaze';
+          layer[part].setMatrixAt(n[part], auraPose);
+          layer[part].setColorAt(
+            n[part]++,
+            tile.family === 'burn' ? BURN_BAND[tile.level - 1] : tint,
+          );
+        }
+        // Ambient only: about one cell in ten per level sends a mote.
+        if (random() < 0.1 * tile.level && motes.length < MAX_FIELD_MOTES)
+          motes.push({
+            x: tile.x + (random() - 0.5) * 0.8,
+            z: tile.z + (random() - 0.5) * 0.8,
+            phase: random(),
+            family: tile.family,
+          });
+      }
+      for (const f of GROUND)
+        for (const part of ['tiles', 'glaze', 'turret'] as const) {
+          const mesh = fieldLayers[f][part];
+          mesh.count = placed[f][part];
+          mesh.visible = mesh.count > 0;
+          mesh.instanceMatrix.needsUpdate = true;
+          if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+        }
+      motes.forEach((m, i) => MOTE_COLOR[m.family].toArray(moteColors, i * 3));
+      moteGeometry.attributes.color.needsUpdate = true;
+      moteGeometry.setDrawRange(0, motes.length);
       for (const f of FAMILIES)
         for (const mesh of Object.values(layers[f])) {
           mesh.count = Math.min(MAX_AURAS, used[f]);
@@ -471,6 +813,26 @@ export function createEffects(scene: THREE.Scene) {
           );
         }
       for (const f of FAMILIES) layers[f].pulse.instanceMatrix.needsUpdate = true;
+      // Field motes rise and loop; reduced motion hides them.
+      fieldMotes.visible = !reducedMotion && motes.length > 0;
+      if (fieldMotes.visible) {
+        motes.forEach((m, i) => {
+          const [height, period] = MOTE_MOTION[m.family];
+          // Each mote rises once, then rests for twice as long before the next one.
+          const cycle = (clock / (period * 3) + m.phase) % 1;
+          const t = cycle * 3;
+          if (t > 1) {
+            motePositions[i * 3 + 1] = -10; // resting: below the board
+            return;
+          }
+          // Snow drifts sideways a little; embers and corrosion rise straight.
+          const sway = m.family === 'frost' ? Math.sin((t + m.phase) * Math.PI * 2) * 0.08 : 0;
+          motePositions[i * 3] = m.x + sway;
+          motePositions[i * 3 + 1] = 0.05 + t * height;
+          motePositions[i * 3 + 2] = m.z;
+        });
+        moteGeometry.attributes.position.needsUpdate = true;
+      }
 
       const counts = new Map<THREE.InstancedMesh, number>();
       const put = (mesh: THREE.InstancedMesh, color: THREE.Color) => {
