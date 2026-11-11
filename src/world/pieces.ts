@@ -328,26 +328,8 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
   let raster = wallRaster(occupancy);
   /** The maze as last synced (see mazeStamp); NaN before the first sync. */
   let lastMaze = NaN;
-  const nameIds = new Map<string, number>();
-  const nameId = (name: string) => {
-    let id = nameIds.get(name);
-    if (id === undefined) nameIds.set(name, (id = nameIds.size + 1));
-    return id;
-  };
-  /**
-   * An integer that changes whenever stones or gems (cells or names) change: the sim's
-   * `mazeVersion` where it has one, else a hash of the occupants. Allocation-free, so it can run
-   * every tick.
-   */
-  function mazeStamp() {
-    const v = (game as { mazeVersion?: number }).mazeVersion;
-    if (typeof v === 'number') return v;
-    let h = Math.imul(game.stones.size, 0x9e3779b1) ^ game.gems.length;
-    for (const c of game.stones.values()) h = Math.imul(h ^ key(c), 0x01000193);
-    for (const g of game.gems)
-      h = Math.imul(h ^ (key(g.cell) * 4099 + nameId(g.name) * 31 + g.id), 0x01000193);
-    return h;
-  }
+  /** The sim's maze version: changes whenever stones, gems or the beacon change. */
+  const mazeStamp = () => game.mazeVersion;
 
   /** Sync towers and walls with the sim; false if the maze has not changed since the last call. */
   function syncCells() {
