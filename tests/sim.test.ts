@@ -6,7 +6,7 @@ import { Sim } from '../src/sim/sim';
 const data = loadData('classic');
 
 function play(seed: number) {
-  const sim = new Sim(data, seed, 4);
+  const sim = new Sim(data, seed, {}, 4);
   for (let t = 0; t < 300; t++) {
     if (t % 7 === 0) sim.send(t % 4, { type: 'noop' });
     sim.rng.u32(); // stand-in for rules consuming randomness each tick

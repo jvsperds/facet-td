@@ -10,6 +10,7 @@ import type { Cell } from './sim/board';
 import { createFeedback } from './hud/feedback';
 import { createCameraInput, cursor, hovered, selected, selectedCreep } from './input/camera';
 import { Sim, TICK_HZ, type Cmd } from './sim/sim';
+import { WIP } from './hud/flags';
 import { createWorld } from './world/world';
 import { prewarmTowers } from './world/pieces';
 import { setupPreview } from './preview';
@@ -23,7 +24,8 @@ const params = new URLSearchParams(location.search);
 const title = params.has('title');
 // The seed is the only outside input; `?seed=` replays a game.
 const seed = Number(params.get('seed')) || Date.now() >>> 0;
-const sim = new Sim(loadData(mode), seed);
+// `?wip` keeps the free hero loadout (sandbox); a normal run's hero is fixed by its config.
+const sim = new Sim(loadData(mode), seed, { sandbox: WIP });
 const board = sim.board;
 const world = createWorld(board, sim.game);
 document.body.prepend(world.canvas);
