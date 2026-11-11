@@ -4,7 +4,7 @@ import { createAudio } from './audio';
 import { loadData, type Mode } from './data';
 import { Hud } from './hud/Hud';
 import { pinned, pinnedIngredients } from './hud/RecipeBook';
-import { prewarmIcons } from './hud/TowerIcon';
+import { prewarmIcons, setIconsBusy } from './hud/TowerIcon';
 import { readRecipes } from './sim/progression';
 import type { Cell } from './sim/board';
 import { createFeedback } from './hud/feedback';
@@ -207,6 +207,8 @@ const towerNames = [
   ...readRecipes(sim.data).flatMap((r) => [r.result, ...r.ingredients]),
 ];
 prewarmTowers(towerNames);
+// Icons render only between waves, so the second WebGL context never competes with play.
+setIconsBusy(() => sim.game.phase === 'wave');
 prewarmIcons(towerNames);
 if (params.get('preview') === 'all') setupPreview(sim, towerNames);
 
