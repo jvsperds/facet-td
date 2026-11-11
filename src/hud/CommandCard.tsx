@@ -15,7 +15,7 @@ import {
 import { readHeroCatalog } from '../sim/hero';
 import type { RecipeKind } from '../sim/progression';
 import type { Cmd, Sim } from '../sim/sim';
-import { announcement, selected, selectedCreep, targeting } from '../input/camera';
+import { announcement, refusal, selected, selectedCreep, targeting } from '../input/camera';
 import { Icon, ICONS } from './icons';
 import {
   QUALITY,
@@ -128,10 +128,15 @@ function Command(p: {
   /** Seconds of cooldown left, drawn over the icon. */
   cooldown?: number;
   pressed?: boolean;
+  /** A wide button with its label shown (the empty cell's Place gem). */
+  wide?: boolean;
+  /** When refused, stay pressable and call this (so a tap can explain why) instead of disabling. */
+  onRefused?: () => void;
   onClick: () => void;
 }) {
   const id = useId();
   const refused = p.check && !p.check.ok ? p.check.reason : undefined;
+  const soft = !!refused && !!p.onRefused;
   return (
     <div class="slot-cell">
       <kbd class="slot-key" aria-hidden="true">
@@ -140,11 +145,12 @@ function Command(p: {
       <button
         aria-label={p.caption ? `${p.caption}: ${p.label}` : p.label}
         aria-describedby={id}
-        class={`cmd ${p.primary ? 'primary' : ''} ${p.glow ? 'glow' : ''}`}
-        disabled={!!refused}
+        class={`cmd ${p.primary ? 'primary' : ''} ${p.glow ? 'glow' : ''} ${p.wide ? 'wide' : ''} ${soft ? 'refused' : ''}`}
+        disabled={!!refused && !soft}
+        aria-disabled={soft || undefined}
         aria-keyshortcuts={p.hint}
         aria-pressed={p.pressed}
-        onClick={p.onClick}
+        onClick={soft ? p.onRefused : p.onClick}
       >
         <span class="cmd-icon">{p.icon ?? <span class="cmd-letter">{p.label[0]}</span>}</span>
         {p.cooldown ? <span class="cmd-cooldown tabular">{p.cooldown}</span> : null}
@@ -235,11 +241,11 @@ function Card(p: {
   kind?: string;
 }) {
   // Short screens start with the card collapsed to its abilities so the board keeps room.
-  const collapsed = useSignal(
-    matchMedia('(max-width: 600px) and (max-height: 700px), (max-height: 500px)').matches,
-  );
+  const collapsed = useSignal(matchMedia('(max-width: 600px), (max-height: 500px)').matches);
+  // Not measured for the camera fit: a reserved dock (Hud.tsx) keeps the board still when the card
+  // opens, so a second tap lands on the cell the first one selected.
   return (
-    <div class="selection-stack" data-exclude>
+    <div class="selection-stack">
       {p.effects && <div class="card-effects">{p.effects}</div>}
       <section
         class={`card ${p.kind ?? ''} ${collapsed.value ? 'collapsed' : ''}`}
@@ -506,18 +512,18 @@ function CreepCard({ sim, id }: { sim: Sim; id: number; tick: number }) {
         ],
       ]}
       abilities={
-        skills.length ? (
-          skills.map((k) => (
-            <Passive
-              key={k}
-              name={skillName(sim.data, k)}
-              text={skillText(sim.data, k) || 'Creep ability'}
-              icon={effectIcon(iconForText(`${skillName(sim.data, k)} ${skillText(sim.data, k)}`))}
-            />
-          ))
-        ) : (
-          <Empty />
-        )
+        skills.length
+          ? skills.map((k) => (
+              <Passive
+                key={k}
+                name={skillName(sim.data, k)}
+                text={skillText(sim.data, k) || 'Creep ability'}
+                icon={effectIcon(
+                  iconForText(`${skillName(sim.data, k)} ${skillText(sim.data, k)}`),
+                )}
+              />
+            ))
+          : undefined
       }
       bars={[
         {
@@ -547,7 +553,14 @@ function CellCard({
   const game = sim.game;
   const gem = game.gemAt(cell);
   const kind = sim.board.kind(cell);
-  if (!gem && !game.stoneAt(cell) && (kind === 'open' || kind === 'stone') && !pending.value)
+  // Open floor shows a card only while placing: its Place gem button.
+  if (
+    !gem &&
+    !game.stoneAt(cell) &&
+    (kind === 'open' || kind === 'stone') &&
+    !pending.value &&
+    game.phase !== 'build'
+  )
     return null;
   let title = 'Open cell';
   let subtitle = '';
@@ -581,7 +594,8 @@ function CellCard({
       ['meter', 'Dealt', compact(dealt), 'this wave'],
     );
     cards = towerSkills(sim, name);
-    for (const up of [0, -1, 1, 2] as const) {
+    // Keep and downgrade apply only to this round's gems while placing.
+    for (const up of draftGem && game.phase === 'build' ? ([0, -1, 1, 2] as const) : []) {
       if (up === -1) {
         buttons.push([
           'Downgrade and keep',
@@ -628,15 +642,15 @@ function CellCard({
     title = 'No-build zone';
     detail = cell.x <= 9 ? 'Reserved around the spawn.' : 'Reserved around the castle.';
   }
-  if (!gem && kind !== 'waypoint' && kind !== 'no-build') {
+  if (!gem && kind !== 'waypoint' && kind !== 'no-build' && game.phase === 'build') {
     buttons.unshift([
       'Place gem',
       game.canBuild(cell),
       { type: 'build', cell },
       'B',
-      `Place gem ${Math.min(game.draft.length + 1, DRAFT_SIZE)} of 5 here. Double-clicking a cell does the same.`,
+      `Place gem ${Math.min(game.draft.length + 1, DRAFT_SIZE)} of 5 here. Tapping the selected cell again does the same.`,
     ]);
-    if (!detail) detail = 'Open floor. Place a gem here, or double-click the cell.';
+    if (!detail) detail = 'Open floor. Place a gem here, or tap the cell again.';
   }
   const combines = gem ? game.combineOptions(gem.id) : [];
   // The first enabled command is the primary action and takes the accent fill.
@@ -690,6 +704,12 @@ function CellCard({
               />
             }
             text={text}
+            wide={cmd.type === 'build' && !gem}
+            onRefused={
+              cmd.type === 'build'
+                ? () => (refusal.value = { cell: { ...cell }, at: performance.now() })
+                : undefined
+            }
             onClick={() => send(cmd)}
           />
         ))}
@@ -736,7 +756,7 @@ function CellCard({
       {WIP && <HeroSkills sim={sim} send={send} />}
     </>
   );
-  const aim = WIP && aims && gem && !pending.value && (
+  const aim = aims && gem && !pending.value && (
     <div class="aim">
       <label for="aim-mode">Aim</label>
       <select

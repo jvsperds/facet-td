@@ -605,10 +605,20 @@ export function createWorld(board: Board, game: Game) {
     },
     /** The scene, for profiling tools. */
     scene,
-    /** Board cell under a canvas-relative CSS pixel, using the ground plane only (never mesh height). */
+    /**
+     * Board cell under a canvas-relative CSS pixel: the nearest tower or wall drawn there (so the
+     * visible top of a tall piece picks its own cell), else the ground plane.
+     */
     pick(px: number, py: number): Cell | null {
       ndc.set((px / viewport.w) * 2 - 1, -(py / viewport.h) * 2 + 1);
       ray.setFromCamera(ndc, camera);
+      const blockers = pieces.objects();
+      for (const i of ray.intersectObjects(blockers, true)) {
+        let o: THREE.Object3D | null = i.object;
+        while (o && !o.userData.cell) o = o.parent;
+        const cell = o?.userData.cell as Cell | undefined;
+        if (cell && board.inside(cell)) return { x: cell.x, y: cell.y };
+      }
       if (!ray.ray.intersectPlane(plane, hitPoint)) return null;
       const cell = toCell(hitPoint.x, hitPoint.z);
       return board.inside(cell) ? cell : null;

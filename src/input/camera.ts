@@ -16,8 +16,6 @@ import type { World } from '../world/world';
 // Pointer, wheel and keyboard -> camera and selection. Camera moves never send sim commands.
 
 const DRAG_PX = 6;
-/** Two picks of the same cell within this time place a gem there (issue #13). */
-const DOUBLE_PICK_MS = 400;
 const REVEAL_MARGIN_PX = 48;
 const ORBIT_DEG_PER_PX = 0.4;
 const PRESET: ViewState = { mode: 'iso', rotation: 0, zoom: 1, panX: 0, panZ: 0 };
@@ -39,8 +37,14 @@ export const hovered = signal<Cell | null>(null);
 export const targeting = signal<'build' | 'remove' | null>(null);
 /** Polite screen-reader announcement; set to a new string to announce it once. */
 export const announcement = signal('');
+/**
+ * A gem placement the player asked for at `cell` (second tap, B, Enter while placing) that the
+ * board refused; the HUD shows why. `at` makes repeats at the same cell distinct.
+ */
+export const refusal = signal<{ cell: Cell; at: number } | null>(null);
 
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+const same = (a: Cell, b: Cell) => a.x === b.x && a.y === b.y;
 const clampZoom = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
 
 export function createCameraInput(
@@ -99,6 +103,35 @@ export function createCameraInput(
       selectedCreep.value = null;
       if (cell) cursor.value = cell;
     },
+    /** Place a gem at `cell`, or report why not. */
+    build(cell: Cell) {
+      if (!canBuild(cell)) {
+        refusal.value = { cell: { ...cell }, at: performance.now() };
+        return false;
+      }
+      send({ type: 'build', cell: { ...cell } });
+      announcement.value = `Placing a gem at cell ${cell.x}, ${cell.y}`;
+      return true;
+    },
+    /** Arrow keys: move the board cursor relative to the screen. */
+    moveCursor(key: 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight') {
+      const from = cursor.value ?? selected.value ?? { x: 19, y: 19 };
+      const step = cursor.value ? arrowStep(key, azimuth(view.value)) : { x: 0, y: 0 };
+      const next = { x: from.x + step.x, y: from.y + step.y };
+      if (!board.inside(next)) return;
+      cursor.value = next;
+      reveal(next);
+      announcement.value = `Cell ${next.x}, ${next.y}`;
+    },
+    /** B: place a gem at the board cursor, else at the selected cell. */
+    buildAtCursor() {
+      const cell = cursor.value ?? selected.value;
+      if (cell) actions.build(cell);
+    },
+    /** Canvas-relative CSS pixel of a cell's centre under the settled view. */
+    screenOf(cell: Cell) {
+      return world.screenOf(cell);
+    },
   };
 
   // Pointers: a press that does not travel is a pick; travel pans or orbits; two pointers pinch-zoom.
@@ -106,7 +139,6 @@ export function createCameraInput(
   const down = new Map<number, { x: number; y: number }>();
   let travel = 0;
   let pinch = 0;
-  let lastPick: { cell: Cell; time: number } | null = null;
   canvas.style.touchAction = 'none';
   effect(() => {
     canvas.style.cursor = targeting.value ? 'crosshair' : '';
@@ -115,8 +147,11 @@ export function createCameraInput(
   const cast = (cell: Cell, keep: boolean) => {
     const type = targeting.value;
     if (!type) return false;
-    send({ type, cell: { ...cell } });
-    announcement.value = `${type === 'build' ? 'Placing a gem' : 'Removing the stone'} at cell ${cell.x}, ${cell.y}`;
+    if (type === 'build') actions.build(cell);
+    else {
+      send({ type, cell: { ...cell } });
+      announcement.value = `Removing the stone at cell ${cell.x}, ${cell.y}`;
+    }
     if (!keep) targeting.value = null;
     return true;
   };
@@ -127,6 +162,8 @@ export function createCameraInput(
     announcement.value = 'Cancelled';
   });
   canvas.addEventListener('pointerdown', (e) => {
+    // Focus that came from a pointer draws no keyboard focus ring.
+    canvas.classList.add('pointer-focus');
     canvas.setPointerCapture(e.pointerId);
     down.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (down.size === 1) travel = 0;
@@ -167,7 +204,6 @@ export function createCameraInput(
     if (targeting.value) {
       const at = world.pick(e.clientX - r.left, e.clientY - r.top);
       if (at) cast(at, e.shiftKey);
-      lastPick = null;
       return;
     }
     // A creep under the pointer wins over the cell beneath it.
@@ -175,24 +211,16 @@ export function createCameraInput(
     if (creep !== null) {
       selected.value = null;
       selectedCreep.value = creep;
-      lastPick = null;
       announcement.value = 'Selected a creep';
       return;
     }
     const cell = world.pick(e.clientX - r.left, e.clientY - r.top);
-    const now = e.timeStamp;
-    const again =
-      cell &&
-      lastPick &&
-      lastPick.cell.x === cell.x &&
-      lastPick.cell.y === cell.y &&
-      now - lastPick.time <= DOUBLE_PICK_MS;
-    lastPick = again || !cell ? null : { cell, time: now };
+    // One tap selects; a second tap on the already selected cell places a gem there (with no
+    // time limit, so a slow second tap or a double click both work).
+    const again = !!cell && !!selected.value && same(selected.value, cell);
     actions.select(cell);
-    // A double click or double tap on an open cell or a stone places the gem straight away.
-    if (again && canBuild(cell)) {
-      send({ type: 'build', cell: { ...cell } });
-      announcement.value = `Placing a gem at cell ${cell.x}, ${cell.y}`;
+    if (again && cell) {
+      actions.build(cell);
       return;
     }
     announcement.value = cell ? `Selected cell ${cell.x}, ${cell.y}` : 'Selection cleared';
@@ -209,14 +237,20 @@ export function createCameraInput(
     { passive: false },
   );
 
-  // Keyboard board cursor: arrows move relative to the screen, Enter selects.
+  // Keyboard: the canvas is focusable; Enter selects the cursor cell (or casts an armed command).
+  // Arrows, B and zoom are global shortcuts (Hud.tsx), so they work wherever focus is.
   canvas.tabIndex = 0;
+  addEventListener(
+    'keydown',
+    (e) => e.key === 'Tab' && canvas.classList.remove('pointer-focus'),
+    true,
+  );
   canvas.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && targeting.value) {
       targeting.value = null;
       announcement.value = 'Cancelled';
       e.stopPropagation();
-    } else if (e.key === 'Enter' || e.key === ' ') {
+    } else if (e.key === 'Enter') {
       if (!cursor.value || world.moving) return;
       if (cast(cursor.value, e.shiftKey)) {
         e.preventDefault();
@@ -224,24 +258,7 @@ export function createCameraInput(
       }
       actions.select(cursor.value);
       announcement.value = `Selected cell ${cursor.value.x}, ${cursor.value.y}`;
-    } else if (
-      e.key === 'ArrowUp' ||
-      e.key === 'ArrowDown' ||
-      e.key === 'ArrowLeft' ||
-      e.key === 'ArrowRight'
-    ) {
-      const from = cursor.value ?? selected.value ?? { x: 19, y: 19 };
-      const step = cursor.value ? arrowStep(e.key, azimuth(view.value)) : { x: 0, y: 0 };
-      const next = { x: from.x + step.x, y: from.y + step.y };
-      if (!board.inside(next)) return;
-      cursor.value = next;
-      reveal(next);
-      announcement.value = `Cell ${next.x}, ${next.y}`;
-    } else if (e.key === 'b' || e.key === 'B') {
-      if (cursor.value) send({ type: 'build', cell: cursor.value });
-    } else if (e.key === '+' || e.key === '=') actions.zoomBy(1.25);
-    else if (e.key === '-') actions.zoomBy(1 / 1.25);
-    else return;
+    } else return;
     e.preventDefault();
   });
 

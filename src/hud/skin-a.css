@@ -116,9 +116,7 @@ button:disabled {
   border-radius: 9px;
   box-shadow: none;
 }
-.quest {
-  border-left-color: #bdc5cc;
-}
+
 .cmd-label {
   background: #25282c;
   color: #f4f3ef;
@@ -377,4 +375,491 @@ kbd {
    tower with no abilities neither shrinks the card nor lets the portrait overflow into a scrollbar. */
 .card.tower .card-main {
   min-height: 104px;
+}
+
+/* ---- UX pass: notices, the card dock, phone layouts, touch targets, help and end card. ---- */
+
+/* Pointer focus on the board draws no keyboard ring; keyboard focus still does. */
+canvas.pointer-focus:focus-visible {
+  outline: none;
+}
+
+/* The round's status line, under the clock (the Paused flag hangs to its left). */
+.notice-banner {
+  position: fixed;
+  top: var(--notice-top, 104px);
+  left: 50%;
+  z-index: 3;
+  transform: translateX(-50%);
+  box-sizing: border-box;
+  max-width: min(520px, calc(100vw - 24px));
+  padding: 5px 12px;
+  text-align: center;
+  background: rgb(18 22 26 / 0.86);
+  border: 1px solid #5d6a73;
+  border-radius: 3px;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.45);
+  pointer-events: none;
+}
+.notice-banner .notice {
+  font-size: 13px;
+  font-weight: 600;
+  text-shadow: none;
+}
+.notice-banner.danger {
+  background: rgb(92 22 20 / 0.92);
+  border-color: #ff8f86;
+}
+.notice-banner.danger .notice {
+  color: #fff;
+}
+.notice-banner .reward {
+  margin-top: 1px;
+}
+.round-clock .flag {
+  top: calc(100% + 4px);
+  left: 6px;
+  transform: none;
+}
+.targeting {
+  top: calc(var(--notice-top, 104px) + 40px);
+}
+/* A refused placement rings the cell red for a moment. */
+.refused-mark {
+  position: fixed;
+  z-index: 2;
+  width: 34px;
+  height: 34px;
+  margin: -17px 0 0 -17px;
+  border: 3px solid #ff5a50;
+  border-radius: 50%;
+  box-shadow: 0 0 12px #ff5a50;
+  pointer-events: none;
+  animation: refused 0.9s ease-out 2;
+}
+@keyframes refused {
+  from {
+    transform: scale(0.6);
+    opacity: 1;
+  }
+  to {
+    transform: scale(1.4);
+    opacity: 0;
+  }
+}
+
+/* Space the camera fit always keeps clear for the selection card (see Hud.tsx). */
+.card-dock {
+  position: fixed;
+  left: var(--safe-l);
+  bottom: calc(var(--safe-b) + 46px);
+  width: 270px;
+  height: calc(100dvh - 205px);
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* The empty cell's Place gem: a wide labelled key with its shortcut. */
+.context-commands .slot-cell:has(.cmd.wide) {
+  grid-column: 1 / -1;
+}
+.context-commands .cmd.wide {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  height: 44px;
+}
+.cmd.wide .cmd-label {
+  position: static;
+  width: auto;
+  height: auto;
+  clip: auto;
+  overflow: visible;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 800;
+  color: inherit;
+  background: none;
+}
+.cmd.refused {
+  cursor: not-allowed;
+}
+.cmd.refused .cmd-icon {
+  opacity: 0.55;
+}
+
+/* Stat rows: a short label beside each icon. */
+.stats,
+.card.collapsed .stats {
+  width: auto;
+  min-width: 87px;
+}
+.stats div {
+  gap: 5px;
+}
+.stats dd {
+  white-space: nowrap;
+}
+.stats dt {
+  position: static;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  clip: auto;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--ink-3);
+}
+.meter-empty {
+  padding: 2px 4px;
+  font-size: 12px;
+}
+
+/* Menu: the seed sits behind Show seed / Copy seed. */
+.seed-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+}
+button.link {
+  min-height: 32px;
+  padding: 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  background: none;
+  border-color: transparent;
+  box-shadow: none;
+  text-decoration: underline;
+}
+.help-button {
+  font-weight: 900;
+}
+
+/* Help overlay. */
+dialog.help {
+  width: min(560px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  overflow: auto;
+  padding: 16px;
+  color: var(--ink);
+}
+dialog.help::backdrop,
+dialog.menu::backdrop {
+  background: rgb(5 6 8 / 0.55);
+}
+.help-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.help .how {
+  margin: 6px 0 12px;
+  padding-left: 20px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.shortcuts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 3px 16px;
+  margin: 6px 0 8px;
+  font-size: 13px;
+}
+.shortcuts div {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: 8px;
+  align-items: baseline;
+}
+.shortcuts dd {
+  margin: 0;
+}
+
+/* End of run. */
+.end {
+  z-index: 6;
+}
+.end-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 24px);
+  overflow: auto;
+}
+.end-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 6px 14px;
+  margin: 0;
+}
+.end-stats dt {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.end-stats dd {
+  margin: 0;
+  font-weight: 800;
+}
+.end-damage .damage-list {
+  margin-top: 4px;
+}
+.end-card .actions {
+  flex-wrap: wrap;
+}
+
+/* Castle and gold in the top bar: phones only. */
+.clock-res {
+  display: none;
+}
+
+/* Phones (portrait): castle and gold in the top bar, the card a compact bottom sheet. */
+@media (max-width: 600px) {
+  .round-clock {
+    left: 0;
+    right: 0;
+    width: fit-content;
+    max-width: calc(100vw - 120px);
+    margin: 0 auto;
+    transform: none;
+  }
+  .clock-res {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: center;
+    gap: 14px;
+    font-size: 13px;
+    font-weight: 800;
+  }
+  .clock-res > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .clock-res .icon {
+    width: 14px;
+    height: 14px;
+  }
+  .clock-res .danger {
+    color: var(--danger);
+  }
+  .stats-panel {
+    display: none;
+  }
+  :root {
+    --notice-top: 92px;
+  }
+  .notice-banner {
+    max-width: calc(100vw - 16px);
+    padding: 4px 8px;
+  }
+  .notice-banner .notice {
+    font-size: 12px;
+  }
+  .draft {
+    margin-top: 102px;
+  }
+  .selection-stack {
+    left: 8px;
+    right: 8px;
+    width: auto;
+    bottom: calc(var(--safe-b) + 52px);
+    max-height: 46dvh;
+  }
+  .selection-stack .card {
+    max-height: 46dvh;
+  }
+  /* Collapsed: one line of name and the commands; the toggle opens the details. */
+  .selection-stack .card {
+    position: relative;
+  }
+  .selection-stack .card.collapsed .card-portrait {
+    height: auto;
+    min-height: 0;
+  }
+  .selection-stack .card.collapsed .portrait-art,
+  .selection-stack .card.collapsed .stats,
+  .selection-stack .card.collapsed .selection-subtitle,
+  .selection-stack .card.collapsed .card-body,
+  .selection-stack .card.collapsed .abilities {
+    display: none;
+  }
+  .selection-stack .card-main {
+    position: static;
+  }
+  .selection-stack .card.collapsed .card-main {
+    min-height: 0;
+    height: 0;
+    margin: 0;
+    padding: 0;
+  }
+  .selection-stack .card.collapsed .portrait-name {
+    padding-right: 48px;
+    font-size: 16px;
+  }
+  .selection-stack .card-head {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    z-index: 4;
+  }
+  .selection-stack .card-head .icon-button {
+    color: var(--ink);
+    background: #3a434b;
+    border: 1px solid #66727c;
+  }
+  .selection-stack .card-head .icon-button svg {
+    display: block;
+    width: 20px;
+    height: 20px;
+  }
+  .card-dock {
+    left: 0;
+    right: 0;
+    width: auto;
+    bottom: 0;
+    height: calc(var(--safe-b) + 52px + 150px);
+  }
+  .round-clock {
+    gap: 0;
+    grid-template-columns: auto auto auto;
+  }
+  .round-clock .clock-cell {
+    min-width: 0;
+    padding: 1px 4px;
+  }
+  .round-clock .clock-main {
+    min-width: 64px;
+  }
+  .round-clock .clock-value {
+    font-size: 15px;
+  }
+  .round-clock .clock-value.big {
+    font-size: 18px;
+  }
+  /* The recipe book is a full-screen sheet. */
+  .side:has(.drawer) {
+    inset: 0;
+    width: auto;
+    max-height: none;
+    z-index: 7;
+  }
+  .side .drawer {
+    flex: 1;
+    max-height: none;
+    border-radius: 0;
+  }
+  .side:has(.drawer) .pinned {
+    display: none;
+  }
+}
+
+/* Short landscape screens: the card down the left, everything scrolls instead of clipping. */
+@media (max-height: 500px) {
+  :root {
+    --notice-top: 74px;
+  }
+  .round-clock .next-name {
+    display: none;
+  }
+  .settings {
+    max-height: calc(100dvh - 64px);
+    overflow-y: auto;
+    width: min(420px, calc(100vw - 24px));
+  }
+  .settings .settings-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .selection-stack {
+    top: 56px;
+    bottom: auto;
+    max-height: calc(100dvh - 64px);
+  }
+  .selection-stack .card {
+    max-height: calc(100dvh - 64px);
+  }
+  .card-dock {
+    top: 56px;
+    bottom: auto;
+    width: 235px;
+    height: calc(100dvh - 64px);
+  }
+  .side {
+    max-height: calc(100dvh - 80px);
+  }
+  .side .drawer {
+    max-height: calc(100dvh - 80px);
+    overflow: auto;
+  }
+  .draft {
+    margin-top: 0;
+  }
+}
+
+/* Coarse pointers: every control at least 44px. */
+@media (pointer: coarse) {
+  .tool,
+  .menu-button,
+  .game-controls button,
+  .slot,
+  .icon-button,
+  .collapse,
+  .pin,
+  .menu-actions button,
+  .settings button,
+  .ability-icon,
+  button.link {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .game-controls button {
+    width: 44px;
+    height: 44px;
+  }
+  .slot {
+    width: 44px;
+    height: 58px;
+  }
+  .context-commands .cmd,
+  .combine-options .cmd {
+    min-width: 44px;
+    min-height: 44px;
+    height: 44px;
+  }
+  .card-head .icon-button {
+    width: 44px;
+    height: 44px;
+  }
+}
+/* Touch: a tap is not a hover, so command tooltips would only cover the commands. */
+@media (hover: none) {
+  .slot-cell .tip,
+  .slot-cell:hover .tip,
+  .slot-cell:focus-within .tip {
+    display: none;
+  }
+}
+@media (pointer: coarse) and (max-width: 600px) {
+  .game-controls {
+    gap: 2px;
+  }
+  .game-controls button {
+    width: 44px;
+    min-width: 44px;
+    padding: 4px;
+  }
+  .speed-strip {
+    padding: 0 2px;
+    gap: 2px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .refused-mark {
+    animation: none;
+  }
 }

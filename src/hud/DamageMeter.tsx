@@ -20,6 +20,7 @@ export function DamageMeter({ data, game }: { data: GameData; game: Game }) {
       <div class="drawer-head">
         <h2 class="section-label">DPS · wave {game.level}</h2>
       </div>
+      {rows.length === 0 && <p class="muted meter-empty">No damage yet</p>}
       {rows.length > 0 && (
         <ol class="damage-list">
           {rows.map(({ g, d }) => {
