@@ -240,7 +240,11 @@ export function createCameraInput(
   // Keyboard: the canvas is focusable; Enter selects the cursor cell (or casts an armed command).
   // Arrows, B and zoom are global shortcuts (Hud.tsx), so they work wherever focus is.
   canvas.tabIndex = 0;
-  addEventListener('keydown', () => canvas.classList.remove('pointer-focus'), true);
+  addEventListener(
+    'keydown',
+    (e) => e.key === 'Tab' && canvas.classList.remove('pointer-focus'),
+    true,
+  );
   canvas.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && targeting.value) {
       targeting.value = null;

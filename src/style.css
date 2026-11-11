@@ -191,8 +191,7 @@ button[aria-pressed='true'] kbd {
 .icon,
 .icon-button svg,
 .tool svg,
-.menu-button svg,
-.brand svg {
+.menu-button svg {
   width: 18px;
   height: 18px;
   fill: none;
@@ -305,12 +304,7 @@ img.glyph.mini {
   gap: 4px;
   max-width: 100%;
 }
-.strip {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 3px;
-}
+
 .tool {
   position: relative;
   display: grid;
@@ -324,16 +318,7 @@ img.glyph.mini {
   border: 2px solid rgb(255 255 255 / 0.12);
   box-shadow: 0 2px 6px rgb(0 0 0 / 0.6);
 }
-.tool.speed {
-  font-size: 11px;
-  font-weight: 900;
-}
-.sep {
-  width: 2px;
-  height: 20px;
-  margin: 0 3px;
-  background: rgb(255 255 255 / 0.12);
-}
+
 /* Tool and item names on hover and focus, below the icon. */
 .tool[data-tip]:hover::after,
 .tool[data-tip]:focus-visible::after {
@@ -369,10 +354,7 @@ img.glyph.mini {
 .settings .section-label {
   margin-top: 4px;
 }
-.settings-row {
-  display: flex;
-  gap: 6px;
-}
+
 .settings-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -400,23 +382,7 @@ img.glyph.mini {
 .menu-toggle span {
   flex: 1;
 }
-.settings-row .menu-toggle {
-  flex: 1;
-}
-.segmented {
-  display: flex;
-}
-.segmented button {
-  min-width: 40px;
-  font-weight: 900;
-  border-radius: 0;
-}
-.segmented button:first-child {
-  border-radius: 3px 0 0 3px;
-}
-.segmented button:last-child {
-  border-radius: 0 3px 3px 0;
-}
+
 .run-button {
   margin-top: 4px;
 }
@@ -430,30 +396,15 @@ img.glyph.mini {
 .legend {
   font-size: 11px;
 }
-.quest {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-width: 100%;
-  padding: 4px 10px 4px 8px;
-  background: linear-gradient(90deg, rgb(10 12 15 / 0.82), rgb(10 12 15 / 0.45) 75%, transparent);
-  border-left: 3px solid var(--amber);
-}
+
 .notice {
   font-size: 13px;
   color: var(--ink);
   text-shadow: 0 1px 2px #000;
 }
-.notice::after {
-  content: ' ✓';
-  color: #8fd47c;
-}
+
 .notice.danger {
   color: var(--danger);
-}
-.notice.danger::after,
-.notice:empty::after {
-  content: none;
 }
 .reward {
   font-size: 11px;
@@ -1087,10 +1038,6 @@ img.glyph.mini {
 .card-body .bar span {
   line-height: 14px;
 }
-.reason,
-.hint {
-  font-size: 12px;
-}
 .aim {
   display: flex;
   align-items: center;
@@ -1718,13 +1665,7 @@ button.big {
     width: 15px;
     height: 15px;
   }
-  .strip {
-    gap: 2px;
-  }
-  .sep,
-  .tool.speed:not([aria-pressed='true']) {
-    display: none;
-  }
+
   .round-clock {
     left: auto;
     right: var(--safe-r);
@@ -1757,16 +1698,7 @@ button.big {
     left: var(--safe-l);
     width: calc(100vw - var(--safe-l) - var(--safe-r) - 180px);
   }
-  /* One scrolling row, so the tools never run into the status line. */
-  .top-left .strip {
-    flex-wrap: nowrap;
-    min-width: 0;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .top-left .strip .tool {
-    flex: none;
-  }
+
   .stats-panel {
     top: 78px;
     width: 140px;
