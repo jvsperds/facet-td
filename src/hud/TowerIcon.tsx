@@ -31,6 +31,15 @@ let studio:
   | null
   | undefined;
 let scheduled = false;
+/** The studio canvas's current size, so it is only resized when a portrait needs more room. */
+let canvasSize = 0;
+/** True while play is busy (a wave is running): no icon renders then. */
+let busy: () => boolean = () => false;
+
+/** Hold icon rendering while `isBusy()` is true (set by the app: a wave in progress). */
+export function setIconsBusy(isBusy: () => boolean) {
+  busy = isBusy;
+}
 
 function setup() {
   try {
@@ -39,7 +48,7 @@ function setup() {
       antialias: true,
       preserveDrawingBuffer: true,
     });
-    renderer.setSize(SIZE, SIZE, false);
+    renderer.setSize((canvasSize = SIZE), SIZE, false);
     renderer.setClearColor(0x000000, 0);
     const scene = new THREE.Scene();
     // The board's lighting: warm sky, slate ground bounce, a sun from the upper left.
@@ -65,7 +74,8 @@ function render(name: string) {
   // `creep:<unit>` draws that creep whole; any other name is a tower.
   const portrait = name.startsWith('portrait:');
   if (portrait) name = name.slice(9);
-  renderer.setSize(portrait ? 256 : SIZE, portrait ? 256 : SIZE, false);
+  const size = portrait ? 256 : SIZE;
+  if (size !== canvasSize) renderer.setSize((canvasSize = size), size, false);
   const creep = name.startsWith('creep:') ? name.slice(6) : null;
   // The tower without its stone footing: on the board it rises from a wall turret instead.
   const subject = creep
@@ -171,15 +181,17 @@ function save(name: string, blob: Blob) {
 type Idle = { timeRemaining(): number; didTimeout?: boolean };
 const whenIdle = (run: (idle: Idle) => void) =>
   typeof requestIdleCallback === 'function'
-    ? requestIdleCallback(run, { timeout: 500 })
-    : setTimeout(() => run({ timeRemaining: () => 10 }), 60);
+    ? requestIdleCallback(run)
+    : setTimeout(() => run({ timeRemaining: () => 10 }), busy() ? 500 : 60);
 
 /** One icon per callback; a deadline prevents model portraits starving during continuous play. */
 async function drain(idle: Idle) {
   await stored;
   // The WebGL context for icons is made in the first idle period, not mid-render.
-  if (studio === undefined) studio = setup();
-  const name = idle.didTimeout || idle.timeRemaining() > 6 ? queue.shift() : undefined;
+  // Never during a wave, and only with a real slice of idle time: a render takes several ms.
+  const free = !busy() && idle.timeRemaining() > 8;
+  if (free && studio === undefined) studio = setup();
+  const name = free ? queue.shift() : undefined;
   if (name !== undefined && !cache.has(name)) {
     let url = '';
     try {
@@ -197,6 +209,16 @@ async function drain(idle: Idle) {
   }
   scheduled = false;
   if (queue.length) schedule();
+  else release();
+}
+
+/** Free the icon studio's WebGL context once the queue is empty; a later request makes a new one. */
+function release() {
+  if (!studio) return;
+  studio.renderer.dispose();
+  studio.renderer.forceContextLoss();
+  studio = undefined;
+  canvasSize = 0;
 }
 
 function schedule() {

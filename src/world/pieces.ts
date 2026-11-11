@@ -16,7 +16,14 @@ import { creepPartScale } from './clearance';
 import { createEffects } from './effects';
 import { createPedalEffects } from './pedals';
 import { pedalHead } from './pedal-models';
-import { TURRET_TOP, neighbourhood, wallMesh, wallRaster, type Occupancy } from './walls';
+import {
+  TURRET_TOP,
+  neighbourhood,
+  updateRaster,
+  wallMesh,
+  wallRaster,
+  type Occupancy,
+} from './walls';
 
 // Everything on the board that the sim owns: stones, gem towers, creeps and combat effects.
 // Rebuilt from sim state after each tick; creeps interpolate between the last two ticks.
@@ -27,7 +34,7 @@ const PLINTH = 0.5 / 0.31;
 const PLINTH_HEIGHT = 0.12;
 const BAR = { width: 0.5, height: 0.07, back: '#25282C', fill: '#7ED07A', low: '#FFB3AF' };
 
-type Piece = { sig: string; obj: THREE.Object3D };
+type Piece = { sig: string | number; obj: THREE.Object3D };
 type CreepView = {
   obj: THREE.Object3D;
   /** Health share for the bar. */
@@ -38,6 +45,10 @@ type CreepView = {
 };
 
 const key = (c: Cell) => c.y * 64 + c.x;
+/** Wall chunk size in cells: a maze change re-merges only the chunks it touches. */
+const WALL_CHUNK = 8;
+const chunkOf = (k: number) =>
+  Math.floor((k % 64) / WALL_CHUNK) + 16 * Math.floor(k / 64 / WALL_CHUNK);
 const BAR_FILL = new THREE.Color(BAR.fill);
 const BAR_LOW = new THREE.Color(BAR.low);
 /** Most health bars drawn at once. */
@@ -266,10 +277,12 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
   const pedals = createPedalEffects(scene);
   let version = 0;
 
-  // Walls draw as one merged mesh. Each cell keeps its own block, hidden, for picking and for
-  // fading: a faded block is shown on its own, see-through, and left out of the merged mesh.
-  let wallBatch: THREE.Mesh | null = null;
-  let wallsDirty = true;
+  // Walls draw as one merged mesh per board chunk (WALL_CHUNK cells square), so a maze change
+  // re-merges only the chunks it touches. Each cell keeps its own block, hidden, for picking and
+  // for fading: a faded block is shown on its own, see-through, and left out of its chunk's mesh.
+  const wallChunks = new Map<number, THREE.Mesh>();
+  const dirtyChunks = new Set<number>();
+  const markWall = (k: number) => dirtyChunks.add(chunkOf(k));
   const faded = new Set<THREE.Object3D>();
   const fadedMaterials = new Map<THREE.Material, THREE.Material>();
   const fadedOf = (m: THREE.Material) => {
@@ -282,33 +295,47 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
     return f;
   };
   function rebuildWalls() {
-    wallsDirty = false;
-    if (wallBatch) {
-      wallBatch.removeFromParent();
-      wallBatch.geometry.dispose();
+    for (const id of dirtyChunks) {
+      const old = wallChunks.get(id);
+      if (old) {
+        old.removeFromParent();
+        old.geometry.dispose();
+        wallChunks.delete(id);
+      }
+      const blocks: THREE.Mesh[] = [];
+      for (const [k, { obj }] of walls) {
+        if (chunkOf(k) !== id) continue;
+        const show = faded.has(obj);
+        obj.traverse((o) => {
+          if (!(o instanceof THREE.Mesh)) return;
+          o.visible = show;
+          o.material = show ? fadedOf(WALL_MATERIAL) : WALL_MATERIAL;
+          if (!show) blocks.push(o);
+        });
+      }
+      if (!blocks.length) continue;
+      const batch = mergedCopy(blocks, WALL_MATERIAL);
+      batch.name = 'walls';
+      batch.castShadow = batch.receiveShadow = true;
+      scene.add(batch);
+      wallChunks.set(id, batch);
     }
-    const blocks: THREE.Mesh[] = [];
-    for (const { obj } of walls.values()) {
-      const show = faded.has(obj);
-      obj.traverse((o) => {
-        if (!(o instanceof THREE.Mesh)) return;
-        o.visible = show;
-        o.material = show ? fadedOf(WALL_MATERIAL) : WALL_MATERIAL;
-        if (!show) blocks.push(o);
-      });
-    }
-    wallBatch = mergedCopy(blocks, WALL_MATERIAL);
-    wallBatch.name = 'walls';
-    wallBatch.castShadow = wallBatch.receiveShadow = true;
-    scene.add(wallBatch);
+    dirtyChunks.clear();
   }
 
   // Walls are rebuilt from one shared footprint whenever any cell's occupant changes.
   let occupancy: Occupancy = new Map();
   let raster = wallRaster(occupancy);
-  let lastOccupancy = '';
+  /** The maze as last synced (see mazeStamp); NaN before the first sync. */
+  let lastMaze = NaN;
+  /** The sim's maze version: changes whenever stones, gems or the beacon change. */
+  const mazeStamp = () => game.mazeVersion;
 
+  /** Sync towers and walls with the sim; false if the maze has not changed since the last call. */
   function syncCells() {
+    const stamp = mazeStamp();
+    if (stamp === lastMaze) return false;
+    lastMaze = stamp;
     const occupied = new Map<number, { cell: Cell; name: string | null }>();
     for (const c of game.stones.values()) occupied.set(key(c), { cell: c, name: null });
     for (const g of game.gems) occupied.set(key(g.cell), { cell: g.cell, name: g.name });
@@ -316,16 +343,20 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
     const floor = new Set(
       [...occupied].filter(([, o]) => o.name?.includes('shiban')).map(([k]) => k),
     );
-    const signature = [...occupied].map(([k, o]) => `${k}${o.name ? 't' : 's'}`).join();
-    if (signature !== lastOccupancy) {
-      lastOccupancy = signature;
-      occupancy = new Map(
-        [...occupied]
-          .filter(([k]) => !floor.has(k))
-          .map(([k, o]) => [k, o.name ? 'tower' : 'stone']),
-      );
-      raster = wallRaster(occupancy);
+    const next: Occupancy = new Map(
+      [...occupied].filter(([k]) => !floor.has(k)).map(([k, o]) => [k, o.name ? 'tower' : 'stone']),
+    );
+    // Cells whose occupant changed; only wall blocks within two cells of one can change shape.
+    const changed: number[] = [];
+    for (const [k, o] of next) if (occupancy.get(k) !== o) changed.push(k);
+    for (const k of occupancy.keys()) if (!next.has(k)) changed.push(k);
+    if (changed.length) {
+      occupancy = next;
+      raster = updateRaster(raster, occupancy, changed);
     }
+    const near = new Set<number>();
+    for (const k of changed)
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) near.add(k + dy * 64 + dx);
     for (const map of [cells, walls])
       for (const [k, p] of map)
         if (
@@ -336,23 +367,24 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
           dispose(p.obj);
           map.delete(k);
           version++;
-          if (map === walls) wallsDirty = true;
+          if (map === walls) markWall(k);
         }
     for (const [k, { cell, name }] of occupied) {
       const { x: sx, z: sz } = toScene(cell);
       // Wall block: rebuilt when anything in its 5×5 neighbourhood changes.
-      const wallSig = neighbourhood(occupancy, cell);
-      if (!floor.has(k) && walls.get(k)?.sig !== wallSig) {
+      const wallSig = near.has(k) || !walls.has(k) ? neighbourhood(occupancy, cell) : -1;
+      if (!floor.has(k) && wallSig >= 0 && walls.get(k)?.sig !== wallSig) {
         if (walls.has(k)) dispose(walls.get(k)!.obj);
         const obj = new THREE.Group().add(
           ...[wallMesh(raster, cell, WALL_MATERIAL)].filter((m) => !!m),
         );
         obj.position.set(sx, 0, sz);
         obj.userData.cell = cell;
+        obj.userData.wall = true;
         scene.add(obj);
         walls.set(k, { sig: wallSig, obj });
         version++;
-        wallsDirty = true;
+        markWall(k);
       }
       // Tower: rebuilt only when the gem changes; the wall handles every join.
       if (!name || cells.get(k)?.sig === name) continue;
@@ -365,6 +397,7 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
       cells.set(k, { sig: name, obj });
       version++;
     }
+    return true;
   }
 
   /** Creeps of a model: the factory's body grown to its board size. */
@@ -488,16 +521,20 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
       })),
     /** Stones and towers, for occluder fading. */
     objects: () => [...cells.values(), ...walls.values()].map((p) => p.obj),
+    /** The tower and wall block on a board cell, if any: a cell grid for occluder tests. */
+    objectsAt(cell: Cell) {
+      const k = key(cell);
+      return [cells.get(k)?.obj, walls.get(k)?.obj].filter((o): o is THREE.Object3D => !!o);
+    },
     /** Show or hide the towers' aura rings. */
     setAurasVisible(visible: boolean) {
       effects.setAurasVisible(visible);
     },
     /** Fade these towers and wall blocks (they stand between the camera and the focus). */
     fade(hit: Set<THREE.Object3D>) {
-      const wallObjs = new Set([...walls.values()].map((p) => p.obj));
-      let changed = false;
+      // Only chunks whose blocks change state are re-merged.
       for (const o of [...faded, ...hit])
-        if (wallObjs.has(o) && faded.has(o) !== hit.has(o)) changed = true;
+        if (faded.has(o) !== hit.has(o) && o.userData.wall) markWall(key(o.userData.cell));
       faded.clear();
       for (const o of hit) faded.add(o);
       for (const { obj } of cells.values())
@@ -506,20 +543,10 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
           o.userData.solid ??= o.material;
           o.material = hit.has(obj) ? fadedOf(o.userData.solid) : o.userData.solid;
         });
-      if (changed || wallsDirty) rebuildWalls();
+      if (dirtyChunks.size) rebuildWalls();
     },
     /** Call after every sim tick. */
     afterStep() {
-      hero.visible = !!game.hero.selected;
-      const position = toScene(game.heroPosition);
-      hero.position.set(position.x, 0, position.z);
-      beacon.visible = !!game.beacon;
-      if (game.beacon) {
-        const b = toScene(game.beacon);
-        beacon.position.set(b.x, 1.2, b.z);
-      }
-      syncCells();
-      if (wallsDirty) rebuildWalls();
       const tower = (g: (typeof game.gems)[number]) => {
         const { x, z } = toScene(g.cell);
         return {
@@ -531,11 +558,22 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
           name: g.name,
         };
       };
-      // Walls and tower bases standing in a field get its glaze.
-      effects.setTowers(game.gems.map(tower), [
-        ...[...game.stones.values()].map(toScene),
-        ...game.gems.map((g) => toScene(g.cell)),
-      ]);
+      hero.visible = !!game.hero.selected;
+      const position = toScene(game.heroPosition);
+      hero.position.set(position.x, 0, position.z);
+      beacon.visible = !!game.beacon;
+      if (game.beacon) {
+        const b = toScene(game.beacon);
+        beacon.position.set(b.x, 1.2, b.z);
+      }
+      if (syncCells()) {
+        if (dirtyChunks.size) rebuildWalls();
+        // Walls and tower bases standing in a field get its glaze.
+        effects.setTowers(game.gems.map(tower), [
+          ...[...game.stones.values()].map(toScene),
+          ...game.gems.map((g) => toScene(g.cell)),
+        ]);
+      }
       // Capture endpoints before removing dead creeps, so lethal shots still arrive and burst.
       const killed = new Set(game.events.filter((e) => e.type === 'kill').map((e) => e.id));
       for (const e of game.events)

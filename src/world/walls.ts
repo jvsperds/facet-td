@@ -154,16 +154,80 @@ const cellAt = (x: number, y: number): Cell => ({ x: Math.round(x), y: Math.roun
 export function wallRaster(occ: Occupancy): WallRaster {
   const filled = new Uint8Array(N * N * 4);
   const owner = new Int32Array(N * N * 4).fill(-1);
+  paint(occ, filled, owner, null);
+  return { occ, filled, owner };
+}
+
+/**
+ * The raster of `occ`, updated in place from `r` (the raster of the previous occupancy) where
+ * `changed` cells gained, lost or changed occupant: only the lattice within two cells of a change
+ * is repainted. Gives exactly what `wallRaster(occ)` gives, at a fraction of the cost.
+ */
+export function updateRaster(r: WallRaster, occ: Occupancy, changed: Iterable<number>): WallRaster {
+  // A cell's footprint depends on its 8 neighbours and covers its own and its neighbours' cells,
+  // so a change reshapes the lattice of cells up to two away.
+  const region = new Uint8Array(64 * 64);
+  let any = false;
+  for (const k of changed)
+    for (let dy = -2; dy <= 2; dy++)
+      for (let dx = -2; dx <= 2; dx++) {
+        const [x, y] = [(k % 64) + dx, Math.floor(k / 64) + dy];
+        if (x < 0 || y < 0 || x >= 64 || y >= 64) continue;
+        region[keyOf(x, y)] = 1;
+        any = true;
+      }
+  if (!any) return { ...r, occ };
+  // Clear the region, then repaint it from every cell whose window reaches it, in `occ` order.
+  for (let j = 0; j < N; j++)
+    for (let i = 0; i < N; i++) {
+      if (!region[keyOf(Math.floor(i / SUB) + 1, Math.floor(j / SUB) + 1)]) continue;
+      for (let q = 0; q < 4; q++) {
+        const t = (j * N + i) * 4 + q;
+        r.filled[t] = 0;
+        r.owner[t] = -1;
+      }
+    }
+  paint(occ, r.filled, r.owner, region);
+  return { occ, filled: r.filled, owner: r.owner };
+}
+
+/** Rasterise every cell's footprint; with `region`, only lattice squares in those cells. */
+function paint(occ: Occupancy, filled: Uint8Array, owner: Int32Array, region: Uint8Array | null) {
   for (const k of occ.keys()) {
     const c = { x: k % 64, y: Math.floor(k / 64) };
+    if (region) {
+      let near = false;
+      for (let dy = -1; dy <= 1 && !near; dy++)
+        for (let dx = -1; dx <= 1 && !near; dx++) near = !!region[keyOf(c.x + dx, c.y + dy)];
+      if (!near) continue;
+    }
     const i0 = Math.max(0, (c.x - 2) * SUB);
     const j0 = Math.max(0, (c.y - 2) * SUB);
-    const polys = footprint(occ, c);
+    // Each polygon with its bounds (widened a hair), so most lattice points skip the edge tests.
+    const boxes = footprint(occ, c).map((p) => {
+      const xs = p.map((v) => v[0]);
+      const ys = p.map((v) => v[1]);
+      const e = 1e-6;
+      return [
+        Math.min(...xs) - e,
+        Math.max(...xs) + e,
+        Math.min(...ys) - e,
+        Math.max(...ys) + e,
+        p,
+      ] as const;
+    });
     for (let j = j0; j < Math.min(N, j0 + SUB * 3); j++)
-      for (let i = i0; i < Math.min(N, i0 + SUB * 3); i++)
+      for (let i = i0; i < Math.min(N, i0 + SUB * 3); i++) {
+        if (region && !region[keyOf(Math.floor(i / SUB) + 1, Math.floor(j / SUB) + 1)]) continue;
         for (let q = 0; q < 4; q++) {
           const [px, py] = centroid(i, j, q);
-          if (!polys.some((p) => inside(p, px, py))) continue;
+          let hit = false;
+          for (const b of boxes)
+            if (px > b[0] && px < b[1] && py > b[2] && py < b[3] && inside(b[4], px, py)) {
+              hit = true;
+              break;
+            }
+          if (!hit) continue;
           const t = (j * N + i) * 4 + q;
           filled[t] = 1;
           // A triangle inside a stone cell belongs to that stone; band tips in a free cell go to
@@ -171,15 +235,21 @@ export function wallRaster(occ: Occupancy): WallRaster {
           const home = cellAt(px, py);
           if (owner[t] < 0 || (home.x === c.x && home.y === c.y)) owner[t] = k;
         }
+      }
   }
-  return { occ, filled, owner };
 }
 
-/** Occupancy of the 5×5 cells around `c`: everything a cell's wall geometry depends on. */
+/**
+ * Occupancy of the 5×5 cells around `c`, everything a cell's wall geometry depends on, as one
+ * integer (base 3: free, stone, tower); exact below 2^53.
+ */
 export function neighbourhood(occ: Occupancy, c: Cell) {
-  let sig = '';
+  let sig = 0;
   for (let dy = -2; dy <= 2; dy++)
-    for (let dx = -2; dx <= 2; dx++) sig += occ.get(keyOf(c.x + dx, c.y + dy))?.[0] ?? '.';
+    for (let dx = -2; dx <= 2; dx++) {
+      const o = occ.get(keyOf(c.x + dx, c.y + dy));
+      sig = sig * 3 + (o === undefined ? 0 : o === 'stone' ? 1 : 2);
+    }
   return sig;
 }
 
@@ -189,7 +259,14 @@ const hash = (a: number, b: number, c: number) => {
   return (h ^ (h >>> 16)) >>> 0;
 };
 const COLOR = new THREE.Color();
-const pick = (list: string[], h: number) => COLOR.set(list[h % list.length]);
+/** Parsed tones: parsing a colour string per triangle dominated wall building. */
+const parsed = new Map<string, THREE.Color>();
+const tone = (hex: string) => {
+  let c = parsed.get(hex);
+  if (!c) parsed.set(hex, (c = new THREE.Color(hex)));
+  return COLOR.copy(c);
+};
+const pick = (list: string[], h: number) => tone(list[h % list.length]);
 
 /** Triangle corners in board units: q's outer edge (a -> b) and the lattice square's centre. */
 function corners(i: number, j: number, q: number) {
@@ -352,28 +429,46 @@ export function wallMesh(r: WallRaster, cell: Cell, material: THREE.Material) {
   const col: number[] = [];
   // Board (x, y, height) -> scene offset from the cell centre: X east, Y up, Z south.
   const P = (x: number, y: number, h: number) => new THREE.Vector3(x - cell.x, h, -(y - cell.y));
-  const UP = new THREE.Vector3(0, 1, 0);
   /** Point every face away from `centre` (or along `up`), so winding never depends on edge order. */
   let centre = new THREE.Vector3();
-  const tri = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, up: THREE.Vector3) => {
-    const n = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a));
-    const [p, q] = n.dot(up) >= 0 ? [b, c] : [c, b];
-    for (const v of [a, p, q]) {
-      pos.push(v.x, v.y, v.z);
-      col.push(COLOR.r, COLOR.g, COLOR.b);
+  // Scalar maths (no temporary vectors): a wall block emits thousands of triangles.
+  const emit = (v: THREE.Vector3) => {
+    pos.push(v.x, v.y, v.z);
+    col.push(COLOR.r, COLOR.g, COLOR.b);
+  };
+  const tri = (
+    a: THREE.Vector3,
+    b: THREE.Vector3,
+    c: THREE.Vector3,
+    ux: number,
+    uy: number,
+    uz: number,
+  ) => {
+    const [ex, ey, ez] = [b.x - a.x, b.y - a.y, b.z - a.z];
+    const [fx, fy, fz] = [c.x - a.x, c.y - a.y, c.z - a.z];
+    const dot = (ey * fz - ez * fy) * ux + (ez * fx - ex * fz) * uy + (ex * fy - ey * fx) * uz;
+    emit(a);
+    if (dot >= 0) {
+      emit(b);
+      emit(c);
+    } else {
+      emit(c);
+      emit(b);
     }
   };
   const quad = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, d: THREE.Vector3) => {
-    const out = new THREE.Vector3().addVectors(a, c).multiplyScalar(0.5).sub(centre);
-    tri(a, b, c, out);
-    tri(a, c, d, out);
+    const ox = (a.x + c.x) * 0.5 - centre.x;
+    const oy = (a.y + c.y) * 0.5 - centre.y;
+    const oz = (a.z + c.z) * 0.5 - centre.z;
+    tri(a, b, c, ox, oy, oz);
+    tri(a, c, d, ox, oy, oz);
   };
 
   // Walkway: one flagstone tone per lattice square.
   for (const { i, j, points, top } of parts.walk) {
     pick(TONES.walk, hash(i, j, 7));
     const [a, b, c] = points.map(([x, y]) => P(...insetAt(r, x, y), top));
-    tri(a, b, c, UP);
+    tri(a, b, c, 0, 1, 0);
   }
 
   // Outer faces: footing, three brick courses in running bond, coping.
@@ -399,8 +494,8 @@ export function wallMesh(r: WallRaster, cell: Cell, material: THREE.Material) {
     for (const [p, q] of pieces)
       for (let level = 0; level < courses.length - 1; level++) {
         const s = (along(p) + along(q)) / 2;
-        if (level === 0) COLOR.set(TONES.footing);
-        else if (level === courses.length - 2) COLOR.set(TONES.coping);
+        if (level === 0) tone(TONES.footing);
+        else if (level === courses.length - 2) tone(TONES.coping);
         else brickTone(s, level - 1, line);
         const [h0, h1] = [courses[level], courses[level + 1]];
         quad(P(p[0], p[1], h0), P(q[0], q[1], h0), P(q[0], q[1], h1), P(p[0], p[1], h1));
@@ -408,7 +503,7 @@ export function wallMesh(r: WallRaster, cell: Cell, material: THREE.Material) {
     // Chamfer: from the top of the coping up and in to the walkway's inset edge.
     const [fi, ti] = [insetAt(r, ...from), insetAt(r, ...to)];
     const h = top - CHAMFER;
-    COLOR.set(TONES.coping);
+    tone(TONES.coping);
     quad(P(from[0], from[1], h), P(to[0], to[1], h), P(ti[0], ti[1], top), P(fi[0], fi[1], top));
   }
 
@@ -420,7 +515,7 @@ export function wallMesh(r: WallRaster, cell: Cell, material: THREE.Material) {
     brickTone(Math.abs(nx) > Math.abs(ny) ? mid[1] : mid[0], 3, Math.round(mid[0] * 8));
     const h = high - CHAMFER;
     quad(P(fi[0], fi[1], low), P(ti[0], ti[1], low), P(ti[0], ti[1], h), P(fi[0], fi[1], h));
-    COLOR.set(TONES.coping);
+    tone(TONES.coping);
     quad(P(fi[0], fi[1], h), P(ti[0], ti[1], h), P(ti[0], ti[1], high), P(fi[0], fi[1], high));
   }
 
@@ -462,8 +557,8 @@ export function wallMesh(r: WallRaster, cell: Cell, material: THREE.Material) {
       quad(P(a[0], a[1], h), P(b[0], b[1], h), P(bi[0], bi[1], h1), P(ai[0], ai[1], h1));
     }
     const top = inner.map(([x, y]) => P(x, y, h1));
-    tri(top[0], top[1], top[2], UP);
-    tri(top[0], top[2], top[3], UP);
+    tri(top[0], top[1], top[2], 0, 1, 0);
+    tri(top[0], top[2], top[3], 0, 1, 0);
   }
 
   const geometry = new THREE.BufferGeometry();
