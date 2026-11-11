@@ -22,6 +22,8 @@ import {
   type HeroState,
   type HeroPlan,
 } from './hero';
+import { configAbilities, DEFAULT_CONFIG, type RunConfig } from './config';
+import { bump, emptyStats, type RunStats } from './stats';
 
 // Gem TD's single-player loop, ported from addon_game_mode.lua (line numbers cite the VPK script):
 // build five random gems, keep one (the rest become stones), then a wave walks the maze to the castle.
@@ -39,6 +41,31 @@ const SPAWN_TICKS = TICK_HZ;
 const CASTLE_RADIUS = 400 / CELL_UNITS;
 /** Extra castle damage range per ten levels (line 3504): damage = 1 + RandomInt(0, n). */
 const CASTLE_DAMAGE_SPREAD = [2, 6, 10, 14, 18, 26, 34, 42, 50, 58];
+/** Win streak lost per castle-HP point of a creep passing path_i (path_xishu_table, line 3634); 1 is the beacon. */
+const PATH_STREAK = [0, 0.02, 0, 0.05, 0.1, 0.2, 0.4];
+/** One step of the creeps-per-wave count per 50 win streak, never below 5 (WinStreakAdjust, line 12034). */
+const STREAK_STEP = 50;
+const MIN_WAVE_ENEMIES = 5;
+/** Rare boss swaps rolled when the wave starts (start_shuaguai, line 6317): level, roll above, boss. */
+const RARE_BOSSES: [number, number, string][] = [
+  // shortcut: the original also forces this one late in the month (system date); offline only the roll applies.
+  [20, 90, 'gemtd_yuediyang_boss'],
+  [30, 90, 'gemtd_zard_boss_fly'],
+  [40, 90, 'gemtd_gugubiao_boss_fly'],
+  [50, 80, 'gemtd_roushan_boss_fly_jin'],
+  [50, 90, 'gemtd_roushan_boss_fly_bojin'],
+];
+/** Bosses worth 3 or 5 extra kill score (OnEntityKilled, line 6402). */
+const EXTRA_KILL: Record<string, number> = {
+  gemtd_zard_boss_fly: 3,
+  gemtd_kongxinnanguaren_boss: 3,
+  gemtd_yuediyang_boss: 3,
+  gemtd_gugubiao_boss_fly: 3,
+  gemtd_nianshou_boss_fly: 3,
+  gemtd_nanguaren_boss_fly: 3,
+  gemtd_roushan_boss_fly_jin: 5,
+  gemtd_roushan_boss_fly_bojin: 5,
+};
 
 export type Phase = 'build' | 'wave' | 'lost' | 'won';
 /**
@@ -115,6 +142,8 @@ export interface Creep {
   hasteUntil?: number;
   cleanse?: { damage: number; last: number };
   elite?: boolean;
+  /** Last path point counted for win streak, vitality and theft (u.path_point, line 3622). */
+  pathPoint?: number;
   prd?: Record<string, number>;
   /** Named VPK modifiers: repeated hits refresh a tier; different tiers stack. */
   modifiers?: Record<
@@ -146,7 +175,9 @@ export type GameEvent =
   | { type: 'kill'; id: number; gold: number }
   /** A tablet (pedal) fired; its planned operations, for presentation. */
   | { type: 'tablet'; from: number; target: number; operations: readonly TabletOperation[] }
-  | { type: 'leak'; id: number; damage: number };
+  | { type: 'leak'; id: number; damage: number }
+  /** The win streak moved the creeps-per-wave count (#text_win_streak_up / _down). */
+  | { type: 'enemy-count'; count: number; delta: 1 | -1 };
 export type Refusal = { ok: false; reason: string };
 export type Check = { ok: true } | Refusal;
 
@@ -226,6 +257,13 @@ export class Game {
     next: Record<number, number>;
   }[] = [];
   private tabletReady: Record<number, number> = {};
+  /** _G.win_streak: kills raise it, leaks and checkpoints lower it (WinStreakAdjust, line 12034). */
+  winStreak: number;
+  /** _G.wave_enemy_count: creeps per non-boss wave, 10 at the start, never below 5. */
+  waveEnemyCount: number;
+  /** _G.guai after start_shuaguai rewrote it: the creep each level 1..50 used, replayed by endless. */
+  private waveNames: Record<number, string> = {};
+  private runStats: RunStats;
   private readonly units: Record<string, Unit>;
   private readonly lua: Record<string, { value: unknown }>;
   private readonly abilitiesByUnit: Record<string, TowerAbility[]>;
@@ -234,11 +272,21 @@ export class Game {
     readonly data: GameData,
     readonly board: Board,
     private readonly rng: Rng,
+    readonly config: Readonly<RunConfig> = DEFAULT_CONFIG,
   ) {
     this.units = (data.files['npc/units.json'] as { DOTAUnits: Record<string, Unit> }).DOTAUnits;
     this.lua = data.files['lua/addon_game_mode.json'] as Record<string, { value: unknown }>;
     this.abilitiesByUnit = readTowerAbilities(data);
     this.castleHp = this.luaValue<number>('gem_castle_hp');
+    this.winStreak = this.luaValue<number>('win_streak');
+    this.waveEnemyCount = this.luaValue<number>('wave_enemy_count');
+    this.runStats = emptyStats(this.waveEnemyCount);
+    if (config.hero)
+      this.hero = {
+        selected: config.hero,
+        abilities: configAbilities(data, config),
+        cooldowns: {},
+      };
     for (const s of board.stones) this.stones.set(key(s), s);
     this.flyRoute = board.waypoints.map((w) => w.cell);
     this.route = this.findRoute() ?? [];
@@ -441,7 +489,10 @@ export class Game {
   heroActions() {
     return listHeroActions(this.data, this.hero);
   }
+  /** Sandbox only: in a normal run the loadout is fixed by the run config. */
   configureHero(selected: string, abilities: Record<string, number>): Check {
+    if (!this.config.sandbox)
+      return { ok: false, reason: 'The hero and skills are fixed for this run.' };
     if (this.phase !== 'build' || this.draft.length > 0 || this.pendingHero)
       return { ok: false, reason: 'Choose a hero between drafts.' };
     const catalog = readHeroCatalog(this.data);
@@ -590,6 +641,8 @@ export class Game {
     );
     if (!plan.ok) return plan;
     this.gold -= plan.cost;
+    this.runStats.goldSpent += plan.cost;
+    bump(this.runStats.heroCasts, action);
     this.hero.cooldowns[action] = plan.cooldownUntil;
     this.pendingHero = { due: tick + 6, plan };
     this.heroRoute = [];
@@ -916,6 +969,7 @@ export class Game {
     }
     this.gems = this.gems.filter((g) => g.id === id || !this.draft.includes(g.id));
     this.gems.find((g) => g.id === id)!.name = result.name;
+    bump(this.runStats.kept, result.name);
     this.draft = [];
     this.route = this.findRoute() ?? this.route;
     this.startWave();
@@ -990,6 +1044,13 @@ export class Game {
   }
 
   private applyProgression(plan: Extract<Plan, { ok: true }>, id: number, cell?: Cell) {
+    const s = this.runStats;
+    if (plan.kind === 'downgrade') bump(s.kept, plan.result);
+    else if (plan.kind !== 'keep') {
+      bump(s.combined, plan.result);
+      if (plan.kind === 'draft' || plan.kind === 'secret') bump(s.draftCombined, plan.result);
+      if (plan.kind === 'tablet-upgrade') s.tabletUpgrades++;
+    }
     const anchor = this.gems.find((g) => g.id === id)!;
     const position = plan.placement === 'separate' ? cell! : anchor.cell;
     const stolenAbilities =
@@ -1061,9 +1122,11 @@ export class Game {
   get wavePreview(): { names: string[]; count: number } {
     const guai = this.luaValue<Record<string, string>>('guai');
     const level = this.guaiLevel;
-    const names = [guai[level], guai[level + 100]].filter((n): n is string => !!n);
+    const names = this.waveNames[level]
+      ? [this.waveNames[level]]
+      : [guai[level], guai[level + 100]].filter((n): n is string => !!n);
     if (this.phase === 'wave' && this.spawnName) names.splice(0, names.length, this.spawnName);
-    const count = names[0]?.includes('boss') ? 1 : this.luaValue<number>('wave_enemy_count');
+    const count = names[0]?.includes('boss') ? 1 : this.waveEnemyCount;
     return { names, count };
   }
   /**
@@ -1247,11 +1310,22 @@ export class Game {
     this.waveTicks = 0;
     this.waveDamage = {};
     this.delayed = [];
-    const guai = this.luaValue<Record<string, string>>('guai');
-    let name = guai[this.guaiLevel];
-    if (guai[this.guaiLevel + 100] && this.rng.int(1, 2) === 1) name = guai[this.guaiLevel + 100];
+    // start_shuaguai (line 6291) rewrites _G.guai[level] for levels 1..50: the alternate creep, then
+    // the rare bosses. Endless waves read _G.guai[level - 50], so they replay the same choices.
+    if (this.level <= LAST_LEVEL) {
+      const guai = this.luaValue<Record<string, string>>('guai');
+      let name = guai[this.level];
+      if (guai[this.level + 100] && this.rng.int(1, 2) === 1) name = guai[this.level + 100];
+      for (const [level, above, boss] of RARE_BOSSES)
+        if (level === this.level && this.rng.int(1, 100) > above) name = boss;
+      this.waveNames[this.level] = name;
+    }
+    const name =
+      this.waveNames[this.guaiLevel] ??
+      this.luaValue<Record<string, string>>('guai')[this.guaiLevel];
     this.spawnName = name;
-    this.toSpawn = name.includes('boss') ? 1 : this.luaValue<number>('wave_enemy_count');
+    // _G.guai_count = wave_enemy_count; a boss spawn subtracts 100, so a boss wave is one creep.
+    this.toSpawn = name.includes('boss') || name.includes('tester') ? 1 : this.waveEnemyCount;
     this.nextSpawn = 0;
   }
 
@@ -1259,7 +1333,8 @@ export class Game {
     let name = this.spawnName;
     if ([35, 36, 38].includes(this.guaiLevel) && this.rng.int(1, 100) > 50) name += '1';
     const u = this.units[name] ?? this.units[this.spawnName];
-    const difficulty = this.luaValue<Record<string, number>>('gem_difficulty')[1];
+    const difficulty =
+      this.luaValue<Record<string, number>>('gem_difficulty')[this.config.difficulty];
     const elite = !name.includes('boss') && !name.includes('tester') && this.rng.int(1, 400) === 1;
     let hp =
       num(u, 'StatusHealth') *
@@ -1311,7 +1386,8 @@ export class Game {
   /** Spawn movement speed in cells per tick, before modifiers; endless creeps run 1.8 times faster. */
   private speedOf(name: string) {
     const u = this.units[name] ?? this.units[this.spawnName];
-    const factor = this.luaValue<Record<string, number>>('gem_difficulty_speed')[1];
+    const factor =
+      this.luaValue<Record<string, number>>('gem_difficulty_speed')[this.config.difficulty];
     const speed = (num(u, 'MovementSpeed') * factor) / CELL_UNITS / TICK_HZ;
     return this.level > LAST_LEVEL ? speed * 1.8 : speed;
   }
@@ -1338,16 +1414,59 @@ export class Game {
     }
   }
 
-  /** Lua enemy_go: path-point vitality and theft resolve after each checkpoint is reached. */
+  /**
+   * Creep movement timer (line 3613): at path2..path6, or the beacon (point 1), and only the next
+   * point in order (u.path_point + 1), the win streak drops by damage times path_xishu_table,
+   * then vitality and theft resolve. A creep spawned with a beacon on the board starts counting at
+   * 0, so fliers (which skip the beacon) then never count a point.
+   */
   private waypointEffects(c: Creep, point: Cell) {
-    if (!this.board.waypoints.slice(1).some((w) => w.cell.x === point.x && w.cell.y === point.y))
-      return;
+    c.pathPoint ??= this.beacon ? 0 : 1;
+    const at = (p: Cell) => p.x === point.x && p.y === point.y;
+    const index =
+      !c.fly && this.beacon && at(this.beacon)
+        ? 1
+        : this.board.waypoints.findIndex((w, i) => i >= 1 && i <= 5 && at(w.cell)) + 1;
+    if (index < 1 || c.pathPoint + 1 !== index) return;
+    c.pathPoint = index;
+    this.addStreak(-this.castleDamage(c) * PATH_STREAK[index]);
     const skills = this.enemySkills(c);
     if (skills.includes('enemy_jili') && !c.modifiers?.modifier_tower_jihan_buff) {
       const recovered = Math.floor(c.maxHp * 0.2) * (c.fly ? 0.5 : 1);
       c.hp = Math.min(c.maxHp, c.hp + recovered);
     }
-    if (skills.includes('enemy_thief')) this.gold = Math.floor(this.gold * 0.99);
+    if (skills.includes('enemy_thief')) {
+      const kept = Math.floor(this.gold * 0.99);
+      this.runStats.goldStolen += this.gold - kept;
+      this.gold = kept;
+    }
+  }
+
+  /** u.damage: bosses hit for their HP percentage, rounded up (AdjustBossAttackDamage, line 12245). */
+  private castleDamage(c: Creep) {
+    return c.boss ? Math.ceil((100 * c.hp) / c.maxHp) : c.damage;
+  }
+
+  private addStreak(amount: number) {
+    this.winStreak += amount;
+    this.adjustStreak();
+  }
+  /** WinStreakAdjust (line 12034): at most one step per call; OnThink also calls it every second. */
+  private adjustStreak() {
+    if (this.winStreak >= STREAK_STEP) {
+      this.winStreak -= STREAK_STEP;
+      this.waveEnemyCount++;
+      this.runStats.maxWaveEnemyCount = Math.max(
+        this.runStats.maxWaveEnemyCount,
+        this.waveEnemyCount,
+      );
+      this.events.push({ type: 'enemy-count', count: this.waveEnemyCount, delta: 1 });
+    }
+    if (this.winStreak <= -STREAK_STEP) {
+      this.winStreak += STREAK_STEP;
+      this.waveEnemyCount = Math.max(MIN_WAVE_ENEMIES, this.waveEnemyCount - 1);
+      this.events.push({ type: 'enemy-count', count: this.waveEnemyCount, delta: -1 });
+    }
   }
 
   private enemyThink(c: Creep, tick: number) {
@@ -1979,6 +2098,11 @@ export class Game {
     c.hp -= damage;
     this.events.push({ type: 'attack', from: source, to: c.id, damage, x: c.x, y: c.y, via });
     this.waveDamage[source] = (this.waveDamage[source] ?? 0) + damage;
+    if (attacker) {
+      const lifetime = (this.runStats.damageByTower[source] ??= { name: attacker.name, damage: 0 });
+      lifetime.name = attacker.name;
+      lifetime.damage += damage;
+    }
     if (skills.includes('tidehunter_blubber')) {
       if (!c.cleanse || this.time - c.cleanse.last > 10 * TICK_HZ)
         c.cleanse = { damage: 0, last: this.time };
@@ -1993,8 +2117,23 @@ export class Game {
     return true;
   }
 
-  /** OnEntityKilled (line 6480): XP and gold by level band. */
+  /** OnEntityKilled (line 6380): kill score, win streak, then XP and gold by level band. */
   private kill(c: Creep, source?: number) {
+    const s = this.runStats;
+    s.kills++;
+    bump(s.killsByUnit, c.name);
+    const bossLike = c.name.includes('boss') || c.name.includes('tester');
+    // shortcut: the boss score also needs _G.is_boss_entered false, i.e. the boss had not reached the castle; one boss per wave makes that always true here.
+    if (bossLike) {
+      s.killScore += 10 + (EXTRA_KILL[c.name] ?? 0);
+      s.extraKills += EXTRA_KILL[c.name] ?? 0;
+    }
+    if (c.elite) {
+      s.killScore += 2;
+      s.extraKills += 1;
+    }
+    if (!c.name.includes('boss') && !c.elite) s.killScore += 1;
+    this.addStreak(c.name.includes('boss') ? 10 : c.elite ? 1.5 : 0.75);
     const l = this.level;
     let reward =
       l % 10 === 0 && l <= 50 ? 300 : l > 10 && l < 50 ? 5 * (Math.floor(l / 10) + 1) : 5;
@@ -2016,6 +2155,7 @@ export class Game {
         );
     }
     this.gold += Math.floor(reward);
+    s.goldEarned += Math.floor(reward);
     this.creeps = this.creeps.filter((x) => x !== c);
     this.events.push({ type: 'kill', id: c.id, gold: Math.floor(reward) });
   }
@@ -2023,6 +2163,9 @@ export class Game {
   step(tick: number) {
     this.time = tick;
     this.events = [];
+    if (this.phase === 'lost' || this.phase === 'won') return;
+    this.runStats.ticks = tick + 1;
+    if (tick % SPAWN_TICKS === 0) this.adjustStreak();
     this.heroStep(tick);
     this.stoneLineStep(tick);
     if (this.tabletUpgradeIn > 0 && --this.tabletUpgradeIn === 0) {
@@ -2061,20 +2204,25 @@ export class Game {
       const castle = this.flyRoute[this.flyRoute.length - 1];
       for (const c of [...this.creeps]) {
         if (sq(c.x - castle.x) + sq(c.y - castle.y) > sq(CASTLE_RADIUS)) continue;
-        let damage = c.boss ? Math.ceil((100 * c.hp) / c.maxHp) : c.damage;
+        let damage = this.castleDamage(c);
         const evasion = this.castleBuffs.evasion,
           guard = this.castleBuffs.guard;
         if (evasion?.expires > tick && this.rng.int(0, 100) < evasion.amount) damage = 0;
         if (guard?.expires > tick) damage = Math.max(0, damage - guard.amount);
         this.castleHp -= damage;
+        this.runStats.leaks++;
+        this.runStats.castleDamageTaken += damage;
+        // Line 3801: only damage that lands costs win streak.
+        if (damage > 0) this.addStreak(-damage * 3);
         this.creeps = this.creeps.filter((x) => x !== c);
         this.events.push({ type: 'leak', id: c.id, damage });
+        if (this.castleHp <= 0) break;
       }
     }
     if (this.castleHp <= 0) {
       this.castleHp = 0;
       // Lines 3835 and 7493: falling after wave 50 is a win.
-      this.phase = this.level > LAST_LEVEL ? 'won' : 'lost';
+      this.end(this.level > LAST_LEVEL ? 'won' : 'lost');
     } else if (this.toSpawn <= 0 && this.creeps.length === 0) {
       const mvp =
         this.level > LAST_LEVEL
@@ -2085,7 +2233,16 @@ export class Game {
                 (a, b) =>
                   (this.waveDamage[b.id] ?? 0) - (this.waveDamage[a.id] ?? 0) || a.id - b.id,
               )[0];
-      if (mvp && (this.waveDamage[mvp.id] ?? 0) > 0) mvp.level = (mvp.level ?? 0) + 1;
+      if (mvp && (this.waveDamage[mvp.id] ?? 0) > 0) {
+        mvp.level = (mvp.level ?? 0) + 1;
+        // level_up (line 6857) counts the MVP-max towers after each award (quest q304).
+        this.runStats.mvpAwards++;
+        this.runStats.mvpMaxTowers = Math.max(
+          this.runStats.mvpMaxTowers,
+          this.gems.filter((g) => g.level === 10).length,
+        );
+      }
+      this.runStats.wavesCleared++;
       // EndRoundIfNoEnemyAlive (line 13441)
       for (const g of this.gems) [g.cooldown, g.target] = [0, null];
       this.beacon = null; // start_build removes the beacon (line 4662)
@@ -2094,8 +2251,8 @@ export class Game {
         // No build phase after 50 (line 4683): the next wave follows after 11 s at 50, else 1.1 s.
         const delay = Math.round((this.level === LAST_LEVEL ? 11 : 1.1) * TICK_HZ);
         this.level++;
-        // shortcut: the wave list ends at 50, so the original has no wave 101; end the run there as a win.
-        if (!this.luaValue<Record<string, string>>('guai')[this.guaiLevel]) this.phase = 'won';
+        // start_shuaguai (line 6334): reaching level 101 ends the run as a win.
+        if (this.level > 2 * LAST_LEVEL) this.end('won');
         else {
           this.startWave();
           this.nextSpawn = tick + delay;
@@ -2106,6 +2263,17 @@ export class Game {
         this.phase = 'build';
       }
     }
+  }
+
+  private end(result: 'won' | 'lost') {
+    this.phase = result;
+    this.runStats.result = result;
+    this.runStats.castleHpEnd = this.castleHp;
+  }
+
+  /** Run statistics so far (read-only; the sim keeps collecting into it). */
+  get stats(): Readonly<RunStats> {
+    return this.runStats;
   }
 
   /** Everything that defines the game, for the determinism hash. */
@@ -2144,6 +2312,11 @@ export class Game {
       perfected: this.perfected,
       swapTarget: this.swapTarget,
       castleBuffs: this.castleBuffs,
+      config: this.config,
+      winStreak: this.winStreak,
+      waveEnemyCount: this.waveEnemyCount,
+      waveNames: this.waveNames,
+      stats: this.runStats,
     };
   }
 }
