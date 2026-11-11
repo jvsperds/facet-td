@@ -151,7 +151,7 @@ setInterval(() => {
   for (; acc >= 1 / TICK_HZ; acc -= 1 / TICK_HZ) {
     sim.step();
     world.afterStep();
-    audio.play(feedback.afterStep());
+    audio.step(sim.game, feedback.afterStep());
     stepped = true;
   }
   // Re-render the HUD only when something it shows changed; build checks there run route searches.
