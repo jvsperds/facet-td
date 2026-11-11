@@ -11,6 +11,7 @@ import {
   joins,
   wallMesh,
   wallParts,
+  updateRaster,
   wallRaster,
   type Occupancy,
   type WallParts,
@@ -212,4 +213,28 @@ test('outer top edges are chamfered a little and mitred at corners; interiors st
   const mesh = wallMesh(r, { x: 10, y: 10 }, new THREE.MeshStandardMaterial())!;
   mesh.geometry.computeBoundingBox();
   expect(mesh.geometry.boundingBox!.max.y).toBeCloseTo(0.38);
+});
+
+test('an incremental raster update matches a full rasterisation, owners included', () => {
+  let seed = 7;
+  const random = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+  let occ: Occupancy = new Map();
+  let r = wallRaster(occ);
+  for (let round = 0; round < 40; round++) {
+    // Add, remove or retype a few cells, keeping the map's order the way the board builds it.
+    const next: Occupancy = new Map(occ);
+    const changed: number[] = [];
+    for (let n = 0; n < 1 + Math.floor(random() * 4); n++) {
+      const k = cellKey({ x: 1 + Math.floor(random() * 37), y: 1 + Math.floor(random() * 37) });
+      if (next.has(k) && random() < 0.6) next.delete(k);
+      else next.set(k, random() < 0.3 ? 'tower' : 'stone');
+      changed.push(k);
+    }
+    r = updateRaster(r, next, changed);
+    occ = next;
+    const full = wallRaster(occ);
+    // First differing triangle, if any (comparing whole typed arrays with toEqual is slow).
+    const diff = full.filled.findIndex((f, t) => f !== r.filled[t] || full.owner[t] !== r.owner[t]);
+    expect(diff).toBe(-1);
+  }
 });
