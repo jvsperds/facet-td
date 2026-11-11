@@ -28,12 +28,65 @@ const LABEL_MIN_PX = 22;
 
 export type World = ReturnType<typeof createWorld>;
 
+/** Render quality: `auto` picks from the device and measured frame times. */
+export type Quality = 'auto' | 'high' | 'low';
+const QUALITY_KEY = 'facet-td:quality';
+const qualityListeners = new Set<() => void>();
+
+/** The stored quality choice (`auto` if none). */
+export function getQuality(): Quality {
+  try {
+    const q = localStorage.getItem(QUALITY_KEY);
+    return q === 'high' || q === 'low' ? q : 'auto';
+  } catch {
+    return 'auto';
+  }
+}
+
+/**
+ * Choose the render quality (for the settings UI). Pixel ratio and shadows change at once;
+ * antialiasing is fixed when the WebGL context is made, so it follows on the next load.
+ */
+export function setQuality(q: Quality) {
+  try {
+    localStorage.setItem(QUALITY_KEY, q);
+  } catch {
+    // Storage unavailable: the choice lasts for this session.
+  }
+  sessionQuality = q;
+  qualityListeners.forEach((f) => f());
+}
+let sessionQuality: Quality | undefined;
+
+/** A weak device by its traits: touch-first, a small screen, or little memory. */
+export function weakDevice(
+  env: { coarse: boolean; minSide: number; memory?: number } = {
+    coarse: typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches,
+    minSide: Math.min(screen.width, screen.height),
+    memory: (navigator as { deviceMemory?: number }).deviceMemory,
+  },
+) {
+  return env.coarse || env.minSide < 600 || (env.memory !== undefined && env.memory <= 4);
+}
+
+/** Settings per tier: pixel-ratio cap, shadow map size, MSAA. */
+export const TIERS = {
+  high: { maxPixelRatio: 2, shadow: 2048, antialias: true },
+  low: { maxPixelRatio: 1.5, shadow: 1024, antialias: false },
+} as const;
+
 export function createWorld(board: Board, game: Game) {
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  // Quality tier: chosen, or picked from the device; `auto` also drops to low when frames stay
+  // slow at the lowest pixel ratio.
+  const choice = () => sessionQuality ?? getQuality();
+  let tier: 'high' | 'low' =
+    choice() === 'auto' ? (weakDevice() ? 'low' : 'high') : (choice() as 'high' | 'low');
+  const renderer = new THREE.WebGLRenderer({ antialias: TIERS[tier].antialias });
   // Adaptive resolution: start sharp, and if frames run long (a weak GPU at a high pixel ratio),
   // step the pixel ratio down until 60 fps holds; step back up when there is headroom again.
-  const sharpest = Math.min(devicePixelRatio, 2);
+  let sharpest = Math.min(devicePixelRatio, TIERS[tier].maxPixelRatio);
   let pixelRatio = sharpest;
+  let slowAtFloor = 0;
   renderer.setPixelRatio(pixelRatio);
   let slowMs = 0;
   let fastMs = 0;
@@ -54,6 +107,10 @@ export function createWorld(board: Board, game: Game) {
       pixelRatio = next;
       renderer.setPixelRatio(pixelRatio);
     }
+    // Still slow at the floor for three samples running: drop to the low tier (auto only).
+    slowAtFloor =
+      next === pixelRatio && pixelRatio === 0.75 && slowMs > sampleMs * 0.4 ? slowAtFloor + 1 : 0;
+    if (slowAtFloor >= 3 && tier === 'high' && choice() === 'auto') applyTier('low');
     sampleMs = slowMs = fastMs = 0;
   };
   renderer.shadowMap.enabled = true;
@@ -77,10 +134,27 @@ export function createWorld(board: Board, game: Game) {
   sun.position.set(-12, 30, 18);
   sun.castShadow = true;
   Object.assign(sun.shadow.camera, { left: -27, right: 27, top: 27, bottom: -27, far: 80 });
-  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.mapSize.set(TIERS[tier].shadow, TIERS[tier].shadow);
   sun.shadow.bias = -0.0003;
   sun.shadow.normalBias = 0.02;
   scene.add(sun);
+  function applyTier(next: 'high' | 'low') {
+    tier = next;
+    sharpest = Math.min(devicePixelRatio, TIERS[tier].maxPixelRatio);
+    pixelRatio = Math.min(pixelRatio, sharpest);
+    renderer.setPixelRatio(pixelRatio);
+    const size = TIERS[tier].shadow;
+    if (sun.shadow.mapSize.x !== size) {
+      sun.shadow.mapSize.set(size, size);
+      sun.shadow.map?.dispose();
+      sun.shadow.map = null;
+      renderer.shadowMap.needsUpdate = true;
+    }
+  }
+  qualityListeners.add(() => {
+    const q = choice();
+    applyTier(q === 'auto' ? (weakDevice() ? 'low' : 'high') : q);
+  });
 
   // Ground: one mesh of per-cell quads coloured by cell kind.
   const n = board.size;
@@ -506,6 +580,10 @@ export function createWorld(board: Board, game: Game) {
     },
     /** Smoothed frame cost by stage (ms) and the last frame's draw calls and triangles. */
     perf,
+    /** The quality tier in use. */
+    get tier() {
+      return tier;
+    },
     /** The current pixel ratio, after adaptive resolution. */
     get pixelRatio() {
       return pixelRatio;
