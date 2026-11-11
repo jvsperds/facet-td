@@ -482,6 +482,7 @@ export class Game {
     )
       return { ok: false, reason: 'Invalid destination.' };
     if (this.pendingHero) return { ok: false, reason: 'The hero is casting.' };
+    this.syncMaze();
     const path = findPath(
       { x: Math.round(this.heroPosition.x), y: Math.round(this.heroPosition.y) },
       cell,
@@ -791,15 +792,96 @@ export class Game {
   stoneAt(c: Cell) {
     return this.stones.has(key(c));
   }
-  private blocked = (x: number, y: number) =>
-    this.stones.has(key({ x, y })) ||
-    this.gems.some((g) => !g.name.includes('shiban') && g.cell.x === x && g.cell.y === y);
+  /** A stone or a gem that is not a tablet (shiban). Read only after syncMaze(). */
+  private blocked = (x: number, y: number) => this.occupancy[y * 64 + x] !== 0;
+
+  // ---- Maze occupancy: a typed grid rebuilt from stones/gems/beacon on demand ----
+  // Rebuilding from the source of truth (instead of patching it at every mutation) keeps it exact
+  // whatever code moves stones or gems; it is a few hundred writes, far cheaper than one search.
+  private occupancy = new Uint8Array(64 * 64);
+  private occupancyNext = new Uint8Array(64 * 64);
+  private mazeSignature = '';
+  private mazeCount = 0;
+  private blockCount = 0;
+  private routeMemo: { block: number; beacon: string; route: Cell[] | null } | null = null;
+  private probeMemo: {
+    maze: number;
+    cell: number;
+    grid: Uint8Array;
+    beacon: string;
+    route: Cell[] | null;
+  } | null = null;
+
+  /**
+   * Increments whenever stones, gems (placement, removal, move, merge, rename) or the beacon
+   * change. Not part of the game state; views use it to cache maze-derived work.
+   */
+  get mazeVersion() {
+    this.syncMaze();
+    return this.mazeCount;
+  }
+
+  private syncMaze() {
+    const next = this.occupancyNext;
+    next.fill(0);
+    for (const k of this.stones.keys()) next[k] = 1;
+    let signature = `${this.stones.size};${this.beacon ? key(this.beacon) : 0}`;
+    for (const g of this.gems) {
+      if (!g.name.includes('shiban')) next[key(g.cell)] = 1;
+      signature += `;${g.id},${g.name},${key(g.cell)}`;
+    }
+    let blockChanged = false;
+    const cur = this.occupancy;
+    for (let i = 0; i < cur.length; i++)
+      if (cur[i] !== next[i]) {
+        blockChanged = true;
+        break;
+      }
+    if (blockChanged) {
+      this.occupancy = next;
+      this.occupancyNext = cur;
+      this.blockCount++;
+    }
+    if (blockChanged || signature !== this.mazeSignature) {
+      this.mazeSignature = signature;
+      this.mazeCount++;
+    }
+  }
 
   /** Ground route through every waypoint (find_all_path, line 6873), or null when any leg is cut. */
   private findRoute(extra?: Cell, beacon = this.beacon): Cell[] | null {
+    this.syncMaze();
+    // The route is a pure function of the blocked cells and the waypoints, so an unchanged
+    // occupancy grid (e.g. keep turning draft gems into stones) reuses the last search exactly.
+    const beaconKey = beacon ? `${beacon.x},${beacon.y}` : '';
+    const memo = this.routeMemo;
+    if (!extra && memo && memo.block === this.blockCount && memo.beacon === beaconKey)
+      return copyRoute(memo.route);
+    const route = this.searchRoute(extra, beacon);
+    if (!extra) this.routeMemo = { block: this.blockCount, beacon: beaconKey, route };
+    return extra ? route : copyRoute(route);
+  }
+
+  /** canBuild's route probe, memoised per (cell, mazeVersion) so repeated HUD checks are free. */
+  private probe(c: Cell) {
+    const maze = this.mazeVersion;
+    const cell = key(c);
+    let p = this.probeMemo;
+    if (!p || p.maze !== maze || p.cell !== cell) {
+      const grid = this.occupancy.slice();
+      grid[cell] = 1;
+      const beacon = this.beacon ? `${this.beacon.x},${this.beacon.y}` : '';
+      p = this.probeMemo = { maze, cell, grid, beacon, route: this.findRoute(c) };
+    }
+    return p;
+  }
+
+  private searchRoute(extra: Cell | undefined, beacon: Cell | null): Cell[] | null {
+    const occupancy = this.occupancy;
+    const ek = extra ? key(extra) : -1;
     const blocked = extra
-      ? (x: number, y: number) => (x === extra.x && y === extra.y) || this.blocked(x, y)
-      : this.blocked;
+      ? (x: number, y: number) => y * 64 + x === ek || occupancy[y * 64 + x] !== 0
+      : (x: number, y: number) => occupancy[y * 64 + x] !== 0;
     const route: Cell[] = [];
     // With a beacon the first leg runs path1 -> beacon -> path2 (find_all_path, line 6908).
     const w = beacon ? [this.flyRoute[0], beacon, ...this.flyRoute.slice(1)] : this.flyRoute;
@@ -824,8 +906,26 @@ export class Game {
       return no('Unable to build here');
     if (this.gemAt(c) || (this.beacon?.x === c.x && this.beacon?.y === c.y))
       return no('Unable to build here');
-    if (!this.findRoute(c)) return no('Blocked if build here');
+    if (!this.probe(c).route) return no('Blocked if build here');
     return { ok: true };
+  }
+
+  /**
+   * After a build, the probe's route is the new route when the blocked cells now equal the probe's
+   * grid (old maze plus the built cell) and the beacon is unchanged; otherwise search again.
+   */
+  private routeAfterBuild(c: Cell) {
+    this.syncMaze();
+    const p = this.probeMemo;
+    const beacon = this.beacon ? `${this.beacon.x},${this.beacon.y}` : '';
+    if (
+      p?.route &&
+      p.cell === key(c) &&
+      p.beacon === beacon &&
+      p.grid.every((v, i) => v === this.occupancy[i])
+    )
+      this.routeMemo = { block: this.blockCount, beacon, route: p.route };
+    return this.findRoute();
   }
 
   build(c: Cell): Check {
@@ -850,7 +950,7 @@ export class Game {
     const gem: Gem = { id: this.nextId++, name, cell: { ...c }, cooldown: 0, target: null };
     this.gems.push(gem);
     this.draft.push(gem.id);
-    this.route = this.findRoute() ?? this.route;
+    this.route = this.routeAfterBuild(c) ?? this.route;
     return { ok: true };
   }
 
@@ -2149,6 +2249,7 @@ export class Game {
 }
 
 const key = (c: Cell) => c.y * 64 + c.x;
+const copyRoute = (r: Cell[] | null) => r && r.map((c) => ({ x: c.x, y: c.y }));
 const sq = (v: number) => v * v;
 
 const PROPERTY_LABELS: Record<string, [string, string]> = {
