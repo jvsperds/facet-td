@@ -521,6 +521,11 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
       })),
     /** Stones and towers, for occluder fading. */
     objects: () => [...cells.values(), ...walls.values()].map((p) => p.obj),
+    /** The tower and wall block on a board cell, if any: a cell grid for occluder tests. */
+    objectsAt(cell: Cell) {
+      const k = key(cell);
+      return [cells.get(k)?.obj, walls.get(k)?.obj].filter((o): o is THREE.Object3D => !!o);
+    },
     /** Show or hide the towers' aura rings. */
     setAurasVisible(visible: boolean) {
       effects.setAurasVisible(visible);

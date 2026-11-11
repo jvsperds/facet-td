@@ -464,17 +464,32 @@ export function createWorld(board: Board, game: Game) {
 
   // Fade walls between the camera and the cursor or selection (IMPLEMENTATION.md occluder rule).
   const ray = new THREE.Raycaster();
+  /** Highest point of anything on the board (tall towers), for bounding the occluder search. */
+  const OCCLUDER_TOP = 4;
   function updateOccluders() {
-    const blockers = pieces.objects();
     const hit = new Set<THREE.Object3D>();
     const d = new THREE.Vector3(...current.basis.d);
+    // The ray toward the camera rises as it crosses the board: only cells along its ground track
+    // (and their neighbours, for wall bands and wide heads) until it clears the tallest piece
+    // can hold a blocker. Those few are tested exactly; the rest of the board is skipped.
+    const flat = Math.hypot(d.x, d.z);
+    const reach = flat > 1e-6 && d.y > 1e-6 ? (OCCLUDER_TOP / d.y) * flat : 0;
     for (const cell of focusCells) {
       const { x, z } = toScene(cell);
+      const near = new Set<THREE.Object3D>();
+      for (let t = 0; t <= reach + 0.5; t += 0.25) {
+        const at = toCell(x + (d.x / flat) * t, z + (d.z / flat) * t);
+        for (let dy = -1; dy <= 1; dy++)
+          for (let dx = -1; dx <= 1; dx++)
+            for (const o of pieces.objectsAt({ x: at.x + dx, y: at.y + dy })) near.add(o);
+      }
+      if (!near.size) continue;
+      const blockers = [...near];
       ray.set(new THREE.Vector3(x, 0.15, z), d);
       for (const i of ray.intersectObjects(blockers, true)) {
         let o: THREE.Object3D = i.object;
-        while (o.parent && !blockers.includes(o)) o = o.parent;
-        if (blockers.includes(o) && !(o.position.x === x && o.position.z === z)) hit.add(o);
+        while (o.parent && !near.has(o)) o = o.parent;
+        if (near.has(o) && !(o.position.x === x && o.position.z === z)) hit.add(o);
       }
     }
     pieces.fade(hit);
