@@ -453,7 +453,7 @@ export function Hud(props: Props) {
       {meterOpen.value && !ended && game.phase === 'wave' && (
         <DamageMeter data={sim.data} game={game} />
       )}
-      <div class="side">
+      <div class={`side ${recipesOpen.value ? 'recipe-sheet' : ''}`}>
         <PinnedRecipes data={sim.data} game={game} />
         {recipesOpen.value && (
           <RecipeBook data={sim.data} game={game} close={() => (recipesOpen.value = false)} />
@@ -610,11 +610,13 @@ function RoundClock({
       <span class="clock-res" aria-label="Castle and gold">
         <span class={game.castleHp <= 30 ? 'danger' : ''}>
           <Icon name="castle" />
+          <span class="clock-res-label">Castle</span>
           <span class="tabular">{Math.max(0, game.castleHp)}</span>
           <span class="sr-only"> of 100 castle HP</span>
         </span>
         <span>
           <Icon name="coin" />
+          <span class="clock-res-label">Gold</span>
           <span class="tabular">{compact(game.gold)}</span>
           <span class="sr-only"> gold</span>
         </span>

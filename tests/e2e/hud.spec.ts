@@ -190,3 +190,75 @@ test('Q arms placing so the next picked cell gets a gem; W removes a stone; Esc 
   await page.mouse.click(s.x, s.y);
   await expect.poll(async () => (await game()).stones).toBe(before - 1);
 });
+
+test('audit HUD conveniences remain visible and keyboard-accessible', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/?seed=5');
+  await page.waitForFunction(() => window.facet);
+
+  await expect(page.locator('.notice-banner')).toBeVisible();
+  await expect(page.locator('.clock-res')).toContainText('Castle');
+  await expect(page.locator('.clock-res')).toContainText('Gold');
+
+  await page.getByRole('img', { name: /^Game board/ }).focus();
+  const before = await page.evaluate(async () => {
+    const cameraModule = '/src/input/camera.ts';
+    const { view } = await import(cameraModule);
+    return view.value.zoom;
+  });
+  await page.keyboard.press('+');
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const cameraModule = '/src/input/camera.ts';
+        const { view } = await import(cameraModule);
+        return view.value.zoom;
+      }),
+    )
+    .not.toBe(before);
+
+  await page.keyboard.press('?');
+  const help = page.getByRole('dialog', { name: 'Controls and help' });
+  await expect(help).toBeVisible();
+  await expect(help).toContainText('Place gem');
+  await help.getByRole('button', { name: 'Close help' }).click();
+
+  await page.keyboard.press('Escape');
+  const menu = page.getByRole('dialog', { name: 'Menu' });
+  await expect(menu).toBeVisible();
+  await expect(menu).not.toContainText('Seed 5');
+  await expect(menu.getByRole('button', { name: 'Show seed' })).toBeVisible();
+});
+
+test('phone recipe book is a viewport sheet and landscape notices clear the draft', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/?seed=5');
+  await page.waitForFunction(() => window.facet);
+  await page.getByRole('button', { name: 'Recipe book' }).click();
+  const sheet = page.locator('.recipe-sheet');
+  await expect(sheet).toBeVisible();
+  const box = await sheet.boundingBox();
+  expect(box).toEqual({ x: 0, y: 0, width: 390, height: 844 });
+  await sheet.getByRole('button', { name: 'Close recipes' }).click();
+
+  await page.setViewportSize({ width: 844, height: 390 });
+  const draft = await page.getByLabel('This round').boundingBox();
+  const notice = await page.locator('.notice-banner').boundingBox();
+  expect(draft).not.toBeNull();
+  expect(notice).not.toBeNull();
+  const overlap = !(
+    notice!.x + notice!.width <= draft!.x ||
+    draft!.x + draft!.width <= notice!.x ||
+    notice!.y + notice!.height <= draft!.y ||
+    draft!.y + draft!.height <= notice!.y
+  );
+  expect(overlap).toBe(false);
+
+  await page.waitForFunction(() => !window.facet.world.moving);
+  const point = await page.evaluate(() => window.facet.world.screenOf({ x: 12, y: 12 }));
+  await page.mouse.click(point.x, point.y);
+  const place = page.getByRole('button', { name: 'Place gem' });
+  await expect(place).toBeVisible();
+});

@@ -743,18 +743,23 @@ dialog.menu::backdrop {
     font-size: 18px;
   }
   /* The recipe book is a full-screen sheet. */
-  .side:has(.drawer) {
+  .side.recipe-sheet {
     inset: 0;
     width: auto;
     max-height: none;
     z-index: 7;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+      env(safe-area-inset-left);
+    background: #25282c;
   }
-  .side .drawer {
+  .side.recipe-sheet .drawer {
     flex: 1;
+    width: 100%;
     max-height: none;
     border-radius: 0;
+    box-shadow: none;
   }
-  .side:has(.drawer) .pinned {
+  .side.recipe-sheet .pinned {
     display: none;
   }
 }
@@ -762,7 +767,8 @@ dialog.menu::backdrop {
 /* Short landscape screens: the card down the left, everything scrolls instead of clipping. */
 @media (max-height: 500px) {
   :root {
-    --notice-top: 74px;
+    /* The draft occupies the upper-left band; keep its instruction/status line below it. */
+    --notice-top: 136px;
   }
   .round-clock .next-name {
     display: none;
@@ -798,6 +804,9 @@ dialog.menu::backdrop {
   }
   .draft {
     margin-top: 0;
+  }
+  .clock-res-label {
+    display: inline;
   }
 }
 
