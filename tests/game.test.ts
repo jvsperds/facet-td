@@ -191,7 +191,8 @@ test('after wave 50 the game goes endless: no build phase, near-unkillable creep
   while (!g.creeps.length) sim.step();
   const c = g.creeps[0];
   const pool = data.files['lua/addon_game_mode.json'] as { guai_50_ability: { value: string[] } };
-  expect(c.hp).toBeGreaterThanOrEqual(100000);
+  // HP x 100000 (or 999999999 above 10000), after the fly and immunity divisions (line 3415).
+  expect(c.hp).toBeGreaterThanOrEqual(10000);
   expect(c.skills!.filter((s) => pool.guai_50_ability.value.includes(s)).length).toBeGreaterThan(0);
   g.castleHp = 1;
   while (g.phase === 'wave') sim.step();

@@ -2,6 +2,9 @@
 
 Several agents work on this repo at once. Read this, then `docs/PLAN.md`, before changing anything.
 
+For the Classic 1-player push, current status and pending work are in
+`docs/classic-audit/README.md`; read it before picking anything up.
+
 ## Log book
 
 The work log is the shared Vault, project **Facet TD** (`Vault/Projects/Facet TD.md`). Use

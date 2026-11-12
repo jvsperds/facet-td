@@ -4,7 +4,7 @@ import { Sim } from '../src/sim/sim';
 
 const data = loadData('classic');
 const setup = () => {
-  const sim = new Sim(data, 17);
+  const sim = new Sim(data, 17, { sandbox: true });
   sim.game.gold = 10000;
   return sim;
 };
@@ -56,7 +56,7 @@ test('hero healing completes after channel and rewind clears all draft occupancy
 test('color and quality prayers coexist, are consumed once, and rejected commands do not spend RNG', () => {
   let success = false;
   for (let seed = 1; seed < 20 && !success; seed++) {
-    const sim = new Sim(data, seed),
+    const sim = new Sim(data, seed, { sandbox: true }),
       g = sim.game;
     g.gold = 10000;
     g.configureHero('h101', { a201: 4, a402: 4 });

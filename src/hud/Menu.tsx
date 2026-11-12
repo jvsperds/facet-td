@@ -4,16 +4,50 @@ import { useEffect, useRef } from 'preact/hooks';
 // The in-game menu (top right, or Esc with nothing selected) and the title screen it exits to.
 // A run is the page: restarting loads a new seed (or the same one), exiting loads the title.
 
-const go = (search: string) => (location.search = search);
+/** Load the page with `patch` applied to the URL's query, keeping flags such as `?wip`. */
+function go(patch: Record<string, string | null>) {
+  const params = new URLSearchParams(location.search);
+  for (const key of ['seed', 'title']) params.delete(key);
+  for (const [key, value] of Object.entries(patch)) if (value !== null) params.set(key, value);
+  location.search = params.toString().replace(/=(?=&|$)/g, '');
+}
+export const newRun = () => go({ seed: String(Date.now() >>> 0) });
+export const restartSeed = (seed: number) => go({ seed: String(seed) });
+export const exitToTitle = () => go({ title: '' });
+
+export type MenuAsk = 'new' | 'restart' | null;
 
 /** Resume, restart with a new or the same seed, or exit to the title. Restarts ask first. */
-export function GameMenu({ seed, close }: { seed: number; close: () => void }) {
+export function GameMenu({
+  seed,
+  close,
+  ask: initial = null,
+}: {
+  seed: number;
+  close: () => void;
+  /** Open straight on the confirm step of New run or Restart this seed (their shortcuts). */
+  ask?: MenuAsk;
+}) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const confirm = useSignal<null | { label: string; run: () => void }>(null);
+  const ask = (label: string, run: () => void) => ({ label, run });
+  const confirm = useSignal<null | { label: string; run: () => void }>(
+    initial === 'new'
+      ? ask('New run', newRun)
+      : initial === 'restart'
+        ? ask('Restart this seed', () => restartSeed(seed))
+        : null,
+  );
+  const seedShown = useSignal(false);
+  const copied = useSignal(false);
   useEffect(() => {
     dialog.current?.showModal();
   }, []);
-  const ask = (label: string, run: () => void) => (confirm.value = { label, run });
+  const copy = () => {
+    void navigator.clipboard
+      ?.writeText(String(seed))
+      .then(() => (copied.value = true))
+      .catch(() => (seedShown.value = true));
+  };
   return (
     <dialog ref={dialog} class="panel menu" aria-labelledby="menu-title" onClose={close}>
       <h2 id="menu-title">Menu</h2>
@@ -24,7 +58,9 @@ export function GameMenu({ seed, close }: { seed: number; close: () => void }) {
             <button class="primary" ref={(b) => b?.focus()} onClick={confirm.value.run}>
               {confirm.value.label}
             </button>
-            <button onClick={() => (confirm.value = null)}>Back</button>
+            <button onClick={() => (initial ? dialog.current?.close() : (confirm.value = null))}>
+              {initial ? 'Cancel' : 'Back'}
+            </button>
           </div>
         </>
       ) : (
@@ -32,14 +68,30 @@ export function GameMenu({ seed, close }: { seed: number; close: () => void }) {
           <button class="primary" onClick={() => dialog.current?.close()}>
             Resume <kbd aria-hidden="true">Esc</kbd>
           </button>
-          <button onClick={() => ask('New run', () => go(`?seed=${Date.now() >>> 0}`))}>
-            New run
+          <button aria-keyshortcuts="N" onClick={() => (confirm.value = ask('New run', newRun))}>
+            New run <kbd aria-hidden="true">N</kbd>
           </button>
-          <button onClick={() => ask('Restart this seed', () => go(`?seed=${seed}`))}>
-            Restart this seed
+          <button
+            aria-keyshortcuts="Shift+N"
+            onClick={() => (confirm.value = ask('Restart this seed', () => restartSeed(seed)))}
+          >
+            Restart this seed <kbd aria-hidden="true">⇧N</kbd>
           </button>
-          <button onClick={() => ask('Exit to title', () => go('?title'))}>Exit to title</button>
-          <p class="muted tabular">Seed {seed}</p>
+          <button onClick={() => (confirm.value = ask('Exit to title', exitToTitle))}>
+            Exit to title
+          </button>
+          <div class="seed-row">
+            {seedShown.value ? (
+              <span class="tabular">Seed {seed}</span>
+            ) : (
+              <button class="link" onClick={() => (seedShown.value = true)}>
+                Show seed
+              </button>
+            )}
+            <button class="link" onClick={copy}>
+              {copied.value ? 'Seed copied' : 'Copy seed'}
+            </button>
+          </div>
         </div>
       )}
     </dialog>
@@ -59,7 +111,7 @@ export function TitleScreen() {
           Place random gems, keep one, wall in the rest. Combine towers and hold the crystal vault
           for fifty waves.
         </p>
-        <button class="primary big" ref={(b) => b?.focus()} onClick={() => go('')}>
+        <button class="primary big" ref={(b) => b?.focus()} onClick={() => go({})}>
           New game
         </button>
       </div>

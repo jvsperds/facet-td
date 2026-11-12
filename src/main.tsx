@@ -4,12 +4,13 @@ import { createAudio } from './audio';
 import { loadData, type Mode } from './data';
 import { Hud } from './hud/Hud';
 import { pinned, pinnedIngredients } from './hud/RecipeBook';
-import { prewarmIcons } from './hud/TowerIcon';
+import { prewarmIcons, setIconsBusy } from './hud/TowerIcon';
 import { readRecipes } from './sim/progression';
 import type { Cell } from './sim/board';
 import { createFeedback } from './hud/feedback';
 import { createCameraInput, cursor, hovered, selected, selectedCreep } from './input/camera';
 import { Sim, TICK_HZ, type Cmd } from './sim/sim';
+import { WIP } from './hud/flags';
 import { createWorld } from './world/world';
 import { prewarmTowers } from './world/pieces';
 import { setupPreview } from './preview';
@@ -23,7 +24,8 @@ const params = new URLSearchParams(location.search);
 const title = params.has('title');
 // The seed is the only outside input; `?seed=` replays a game.
 const seed = Number(params.get('seed')) || Date.now() >>> 0;
-const sim = new Sim(loadData(mode), seed);
+// `?wip` keeps the free hero loadout (sandbox); a normal run's hero is fixed by its config.
+const sim = new Sim(loadData(mode), seed, { sandbox: WIP });
 const board = sim.board;
 const world = createWorld(board, sim.game);
 document.body.prepend(world.canvas);
@@ -141,7 +143,14 @@ effect(() => {
 world.afterStep();
 let last = performance.now();
 let acc = 0;
-let lastShown = '';
+let lastShown = NaN;
+/** Small integer ids for strings the HUD signature mixes (gem names, aim modes, hero skills). */
+const stringIds = new Map<string, number>();
+const towerId = (text: string) => {
+  let id = stringIds.get(text);
+  if (id === undefined) stringIds.set(text, (id = stringIds.size + 1));
+  return id;
+};
 setInterval(() => {
   const now = performance.now();
   acc += (Math.min(now - last, 250) / 1000) * speed.value;
@@ -151,29 +160,41 @@ setInterval(() => {
   for (; acc >= 1 / TICK_HZ; acc -= 1 / TICK_HZ) {
     sim.step();
     world.afterStep();
-    audio.play(feedback.afterStep());
+    audio.step(sim.game, feedback.afterStep());
     stepped = true;
   }
   // Re-render the HUD only when something it shows changed; build checks there run route searches.
   const g = sim.game;
-  const shown = [
-    g.phase,
-    g.level,
-    g.castleHp,
-    g.enraged,
-    g.gold,
-    g.xp,
-    g.creeps.length,
-    g.draft.length,
-    g.gems.length,
-    g.stones.size,
-    g.gems
-      .map((gem) => `${gem.name}:${gem.level ?? 0}:${gem.aim ?? 0}:${gem.holdFire ?? 0}`)
-      .join(),
-    JSON.stringify(g.hero),
-    // Once a second: the round clock and hero cooldowns.
-    Math.floor(sim.tick / TICK_HZ),
-  ].join();
+  // An integer mix of everything the HUD shows: no strings or arrays built per tick.
+  let h = 0;
+  const mix = (v: number) => (h = Math.imul(h ^ Math.round(v * 4096), 0x01000193));
+  const mixText = (text: string) => {
+    mix(text.length);
+    for (let i = 0; i < text.length; i++) mix(text.charCodeAt(i));
+  };
+  mixText(g.phase);
+  mix(g.level);
+  mix(g.castleHp);
+  mix(g.enraged ? 1 : 0);
+  mix(g.gold);
+  mix(g.xp);
+  mix(g.creeps.length);
+  mix(g.draft.length);
+  mix(g.gems.length);
+  mix(g.stones.size);
+  for (const gem of g.gems) {
+    mix(gem.id);
+    mix(towerId(gem.name));
+    mix(gem.level ?? 0);
+    mix(gem.aim ?? 0);
+    mix(gem.holdFire ? 1 : 0);
+  }
+  mixText(g.hero.selected);
+  for (const k in g.hero.abilities) mix(towerId(k) * 31 + g.hero.abilities[k]);
+  for (const k in g.hero.cooldowns) mix(towerId(k) * 31 + g.hero.cooldowns[k]);
+  // Once a second: the round clock and hero cooldowns.
+  mix(Math.floor(sim.tick / TICK_HZ));
+  const shown = h;
   if (stepped && shown !== lastShown) {
     lastShown = shown;
     ticked.value++;
@@ -188,6 +209,8 @@ const towerNames = [
   ...readRecipes(sim.data).flatMap((r) => [r.result, ...r.ingredients]),
 ];
 prewarmTowers(towerNames);
+// Icons render only between waves, so the second WebGL context never competes with play.
+setIconsBusy(() => sim.game.phase === 'wave');
 prewarmIcons(towerNames);
 if (params.get('preview') === 'all') setupPreview(sim, towerNames);
 

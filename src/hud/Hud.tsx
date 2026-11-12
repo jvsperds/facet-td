@@ -19,12 +19,14 @@ import { DamageMeter } from './DamageMeter';
 import { HeroPanel } from './HeroPanel';
 import { GlyphDefs, ICONS, Icon } from './icons';
 import { WIP } from './flags';
-import { GameMenu, TitleScreen } from './Menu';
+import { GameMenu, TitleScreen, exitToTitle, newRun, restartSeed, type MenuAsk } from './Menu';
 import { TowerIcon } from './TowerIcon';
 import { code, compact, displayName } from './names';
 import { PinnedRecipes, RecipeBook } from './RecipeBook';
 import {
   announcement,
+  cursor,
+  refusal,
   rotateMode,
   selected,
   selectedCreep,
@@ -34,9 +36,9 @@ import {
 } from '../input/camera';
 
 // DOM overlay on the full-screen cave, laid out after Gem TD's Dota 2 HUD:
-// - top left: one hamburger menu holding every setting, and the DPS list (the round's status
-//   line is announced to assistive technology only);
-// - top centre: the round, its clock and the creeps left;
+// - top left: one hamburger menu holding every setting, and the DPS list;
+// - top centre: the round, its clock and the creeps left, over the round's status line (a visible
+//   banner, red for errors, also announced to assistive technology);
 // - top right: the run's stats (mode, kills/misses, maze length, enemies, progress);
 // - bottom centre: the command card (hero and skills, or the selection) with its hotkeys;
 // - bottom right: the showcase (Showcase.tsx), a live model of the wave's creep or the MVP tower,
@@ -51,6 +53,34 @@ const SPEEDS = [
   [4, 'Quadruple speed'],
   [10, 'Ten times speed'],
 ] as const;
+
+/** Every keyboard shortcut, for the help overlay (`?`). */
+const SHORTCUTS: [keys: string, what: string][] = [
+  ['Space or P', 'Pause or resume'],
+  ['7 8 9 0', 'Speed 1×, 2×, 4×, 10×'],
+  ['1 – 5', "Select this round's gem 1 to 5"],
+  ['Q', 'Keep the selected gem (else: arm Place gem)'],
+  ['W', 'Downgrade and keep (else: arm Remove stone)'],
+  ['E / R', 'Keep the selected gem one / two qualities higher'],
+  ['K', 'Keep the selected gem'],
+  ['C', 'Combine the selected gem (first recipe)'],
+  ['B', 'Place a gem at the cursor or selected cell'],
+  ['S', 'Selected tower: stop or resume attacking'],
+  ['[ / ]', 'Select the previous / next tower'],
+  ['Arrow keys', 'Move the board cursor'],
+  ['Enter', 'Select the cursor cell (board focused)'],
+  ['+ / −', 'Zoom in / out'],
+  [', / .', 'Turn the board left / right'],
+  ['V', 'Reset the view'],
+  ['T', 'Switch top and isometric view'],
+  ['G', 'Recipe book'],
+  ['M', 'Damage list'],
+  ['A', 'Show or hide auras'],
+  ['N', 'New run (asks first)'],
+  ['Shift+N', 'Restart this seed (asks first)'],
+  ['Esc', 'Cancel, close, deselect, then open the menu'],
+  ['?', 'This help'],
+];
 
 type Props = {
   sim: Sim;
@@ -72,7 +102,17 @@ const same = (a: Cell, b: Cell) => a.x === b.x && a.y === b.y;
 const typing = (e: KeyboardEvent) =>
   e.target instanceof HTMLInputElement ||
   e.target instanceof HTMLSelectElement ||
-  e.target instanceof HTMLTextAreaElement;
+  e.target instanceof HTMLTextAreaElement ||
+  (e.target instanceof HTMLElement && e.target.isContentEditable);
+/** Space belongs to a focused control (a button presses, a toggle flips). */
+const onControl = (e: KeyboardEvent) =>
+  e.target instanceof HTMLElement &&
+  !!e.target.closest('button, a, summary, [role="button"], [role="img"][tabindex]');
+const ARROWS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'] as const;
+type Arrow = (typeof ARROWS)[number];
+const SPEED_KEYS: Record<string, number> = { '7': 0, '8': 1, '9': 2, '0': 3 };
+/** A short-lived message at the top (and a mark on the board): why a placement was refused. */
+type Flash = { text: string; x?: number; y?: number; at: number };
 
 export function Hud(props: Props) {
   const { sim, ticked, paused, speed, send, actions, mode, feedback, audio, routeVisible } = props;
@@ -84,11 +124,13 @@ export function Hud(props: Props) {
   const heroOpen = useSignal(false);
   const menuOpen = useSignal(false);
   const recipesOpen = useSignal(false);
+  const helpOpen = useSignal(false);
+  const menuAsk = useSignal<MenuAsk>(null);
+  const flash = useSignal<Flash | null>(null);
   const meterOpen = useSignal(matchMedia('(min-width: 1101px)').matches);
   const cameraButton = useRef<HTMLButtonElement>(null);
   const toolsRef = useRef<HTMLDivElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
-  const lastDraftPress = useRef<{ id: number; time: number } | null>(null);
   const v = view.value;
   const closeFlyout = () => {
     flyout.value = false;
@@ -102,9 +144,58 @@ export function Hud(props: Props) {
     speed.value = s;
     announcement.value = label;
   };
-  const openMenu = () => {
+  const openMenu = (ask: MenuAsk = null) => {
+    menuAsk.value = ask;
     menuOpen.value = true;
     paused.value = true;
+  };
+  const ended = game.phase === 'lost' || game.phase === 'won';
+
+  // A refused placement: say why at the top, in red, and mark the cell for a moment.
+  useEffect(
+    () =>
+      refusal.subscribe((r) => {
+        if (!r) return;
+        const g = sim.game;
+        // A second tap on a tower only inspects it.
+        if (g.gemAt(r.cell)) return;
+        const check = g.canBuild(r.cell);
+        const text = check.ok ? 'Unable to build here' : check.reason;
+        const p = actions.screenOf(r.cell);
+        flash.value = { text, x: p.x, y: p.y, at: r.at };
+        announcement.value = text;
+        setTimeout(() => {
+          if (flash.value?.at === r.at) flash.value = null;
+        }, 2600);
+      }),
+    [],
+  );
+  // The run is over: nothing stays selected or armed behind the end card.
+  useEffect(() => {
+    if (!ended) return;
+    selected.value = null;
+    selectedCreep.value = null;
+    targeting.value = null;
+    pendingTablet.value = null;
+    flyout.value = false;
+    recipesOpen.value = false;
+  }, [ended]);
+  /** Select a cell from the HUD (draft slot, tower cycling); the keyboard cursor follows it. */
+  const selectCell = (cell: Cell) => {
+    selected.value = { ...cell };
+    cursor.value = { ...cell };
+    selectedCreep.value = null;
+    targeting.value = null;
+  };
+  /** Select the next (or previous) tower on the board, in placement order. */
+  const cycleTower = (step: 1 | -1) => {
+    const towers = [...sim.game.gems].sort((a, b) => a.id - b.id);
+    if (!towers.length) return;
+    const at = selected.value ? towers.findIndex((t) => same(t.cell, selected.value!)) : -1;
+    const i =
+      at < 0 ? (step > 0 ? 0 : towers.length - 1) : (at + step + towers.length) % towers.length;
+    selectCell(towers[i].cell);
+    announcement.value = `Selected ${displayName(sim.data, towers[i].name)}`;
   };
 
   // A press outside the settings closes them.
@@ -116,7 +207,7 @@ export function Hud(props: Props) {
     return () => removeEventListener('pointerdown', onDown, true);
   }, []);
 
-  // Global shortcuts; the board canvas keeps its own arrows, Enter, B and zoom keys.
+  // Global shortcuts (listed in SHORTCUTS); the board canvas keeps only Enter.
   /**
    * Q keep, W downgrade and keep, E keep +1, R keep +2 on the selected gem. Sends and returns true
    * only when that command is allowed, so otherwise Q and W still place gems and remove stones.
@@ -140,42 +231,36 @@ export function Hud(props: Props) {
       if (typing(e) || e.ctrlKey || e.metaKey || e.altKey || document.querySelector('dialog[open]'))
         return;
       const k = e.key.toLowerCase();
-      if (k === 'p') togglePause();
-      else if (/^[1-5]$/.test(k)) {
-        if (
-          e.repeat ||
-          menuOpen.value ||
-          heroOpen.value ||
-          flyout.value ||
-          recipesOpen.value ||
-          pendingTablet.value
-        ) {
-          lastDraftPress.current = null;
+      const over = sim.game.phase === 'lost' || sim.game.phase === 'won';
+      if (over && k !== '?') return;
+      if (k === '?') helpOpen.value = true;
+      else if (k === 'p' || (k === ' ' && !onControl(e))) togglePause();
+      else if (k in SPEED_KEYS) {
+        const [s, label] = SPEEDS[SPEED_KEYS[k]];
+        setSpeed(s, label);
+      } else if (/^[1-5]$/.test(k)) {
+        if (e.repeat || menuOpen.value || heroOpen.value || flyout.value || pendingTablet.value)
           return;
-        }
         const g = sim.game;
         const gem = g.gems.find((piece) => piece.id === g.draft[Number(k) - 1]);
-        if (!gem) {
-          lastDraftPress.current = null;
-          return;
-        }
-        const now = performance.now();
-        const previous = lastDraftPress.current;
-        const doublePress =
-          previous?.id === gem.id &&
-          now - previous.time <= 400 &&
-          selected.value !== null &&
-          same(selected.value, gem.cell) &&
-          selectedCreep.value === null;
-        selected.value = { ...gem.cell };
-        selectedCreep.value = null;
-        targeting.value = null;
-        if (doublePress) {
-          if (g.keepResult(gem.id, 0).ok) send({ type: 'keep', id: gem.id, upgrade: 0 });
-          lastDraftPress.current = null;
-        } else lastDraftPress.current = { id: gem.id, time: now };
+        if (!gem) return;
+        selectCell(gem.cell);
         announcement.value = `Selected ${displayName(sim.data, gem.name)}`;
-      } else if (k === 'g') recipesOpen.value = !recipesOpen.value;
+      } else if (k === '+' || k === '=') actions.zoomBy(1.25);
+      else if (k === '-' || k === '_') actions.zoomBy(1 / 1.25);
+      else if ((ARROWS as readonly string[]).includes(e.key)) {
+        // Arrows still move within the settings, the ability strip and the recipe side panel.
+        if (e.target instanceof HTMLElement && e.target.closest('.settings, .ability-strip, .side'))
+          return;
+        actions.moveCursor(e.key as Arrow);
+      } else if (k === 'b') actions.buildAtCursor();
+      else if (k === ',' || k === '<') actions.turn(-90);
+      else if (k === '.' || k === '>') actions.turn(90);
+      else if (k === 'v') actions.reset();
+      else if (k === ']') cycleTower(1);
+      else if (k === '[') cycleTower(-1);
+      else if (k === 'n') openMenu(e.shiftKey ? 'restart' : 'new');
+      else if (k === 'g') recipesOpen.value = !recipesOpen.value;
       else if (k === 'm') meterOpen.value = !meterOpen.value;
       else if (/^[qwer]$/.test(k) && gemCommand(k)) {
         // Handled: a selected gem's Q/W/E/R command was available.
@@ -340,22 +425,34 @@ export function Hud(props: Props) {
                 ref={menuButton}
                 aria-haspopup="dialog"
                 aria-keyshortcuts="Escape"
-                onClick={openMenu}
+                onClick={() => openMenu()}
               >
                 New run, restart or exit <kbd aria-hidden="true">Esc</kbd>
               </button>
             </div>
           )}
         </div>
-        <Quest game={game} feedback={feedback} tick={tick} />
-        {game.phase === 'build' && <DraftSlots sim={sim} tick={tick} />}
+        {game.phase === 'build' && !ended && (
+          <DraftSlots sim={sim} tick={tick} select={selectCell} />
+        )}
       </div>
       <RoundClock sim={sim} feedback={feedback} paused={paused.value} tick={tick} />
+      <Notice game={game} feedback={feedback} flash={flash.value} tick={tick} />
+      {flash.value?.x !== undefined && (
+        <span
+          class="refused-mark"
+          key={flash.value.at}
+          style={{ left: `${flash.value.x}px`, top: `${flash.value.y}px` }}
+          aria-hidden="true"
+        />
+      )}
+      {/* Reserved room for the selection card: the camera fit always avoids it, so the board
+          does not move when a card opens or closes under a tap sequence. */}
+      {!ended && <div class="card-dock" data-exclude aria-hidden="true" />}
       <StatsPanel sim={sim} mode={mode} feedback={feedback} tick={tick} />
-      {meterOpen.value &&
-        (game.phase === 'wave' || Object.keys(game.damageThisWave).length > 0) && (
-          <DamageMeter data={sim.data} game={game} />
-        )}
+      {meterOpen.value && !ended && game.phase === 'wave' && (
+        <DamageMeter data={sim.data} game={game} />
+      )}
       <div class="side">
         <PinnedRecipes data={sim.data} game={game} />
         {recipesOpen.value && (
@@ -368,7 +465,9 @@ export function Hud(props: Props) {
           <span class="muted"> · Shift keeps it · Esc cancels</span>
         </p>
       )}
-      <CommandCard sim={sim} send={send} tick={tick} openHero={() => (heroOpen.value = true)} />
+      {!ended && (
+        <CommandCard sim={sim} send={send} tick={tick} openHero={() => (heroOpen.value = true)} />
+      )}
       <nav class="game-controls" data-exclude aria-label="Game controls">
         <button
           aria-label="Pause"
@@ -409,11 +508,23 @@ export function Hud(props: Props) {
         >
           <Icon name="iso" />
         </button>
+        <button
+          class="help-button"
+          aria-label="Controls and help"
+          aria-keyshortcuts="Shift+?"
+          aria-haspopup="dialog"
+          title="Controls and help (?)"
+          onClick={() => (helpOpen.value = true)}
+        >
+          ?
+        </button>
       </nav>
+      {helpOpen.value && <HelpDialog close={() => (helpOpen.value = false)} />}
       {heroOpen.value && <HeroPanel sim={sim} send={send} close={() => (heroOpen.value = false)} />}
       {menuOpen.value && (
         <GameMenu
           seed={sim.seed}
+          ask={menuAsk.value}
           close={() => {
             menuOpen.value = false;
             paused.value = false;
@@ -422,7 +533,7 @@ export function Hud(props: Props) {
         />
       )}
 
-      {(game.phase === 'lost' || game.phase === 'won') && <EndCard game={game} tick={tick} />}
+      {ended && <EndCard sim={sim} feedback={feedback} tick={tick} />}
 
       <div class="sr-only" aria-live="polite">
         {announcement.value}
@@ -459,7 +570,17 @@ function RoundClock({
   const game = sim.game;
   const wave = game.wavePreview;
   const creep = wave.names.map((n) => displayName(sim.data, n)).join(' or ');
-  const round = (feedback.ticks - feedback.roundStart.value) / TICK_HZ;
+  // The clocks stop when the run ends.
+  const ended = game.phase === 'lost' || game.phase === 'won';
+  const stopped = useRef<{ run: number; round: number } | null>(null);
+  if (!ended) stopped.current = null;
+  else
+    stopped.current ??= {
+      run: sim.tick,
+      round: feedback.ticks - feedback.roundStart.value,
+    };
+  const round = (stopped.current?.round ?? feedback.ticks - feedback.roundStart.value) / TICK_HZ;
+  const run = (stopped.current?.run ?? sim.tick) / TICK_HZ;
   const left = creepsLeft(game);
   return (
     <section class="round-clock" data-exclude aria-label="Round">
@@ -472,7 +593,7 @@ function RoundClock({
       </span>
       <span class="clock-cell clock-main">
         <span class="label tabular" title="Run time">
-          {clock(sim.tick / TICK_HZ)}
+          {clock(run)}
         </span>
         <span class="clock-value big tabular" title="Round time">
           {clock(round)}
@@ -485,6 +606,19 @@ function RoundClock({
         </span>
       </span>
       <span class="next-name">{creep}</span>
+      {/* Phones: castle HP and gold join the top bar, off the board. */}
+      <span class="clock-res" aria-label="Castle and gold">
+        <span class={game.castleHp <= 30 ? 'danger' : ''}>
+          <Icon name="castle" />
+          <span class="tabular">{Math.max(0, game.castleHp)}</span>
+          <span class="sr-only"> of 100 castle HP</span>
+        </span>
+        <span>
+          <Icon name="coin" />
+          <span class="tabular">{compact(game.gold)}</span>
+          <span class="sr-only"> gold</span>
+        </span>
+      </span>
       {(paused || game.enraged) && (
         <span class={`flag ${game.enraged && !paused ? 'danger' : ''}`}>
           {paused ? 'Paused' : 'Enraged'}
@@ -494,21 +628,30 @@ function RoundClock({
   );
 }
 
-/** Top left, under the tools: the round's status line and, during a wave, its rewards. */
-function Quest({ game, feedback }: { game: Game; feedback: Feedback; tick: number }) {
+/**
+ * Under the round clock: the round's status line, visible and announced (red for warnings and
+ * refused actions), and during a wave its rewards.
+ */
+function Notice({
+  game,
+  feedback,
+  flash,
+}: {
+  game: Game;
+  feedback: Feedback;
+  flash: Flash | null;
+  tick: number;
+}) {
   const reward = feedback.reward.value;
+  const notice = flash ? { text: flash.text, danger: true } : feedback.notice.value;
+  const ended = game.phase === 'lost' || game.phase === 'won';
   return (
-    <div class="quest sr-only">
-      <p
-        class={`notice ${feedback.notice.value.danger ? 'danger' : ''}`}
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-      >
-        {feedback.notice.value.text}
+    <div class={`notice-banner ${notice.danger ? 'danger' : ''}`}>
+      <p class="notice" role={notice.danger ? 'alert' : 'status'} aria-atomic="true">
+        {notice.text}
       </p>
-      {(game.phase === 'wave' || reward.kills > 0) && (
-        <p class="reward tabular" aria-label="Wave rewards" title="Kills and gold this wave">
+      {!ended && (game.phase === 'wave' || reward.kills > 0) && (
+        <p class="reward tabular" title="Kills and gold this wave">
           {reward.kills} kills · +{reward.gold} gold
         </p>
       )}
@@ -571,7 +714,7 @@ function StatsPanel({
 }
 
 /** The five gems placed this round, floating over the command card while placing; a filled slot selects its gem. */
-function DraftSlots({ sim }: { sim: Sim; tick: number }) {
+function DraftSlots({ sim, select }: { sim: Sim; tick: number; select: (cell: Cell) => void }) {
   const game = sim.game;
   const draft = game.draft.map((id) => game.gems.find((g) => g.id === id)!);
   const picking = draft.length === DRAFT_SIZE;
@@ -608,7 +751,7 @@ function DraftSlots({ sim }: { sim: Sim; tick: number }) {
               aria-pressed={active}
               aria-keyshortcuts={String(i + 1)}
               onClick={() => {
-                selected.value = { ...g.cell };
+                select(g.cell);
                 announcement.value = `Selected ${name}`;
               }}
             >
@@ -624,8 +767,21 @@ function DraftSlots({ sim }: { sim: Sim; tick: number }) {
   );
 }
 
-function EndCard({ game }: { game: Game; tick: number }) {
+/** The run's end: the result, what data the run has, and the ways on. */
+function EndCard({ sim, feedback }: { sim: Sim; feedback: Feedback; tick: number }) {
+  const game = sim.game;
   const won = game.phase === 'won';
+  const totals = feedback.totals.value;
+  const dealt = game.damageThisWave;
+  const total = Object.values(dealt).reduce((sum, d) => sum + d, 0);
+  const top = game.gems
+    .map((g) => ({ g, d: dealt[g.id] ?? 0 }))
+    .filter((r) => r.d > 0)
+    .sort((a, b) => b.d - a.d || a.g.id - b.g.id)
+    .slice(0, 5);
+  const mvp = [...game.gems]
+    .filter((g) => (g.level ?? 0) > 0)
+    .sort((a, b) => (b.level ?? 0) - (a.level ?? 0) || a.id - b.id)[0];
   return (
     <div class="end" role="dialog" aria-modal="true" aria-labelledby="end-title">
       <div class="panel end-card">
@@ -637,20 +793,115 @@ function EndCard({ game }: { game: Game; tick: number }) {
               ? `All ${LAST_LEVEL} waves cleared; the castle held until endless wave ${game.level}.`
               : `All ${LAST_LEVEL} waves cleared.`}
         </p>
-        <p class="tabular">
-          Gold {compact(game.gold)} · Build level {game.heroLevel}
-        </p>
+        <dl class="end-stats tabular">
+          <div>
+            <dt>Wave reached</dt>
+            <dd>{game.level > LAST_LEVEL ? `∞${game.level}` : game.level}</dd>
+          </div>
+          <div>
+            <dt>Kills</dt>
+            <dd>{totals.kills}</dd>
+          </div>
+          <div>
+            <dt>Reached castle</dt>
+            <dd>{totals.leaks}</dd>
+          </div>
+          <div>
+            <dt>Gold</dt>
+            <dd>{compact(game.gold)}</dd>
+          </div>
+          <div>
+            <dt>Towers</dt>
+            <dd>{game.gems.length}</dd>
+          </div>
+          {mvp && (
+            <div>
+              <dt>MVP</dt>
+              <dd>
+                {displayName(sim.data, mvp.name)} · level {mvp.level}
+              </dd>
+            </div>
+          )}
+        </dl>
+        {top.length > 0 && (
+          <section class="end-damage" aria-label="Damage by tower, last wave">
+            <h3 class="section-label">Damage by tower · last wave</h3>
+            <ol class="damage-list">
+              {top.map(({ g, d }) => (
+                <li class={`gem-${g.name[6]}`} key={g.id}>
+                  <span
+                    class="bar"
+                    style={{ width: `${Math.max(2, (d / total) * 100)}%` }}
+                    aria-hidden="true"
+                  />
+                  <TowerIcon name={g.name} class="glyph mini" />
+                  <span class="damage-name">{displayName(sim.data, g.name)}</span>
+                  <span class="tabular">
+                    {compact(d)} · {Math.round((d / total) * 100)}%
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
         <div class="actions">
-          <button
-            class="primary"
-            ref={(b) => b?.focus()}
-            onClick={() => (location.href = location.pathname)}
-          >
+          <button class="primary" ref={(b) => b?.focus()} onClick={newRun}>
             Play again
           </button>
+          <button onClick={() => restartSeed(sim.seed)}>Restart this seed</button>
+          <button onClick={exitToTitle}>Exit to title</button>
         </div>
       </div>
     </div>
+  );
+}
+
+/** `?`: every shortcut, and how to play in a few lines. */
+function HelpDialog({ close }: { close: () => void }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    dialog.current?.showModal();
+  }, []);
+  return (
+    <dialog ref={dialog} class="panel help" aria-labelledby="help-title" onClose={close}>
+      <div class="help-head">
+        <h2 id="help-title">Controls and help</h2>
+        <button class="icon-button" aria-label="Close help" onClick={() => dialog.current?.close()}>
+          <Icon name="close" />
+        </button>
+      </div>
+      <section aria-labelledby="how-title">
+        <h3 id="how-title" class="section-label">
+          How to play
+        </h3>
+        <ol class="how">
+          <li>Each round, place five random gems: tap a cell, then Place gem (or tap it again).</li>
+          <li>
+            Keep one gem as a tower (or combine gems into a stronger one); the rest become stones.
+          </li>
+          <li>Keeping starts the wave. Stones and towers make the maze creeps must walk.</li>
+          <li>
+            Stop creeps reaching the castle. A placement that would block the route is refused.
+          </li>
+        </ol>
+      </section>
+      <section aria-labelledby="keys-title">
+        <h3 id="keys-title" class="section-label">
+          Keyboard
+        </h3>
+        <dl class="shortcuts">
+          {SHORTCUTS.map(([keys, what]) => (
+            <div key={keys}>
+              <dt>
+                <kbd>{keys}</kbd>
+              </dt>
+              <dd>{what}</dd>
+            </div>
+          ))}
+        </dl>
+        <p class="muted">Touch: tap to select, drag to pan, pinch to zoom.</p>
+      </section>
+    </dialog>
   );
 }
 
