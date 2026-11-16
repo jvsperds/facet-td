@@ -2343,6 +2343,10 @@ export class Game {
         );
       }
       this.runStats.wavesCleared++;
+      if (this.level === LAST_LEVEL && !this.config.endless) {
+        this.end('won');
+        return;
+      }
       // EndRoundIfNoEnemyAlive (line 13441)
       for (const g of this.gems) [g.cooldown, g.target] = [0, null];
       this.beacon = null; // start_build removes the beacon (line 4662)

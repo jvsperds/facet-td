@@ -35,6 +35,8 @@ export function Loadout({
   const dialog = useRef<HTMLDialogElement>(null);
   const profile = useSignal(loadProfile(data));
   const result = useSignal('');
+  const difficulty = useSignal<1 | 2 | 3 | 4>(1);
+  const endless = useSignal(true);
   const catalog = readHeroCatalog(data);
   const name = labels(data);
   const update = (fn: (p: PlayerProfile) => void) => {
@@ -69,6 +71,28 @@ export function Loadout({
         <strong class="shell-count">◈ {profile.value.shells} shells</strong>
       </header>
       <p class="muted">Choose one owned hero and up to {profile.value.slots} owned skills.</p>
+      <div class="run-options">
+        <label>
+          Difficulty
+          <select
+            value={difficulty.value}
+            onChange={(e) => (difficulty.value = Number(e.currentTarget.value) as 1 | 2 | 3 | 4)}
+          >
+            <option value="1">Normal · 1× shells</option>
+            <option value="2">Hard · 1.5× shells</option>
+            <option value="3">Expert · 2× shells</option>
+            <option value="4">Master · 3× shells</option>
+          </select>
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={endless.value}
+            onChange={(e) => (endless.value = e.currentTarget.checked)}
+          />
+          Continue endless after wave 50
+        </label>
+      </div>
       <label class="loadout-hero">
         Hero
         <select
@@ -149,7 +173,11 @@ export function Loadout({
         <button
           class="primary big"
           onClick={() => {
-            storeRunConfig(profileRunConfig(data, profile.value));
+            storeRunConfig({
+              ...profileRunConfig(data, profile.value),
+              difficulty: difficulty.value,
+              endless: endless.value,
+            });
             start();
           }}
         >

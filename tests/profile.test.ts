@@ -20,6 +20,7 @@ describe('offline hero profile', () => {
     expect(profile.slots).toBe(1);
     expect(profileRunConfig(data, profile)).toEqual({
       difficulty: 1,
+      endless: true,
       hero: profile.selectedHero,
       skills: { [profile.selectedSkills[0]]: 1 },
     });

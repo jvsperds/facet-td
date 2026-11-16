@@ -38,7 +38,7 @@ const countEvents = (events: GameEvent[]) =>
 describe('run config', () => {
   test('defaults to the original single-player difficulty with no hero', () => {
     const sim = new Sim(data, 1);
-    expect(sim.config).toEqual({ difficulty: 1, hero: null, skills: {} });
+    expect(sim.config).toEqual({ difficulty: 1, endless: true, hero: null, skills: {} });
     expect(sim.game.heroActions()).toEqual([]);
   });
 

@@ -36,7 +36,7 @@ test('title loadout builds a normal run with owned hero skills and gold costs', 
   const loadout = page.getByRole('dialog', { name: 'Hero loadout' });
   await expect(loadout).toBeVisible();
   await expect(loadout).toContainText('0 shells');
-  await expect(loadout.getByRole('checkbox')).toBeChecked();
+  await expect(loadout.getByRole('checkbox', { name: /Heal Lv/ })).toBeChecked();
   await loadout.getByRole('button', { name: 'Start run' }).click();
   await page.waitForFunction(() => window.facet);
 
@@ -45,4 +45,39 @@ test('title loadout builds a normal run with owned hero skills and gold costs', 
   await expect(hero).toBeVisible();
   await expect(hero).toContainText('gold');
   await expect(hero.getByRole('button', { name: 'Apply loadout' })).toHaveCount(0);
+});
+
+test('title exposes settings, history and a resumable autosave', async ({ page }) => {
+  await page.goto('/?title&seed=18');
+  await page.getByRole('button', { name: 'Settings' }).click();
+  const settings = page.getByRole('dialog', { name: 'Settings' });
+  await expect(settings.getByRole('slider', { name: 'Master' })).toBeVisible();
+  await settings.getByRole('combobox', { name: 'Graphics' }).selectOption('low');
+  await settings.getByRole('button', { name: 'Close Settings' }).click();
+  await page.getByRole('button', { name: 'Run history' }).click();
+  await expect(page.getByRole('dialog', { name: 'Run history' })).toContainText(
+    'Finished runs will appear here',
+  );
+  await page.getByRole('button', { name: 'Close Run history' }).click();
+
+  await page.getByRole('button', { name: 'New game' }).click();
+  const loadout = page.getByRole('dialog', { name: 'Hero loadout' });
+  await loadout.getByRole('combobox', { name: 'Difficulty' }).selectOption('3');
+  await loadout.getByRole('checkbox', { name: 'Continue endless after wave 50' }).uncheck();
+  await loadout.getByRole('button', { name: 'Start run' }).click();
+  await page.waitForFunction(() => window.facet);
+  await expect
+    .poll(() => page.evaluate(() => (window.facet as unknown as { sim: Sim }).sim.config))
+    .toMatchObject({ difficulty: 3, endless: false });
+  await page.evaluate(() => {
+    const sim = (window.facet as unknown as { sim: Sim }).sim;
+    localStorage.setItem('facet-td:autosave', JSON.stringify(sim.save()));
+  });
+  await page.goto('/?title');
+  await expect(page.getByRole('button', { name: 'Resume run' })).toBeVisible();
+  await page.getByRole('button', { name: 'Resume run' }).click();
+  await page.waitForFunction(() => window.facet);
+  await expect
+    .poll(() => page.evaluate(() => (window.facet as unknown as { sim: Sim }).sim.config))
+    .toMatchObject({ difficulty: 3, endless: false });
 });

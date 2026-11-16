@@ -18,6 +18,8 @@ export interface PlayerProfile {
   selectedSkills: string[];
   /** Final-state fingerprints already paid, preventing refreshes from duplicating rewards. */
   rewardedRuns: string[];
+  completedQuests: string[];
+  claimedQuests: string[];
 }
 
 type BoxKind = 'hero' | 'skill';
@@ -50,6 +52,8 @@ export function defaultProfile(data: GameData): PlayerProfile {
     selectedHero: hero ?? '',
     selectedSkills: skill ? [skill] : [],
     rewardedRuns: [],
+    completedQuests: [],
+    claimedQuests: [],
   };
 }
 
@@ -93,6 +97,12 @@ export function normalizeProfile(data: GameData, input: unknown): PlayerProfile 
     selectedSkills,
     rewardedRuns: Array.isArray(raw.rewardedRuns)
       ? raw.rewardedRuns.filter((id): id is string => typeof id === 'string').slice(-50)
+      : [],
+    completedQuests: Array.isArray(raw.completedQuests)
+      ? [...new Set(raw.completedQuests.filter((id): id is string => typeof id === 'string'))]
+      : [],
+    claimedQuests: Array.isArray(raw.claimedQuests)
+      ? [...new Set(raw.claimedQuests.filter((id): id is string => typeof id === 'string'))]
       : [],
   };
 }
@@ -213,4 +223,19 @@ export function claimRunReward(
   profile.shells += shells;
   saveProfile(profile);
   return shells;
+}
+
+export function completeProfileQuests(profile: PlayerProfile, ids: readonly string[]) {
+  profile.completedQuests = [...new Set([...profile.completedQuests, ...ids])];
+  saveProfile(profile);
+}
+
+export function claimQuest(profile: PlayerProfile, id: string) {
+  if (!profile.completedQuests.includes(id) || profile.claimedQuests.includes(id)) return 0;
+  const tier = Math.max(1, Math.min(3, Number(id[1]) || 1));
+  const reward = ECONOMY.questRewards[tier - 1];
+  profile.claimedQuests.push(id);
+  profile.shells += reward;
+  saveProfile(profile);
+  return reward;
 }
