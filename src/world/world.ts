@@ -362,12 +362,20 @@ export function createWorld(board: Board, game: Game) {
   // A built stone the guide wants open: a faint dark X on its top (GemTD's remove mark).
   const guideClear = new THREE.InstancedMesh(
     mergeGeometries(
-      [Math.PI / 4, -Math.PI / 4].map((a) => new THREE.BoxGeometry(0.62, 0.012, 0.07).rotateY(a)),
+      [Math.PI / 4, -Math.PI / 4].map((a) => new THREE.BoxGeometry(0.66, 0.012, 0.1).rotateY(a)),
     ),
-    new THREE.MeshBasicMaterial({ color: '#280000', transparent: true, opacity: 0.55 }),
+    // Drawn over everything: wall walkways and tower plinths would otherwise hide a flat mark.
+    new THREE.MeshBasicMaterial({
+      color: '#c0281e',
+      transparent: true,
+      opacity: 0.8,
+      depthTest: false,
+      depthWrite: false,
+    }),
     BOARD_CELLS,
   );
   guideClear.count = 0;
+  guideClear.renderOrder = 4;
   guideClear.frustumCulled = false;
   scene.add(guideClear);
 
@@ -689,11 +697,14 @@ export function createWorld(board: Board, game: Game) {
       mvpRing.position.set(x, TURRET_TOP + 0.03, z);
     },
     /** Mark a maze guide's cells, or clear it with an empty list. */
-    setMazeGuide(cells: readonly Cell[], clear: readonly Cell[] = []) {
+    setMazeGuide(cells: readonly Cell[], clear: readonly (Cell & { tower?: boolean })[] = []) {
       guideClear.count = Math.min(BOARD_CELLS, clear.length);
       clear.slice(0, BOARD_CELLS).forEach((c, i) => {
         const { x, z } = toScene(c);
-        guideClear.setMatrixAt(i, ringPose.makeTranslation(x, WALL_TOP + 0.01, z));
+        guideClear.setMatrixAt(
+          i,
+          ringPose.makeTranslation(x, (c.tower ? TURRET_TOP : WALL_TOP) + 0.02, z),
+        );
       });
       guideClear.instanceMatrix.needsUpdate = true;
       mazeGuide.count = Math.min(BOARD_CELLS, cells.length);

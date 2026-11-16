@@ -181,12 +181,15 @@ effect(() => {
   const g = sim.game;
   const built = (c: Cell) => g.stoneAt(c) || !!g.gemAt(c);
   // Gold on open floor only; an X on player stones the guide leaves open (fixed walls excepted).
-  const clear: Cell[] = [];
+  const clear: (Cell & { tower?: boolean })[] = [];
   if (guide)
     for (let x = 1; x <= board.size; x++)
       for (let y = 1; y <= board.size; y++) {
         const c = { x, y };
-        if (!want.has(`${x},${y}`) && g.stoneAt(c) && board.kind(c) !== 'stone') clear.push(c);
+        if (want.has(`${x},${y}`) || board.kind(c) === 'stone') continue;
+        const gem = g.gemAt(c);
+        if (gem && !gem.name.includes('shiban')) clear.push({ ...c, tower: true });
+        else if (g.stoneAt(c)) clear.push(c);
       }
   world.setMazeGuide(
     marked.filter((c) => !built(c)),
