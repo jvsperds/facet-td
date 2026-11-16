@@ -8,7 +8,15 @@ import { prewarmIcons, setIconsBusy } from './hud/TowerIcon';
 import { readRecipes } from './sim/progression';
 import type { Cell } from './sim/board';
 import { createFeedback } from './hud/feedback';
-import { createCameraInput, cursor, hovered, selected, selectedCreep } from './input/camera';
+import {
+  createCameraInput,
+  cursor,
+  hovered,
+  rotateMode,
+  selected,
+  selectedCreep,
+  view,
+} from './input/camera';
 import { Sim, TICK_HZ, type Cmd } from './sim/sim';
 import { WIP } from './hud/flags';
 import { completeProfileQuests, loadProfile, loadRunConfig } from './profile/profile';
@@ -39,11 +47,29 @@ const world = createWorld(board, sim.game);
 document.body.prepend(world.canvas);
 const send = (cmd: Cmd) => sim.send(0, cmd);
 const actions = createCameraInput(world, board, send, (cell) => sim.game.canBuild(cell).ok);
+/** Camera and speed outlive the page, so a restart or new run keeps them. */
+const PREFS_KEY = 'facet-td:view';
+const prefs = (() => {
+  try {
+    return JSON.parse(localStorage.getItem(PREFS_KEY) ?? 'null') as {
+      view?: typeof view.value;
+      rotate?: boolean;
+      speed?: number;
+    } | null;
+  } catch {
+    return null;
+  }
+})();
+if (prefs?.view) {
+  view.value = { ...view.value, ...prefs.view };
+  world.setView(view.value, false);
+}
+if (prefs?.rotate) rotateMode.value = true;
 /** Bumped after sim steps so the HUD re-reads sim state. */
 const ticked = signal(0);
 const paused = signal(title);
 /** Game speed: sim ticks per real tick (1x, 2x, 4x). */
-const speed = signal(1);
+const speed = signal([1, 2, 4, 10].includes(prefs?.speed ?? 1) ? (prefs?.speed ?? 1) : 1);
 const routeVisible = signal(false);
 /** Tower aura rings on the board; a per-browser preference. */
 const aurasVisible = signal(
@@ -112,6 +138,14 @@ hudRoot.querySelectorAll('[data-exclude]').forEach((el) => panelObserver.observe
 addEventListener('resize', measure);
 measure();
 
+effect(() => {
+  const saved = { view: view.value, rotate: rotateMode.value, speed: speed.value };
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify(saved));
+  } catch {
+    // Storage unavailable: the settings last for this page.
+  }
+});
 effect(() => world.setMarks(selected.value, cursor.value));
 effect(() => world.markCreep(selectedCreep.value));
 // The last wave's MVP stays circled on the board through the build phase.
