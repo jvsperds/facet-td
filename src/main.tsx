@@ -17,6 +17,7 @@ import { completedQuests } from './sim/quests';
 import { createWorld } from './world/world';
 import { prewarmTowers } from './world/pieces';
 import { setupPreview } from './preview';
+import { GUIDES, guideCells } from './world/guides';
 import './style.css';
 import './hud/slate.css';
 import './hud/skin-a.css';
@@ -54,6 +55,16 @@ const aurasVisible = signal(
     }
   })(),
 );
+/** The maze guide shown on the board (by name, '' for none); a per-browser preference. */
+const mazeGuide = signal(
+  (() => {
+    try {
+      return localStorage.getItem('facet-td:maze-guide') ?? '';
+    } catch {
+      return '';
+    }
+  })(),
+);
 const feedback = createFeedback(sim.game);
 const audio = createAudio();
 addEventListener('pointerdown', () => audio.unlock());
@@ -73,6 +84,7 @@ render(
     audio={audio}
     routeVisible={routeVisible}
     aurasVisible={aurasVisible}
+    mazeGuide={mazeGuide}
     title={title}
   />,
   hudRoot,
@@ -127,6 +139,16 @@ effect(() => {
     // Storage unavailable: the choice lasts for this session.
   }
 });
+effect(() => {
+  const guide = GUIDES.find((g) => g.name === mazeGuide.value);
+  world.setMazeGuide(guide ? guideCells(guide.rows) : []);
+  try {
+    localStorage.setItem('facet-td:maze-guide', mazeGuide.value);
+  } catch {
+    // The guide still shows for this session.
+  }
+});
+
 // Towers that can combine glow gold; draft gems that keep as a better gem, and the ingredients of
 // pinned recipes, glow blue.
 effect(() => {

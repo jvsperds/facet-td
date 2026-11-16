@@ -18,6 +18,7 @@ import {
 import { DamageMeter } from './DamageMeter';
 import { HeroPanel } from './HeroPanel';
 import { GlyphDefs, ICONS, Icon } from './icons';
+import { GUIDES } from '../world/guides';
 import { GameMenu, TitleScreen, exitToTitle, newRun, restartSeed, type MenuAsk } from './Menu';
 import { TowerIcon } from './TowerIcon';
 import { code, compact, displayName } from './names';
@@ -77,6 +78,7 @@ const SHORTCUTS: [keys: string, what: string][] = [
   ['G', 'Recipe book'],
   ['M', 'Damage list'],
   ['A', 'Show or hide auras'],
+  ['L', 'Next maze guide (off after the last)'],
   ['N', 'New run (asks first)'],
   ['Shift+N', 'Restart this seed (asks first)'],
   ['Esc', 'Cancel, close, deselect, then open the menu'],
@@ -95,6 +97,8 @@ type Props = {
   audio: Audio;
   routeVisible: Signal<boolean>;
   aurasVisible: Signal<boolean>;
+  /** Maze guide name shown on the board, '' for none. */
+  mazeGuide: Signal<string>;
   /** The title screen instead of a run. */
   title?: boolean;
 };
@@ -118,6 +122,7 @@ type Flash = { text: string; x?: number; y?: number; at: number };
 export function Hud(props: Props) {
   const { sim, ticked, paused, speed, send, actions, mode, feedback, audio, routeVisible } = props;
   const aurasVisible = props.aurasVisible;
+  const mazeGuide = props.mazeGuide;
   // Passed down as a prop: signal-aware components skip re-renders when only their parent's signals change.
   const tick = ticked.value;
   const game = sim.game;
@@ -293,6 +298,10 @@ export function Hud(props: Props) {
       else if (k === 'a') {
         aurasVisible.value = !aurasVisible.value;
         announcement.value = aurasVisible.value ? 'Auras shown' : 'Auras hidden';
+      } else if (k === 'l') {
+        const next = GUIDES[GUIDES.findIndex((g) => g.name === mazeGuide.value) + 1];
+        mazeGuide.value = next?.name ?? '';
+        announcement.value = next ? `Maze guide: ${next.name}` : 'Maze guide off';
       } else if (k === 'escape') {
         // Cancel targeting, else close the settings or the book, else drop the selection, else open
         // the menu.
@@ -426,6 +435,20 @@ export function Hud(props: Props) {
                 >
                   {ICONS.target}
                 </MenuToggle>
+                <label class="setting-range">
+                  Maze guide
+                  <select
+                    value={mazeGuide.value}
+                    onChange={(e) => (mazeGuide.value = e.currentTarget.value)}
+                  >
+                    <option value="">None</option>
+                    {GUIDES.map((g) => (
+                      <option key={g.name} value={g.name}>
+                        {g.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <button
                   disabled={!audio.available.value}
                   aria-pressed={audio.enabled.value}

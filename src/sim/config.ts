@@ -1,5 +1,4 @@
 import type { GameData } from '../data';
-import { MAPS, type MapId } from './board';
 import { readHeroCatalog } from './hero';
 
 /**
@@ -20,8 +19,6 @@ export interface RunConfig {
   hero: string | null;
   skills: Record<string, number>;
   sandbox?: boolean;
-  /** Board layout (MAPS); absent is Classic, so older saves and hashes are unchanged. */
-  map?: MapId;
 }
 
 export const DEFAULT_CONFIG: Readonly<RunConfig> = Object.freeze({
@@ -47,10 +44,7 @@ export function resolveConfig(data: GameData, input: Partial<RunConfig> = {}): R
     hero: input.hero ?? null,
     skills: { ...(input.skills ?? {}) },
     ...(input.sandbox ? { sandbox: true } : {}),
-    ...(input.map && input.map !== 'classic' ? { map: input.map } : {}),
   };
-  if (config.map && !(config.map in MAPS))
-    throw new RunConfigError(`Unknown map "${String(config.map)}".`);
   if (![1, 2, 3, 4].includes(config.difficulty))
     throw new RunConfigError(`Difficulty must be 1, 2, 3 or 4 (got ${String(config.difficulty)}).`);
   const catalog = readHeroCatalog(data);

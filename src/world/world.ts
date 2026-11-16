@@ -5,6 +5,8 @@ import { TICK_HZ } from '../sim/game';
 import { createEnvironment } from './environment';
 import { createPieces } from './pieces';
 import { TURRET_TOP } from './walls';
+
+const BOARD_CELLS = 37 * 37;
 import { azimuth, elevation, frame, toCell, toScene, type Rect, type ViewState } from './view';
 
 // Draws the board and owns the orthographic camera. Reads sim state, never changes it.
@@ -341,6 +343,21 @@ export function createWorld(board: Board, game: Game) {
   }
   mvpRing.visible = false;
   scene.add(mvpRing);
+  // Maze guide (guides.ts): a flat gold tile on every cell the chosen guide wants filled.
+  const mazeGuide = new THREE.InstancedMesh(
+    new THREE.PlaneGeometry(0.9, 0.9).rotateX(-Math.PI / 2),
+    new THREE.MeshBasicMaterial({
+      color: '#f2c52e',
+      transparent: true,
+      opacity: 0.35,
+      depthWrite: false,
+    }),
+    BOARD_CELLS,
+  );
+  mazeGuide.count = 0;
+  mazeGuide.renderOrder = 1;
+  mazeGuide.frustumCulled = false;
+  scene.add(mazeGuide);
 
   // The selected creep: a gold ring that follows it.
   const creepRing = new THREE.Group().add(
@@ -658,6 +675,16 @@ export function createWorld(board: Board, game: Game) {
       if (!cell) return;
       const { x, z } = toScene(cell);
       mvpRing.position.set(x, TURRET_TOP + 0.03, z);
+    },
+    /** Mark a maze guide's cells, or clear it with an empty list. */
+    setMazeGuide(cells: readonly Cell[]) {
+      mazeGuide.count = Math.min(BOARD_CELLS, cells.length);
+      cells.slice(0, BOARD_CELLS).forEach((c, i) => {
+        const { x, z } = toScene(c);
+        // Above the wall tops, so a guide cell stays visible once its stone is built.
+        mazeGuide.setMatrixAt(i, ringPose.makeTranslation(x, TURRET_TOP + 0.01, z));
+      });
+      mazeGuide.instanceMatrix.needsUpdate = true;
     },
     /** Show or hide the towers' aura rings. */
     setAurasVisible(visible: boolean) {
