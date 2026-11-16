@@ -879,3 +879,25 @@ dialog.menu::backdrop {
     animation: none;
   }
 }
+
+/* Maze guide picker: opens above the bottom-right game controls. */
+.guide-picker {
+  position: fixed;
+  right: 12px;
+  bottom: 64px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: min(60vh, 520px);
+  overflow-y: auto;
+  padding: 8px;
+  min-width: 200px;
+}
+.guide-picker button {
+  text-align: left;
+}
+.guide-picker button[aria-checked='true'] {
+  outline: 1px solid #f2c52e;
+  color: #f2c52e;
+}

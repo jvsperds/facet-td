@@ -101,6 +101,7 @@ export const ICONS: Record<string, ComponentChildren> = {
     <path d="M3.5 5.5c2.7-1 5.6-.8 8.5 1 2.9-1.8 5.8-2 8.5-1V19c-2.7-1-5.6-.8-8.5 1-2.9-1.8-5.8-2-8.5-1z M12 6.5V20" />
   ),
   meter: <path d="M4 20h16 M6.5 20v-6 M10.5 20V8 M14.5 20v-9 M18.5 20V5" />,
+  maze: <path d="M4 4h16v16H4z M8 4v8h4 M16 8v12 M8 16h4v4" />,
   route: <path d="M4 6h7v12h9 M16.5 14.5 20 18l-3.5 3.5" />,
   heart: <path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z" />,
   stone: <path d="M5 17.5 7 9l5-3.5 5.5 2.5L19.5 17 12 19.5z M7 9l5 2.5 5.5-3.5 M12 11.5v8" />,

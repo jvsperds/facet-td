@@ -130,6 +130,7 @@ export function Hud(props: Props) {
   const heroOpen = useSignal(false);
   const menuOpen = useSignal(false);
   const recipesOpen = useSignal(false);
+  const guidesOpen = useSignal(false);
   const helpOpen = useSignal(false);
   const quality = useSignal(localStorage.getItem('facet-td:quality') ?? 'auto');
   const menuAsk = useSignal<MenuAsk>(null);
@@ -308,6 +309,8 @@ export function Hud(props: Props) {
         if (targeting.value) {
           targeting.value = null;
           announcement.value = 'Cancelled';
+        } else if (guidesOpen.value) {
+          guidesOpen.value = false;
         } else if (flyout.value) {
           closeFlyout();
         } else if (recipesOpen.value) recipesOpen.value = false;
@@ -571,6 +574,17 @@ export function Hud(props: Props) {
           ))}
         </div>
         <button
+          aria-label="Maze guides"
+          aria-keyshortcuts="L"
+          aria-expanded={guidesOpen.value}
+          aria-controls="maze-guides"
+          aria-pressed={!!mazeGuide.value}
+          title={`Maze guide: ${mazeGuide.value || 'none'} (L cycles)`}
+          onClick={() => (guidesOpen.value = !guidesOpen.value)}
+        >
+          <Icon name="maze" />
+        </button>
+        <button
           aria-label="Recipe book"
           aria-keyshortcuts="G"
           aria-pressed={recipesOpen.value}
@@ -599,6 +613,23 @@ export function Hud(props: Props) {
           ?
         </button>
       </nav>
+      {guidesOpen.value && (
+        <div class="panel guide-picker" id="maze-guides" role="radiogroup" aria-label="Maze guides">
+          <p class="section-label">Maze guide</p>
+          {[{ name: '' }, ...GUIDES].map((g) => (
+            <button
+              role="radio"
+              aria-checked={mazeGuide.value === g.name}
+              onClick={() => {
+                mazeGuide.value = g.name;
+                guidesOpen.value = false;
+              }}
+            >
+              {g.name || 'None'}
+            </button>
+          ))}
+        </div>
+      )}
       {helpOpen.value && <HelpDialog close={() => (helpOpen.value = false)} />}
       {heroOpen.value && <HeroPanel sim={sim} send={send} close={() => (heroOpen.value = false)} />}
       {menuOpen.value && (
