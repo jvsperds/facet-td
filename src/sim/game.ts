@@ -602,13 +602,8 @@ export class Game {
       const refusal = this.beaconRefusal(plan.effect.point);
       if (refusal) return { ok: false, reason: refusal };
     }
+    // No hero unit stands on the board here, so skills cast at any range.
     const gem = this.gems.find((g) => g.id === target);
-    const position =
-      plan.effect.kind === 'stoneLine'
-        ? undefined
-        : (gem?.cell ?? (target !== undefined && target < 0 ? this.stones.get(-target) : point));
-    if (position && !this.near(position, this.heroPosition, 500 / CELL_UNITS))
-      return { ok: false, reason: 'Move the hero closer to this tower.' };
     if (
       plan.effect.kind === 'swapNearbyStone' &&
       gem &&
@@ -627,12 +622,11 @@ export class Game {
     if (!this.findRoute(undefined, p)) return 'Blocked if build here';
     return null;
   }
-  /** A friendly unit within 58 units of a cell centre: stone, tower, hero or beacon. */
+  /** A friendly unit on a cell: stone, tower or beacon (no hero unit stands on this board). */
   private friendlyAt(c: Cell) {
     return (
       this.stoneAt(c) ||
       !!this.gemAt(c) ||
-      this.near(this.heroPosition, c, 58 / CELL_UNITS) ||
       (this.beacon?.x === c.x && this.beacon?.y === c.y)
     );
   }

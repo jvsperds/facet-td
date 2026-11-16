@@ -40,7 +40,7 @@ export function HeroPanel({
   return (
     <dialog ref={dialog} class="panel hero-panel" aria-labelledby="hero-title" onClose={close}>
       <h2 id="hero-title">Hero actions</h2>
-      <p>Move within range, select a valid target, then cast with run gold.</p>
+      <p>Select a valid target anywhere on the board, then cast with run gold.</p>
       {game.hero.selected && (
         <section aria-label="Hero actions">
           <p>
