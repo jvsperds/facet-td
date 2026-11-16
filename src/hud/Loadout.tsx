@@ -12,6 +12,7 @@ import {
   type PlayerProfile,
 } from '../profile/profile';
 import { readHeroCatalog } from '../sim/hero';
+import { MAPS, type MapId } from '../sim/board';
 
 function labels(data: GameData) {
   const tokens = (
@@ -37,6 +38,7 @@ export function Loadout({
   const result = useSignal('');
   const difficulty = useSignal<1 | 2 | 3 | 4>(1);
   const endless = useSignal(true);
+  const map = useSignal<MapId>('classic');
   const catalog = readHeroCatalog(data);
   const name = labels(data);
   const update = (fn: (p: PlayerProfile) => void) => {
@@ -82,6 +84,16 @@ export function Loadout({
             <option value="2">Hard · 1.5× shells</option>
             <option value="3">Expert · 2× shells</option>
             <option value="4">Master · 3× shells</option>
+          </select>
+        </label>
+        <label>
+          Map
+          <select value={map.value} onChange={(e) => (map.value = e.currentTarget.value as MapId)}>
+            {Object.entries(MAPS).map(([id, m]) => (
+              <option key={id} value={id}>
+                {m.name}
+              </option>
+            ))}
           </select>
         </label>
         <label>
@@ -177,6 +189,7 @@ export function Loadout({
               ...profileRunConfig(data, profile.value),
               difficulty: difficulty.value,
               endless: endless.value,
+              map: map.value,
             });
             start();
           }}

@@ -66,6 +66,7 @@ export function createPedalEffects(scene: THREE.Scene) {
   const column = new THREE.CylinderGeometry(1, 1, 1, 20, 1, true).translate(0, 0.5, 0);
   const orb = new THREE.IcosahedronGeometry(0.18, 1);
   const cloud = new THREE.SphereGeometry(1, 14, 10).scale(1, 0.45, 1);
+  const chunk = new THREE.BoxGeometry(0.16, 0.12, 0.14);
   const zones: Zone[] = [];
 
   function add(
@@ -126,6 +127,8 @@ export function createPedalEffects(scene: THREE.Scene) {
       toScene: (x: number, y: number) => Point,
       creeps: { id: number; x: number; y: number }[],
       targetId: number,
+      /** Towers a howl buffed (scene points). */
+      allies: Point[] = [],
     ) {
       add(thin, PEDAL_COLORS.press, tablet, 0.03, 0.5, expand(0.7, 0.9));
       add(disc, PEDAL_COLORS.press, tablet, 0.025, 0.35, expand(0.5, 0.5));
@@ -192,6 +195,35 @@ export function createPedalEffects(scene: THREE.Scene) {
         } else if (family === 'howl') {
           add(ring, color, tablet, 0.04, 0.9, expand(radius, 0.8));
           add(thin, color, tablet, 0.03, 1.4, expand(radius, 0.5), 0.25);
+          // Each rallied tower gets a golden ring and glow that pulse while the buff lasts.
+          for (const a of allies) {
+            const life = seconds(op.duration, 5);
+            add(
+              ring,
+              color,
+              a,
+              0.05,
+              life,
+              (t, m, mat, reduced) => {
+                const beat = reduced ? 0.5 : 0.5 + 0.5 * Math.sin(t * life * Math.PI * 3);
+                m.scale.setScalar(0.42 + 0.06 * beat);
+                mat.opacity = (0.45 + 0.4 * beat) * Math.min(1, t / 0.05, (1 - t) / 0.1);
+              },
+              0.2,
+            );
+            add(
+              column,
+              color,
+              a,
+              0,
+              life,
+              (t, m, mat) => {
+                m.scale.set(0.3, 1.6, 0.3);
+                mat.opacity = 0.12 * Math.min(1, t / 0.05, (1 - t) / 0.1);
+              },
+              0.2,
+            );
+          }
         } else if (family === 'acid') {
           add(disc, color, at, 0.02, seconds(op.duration, 3), pool(radius, 0.35));
           add(thin, color, at, 0.03, seconds(op.duration, 3), pool(radius, 0.7));
@@ -252,6 +284,26 @@ export function createPedalEffects(scene: THREE.Scene) {
             mat.opacity = 0.18 * Math.min(1, t / 0.08, (1 - t) / 0.15);
           });
         }
+      }
+    },
+
+    /** A wall block broke: a dust ring and stone chunks thrown up that fall back and fade. */
+    crumble(at: Point) {
+      add(disc, '#8a8f99', at, 0.03, 0.8, expand(0.9, 0.45));
+      add(thin, '#c9c4b8', at, 0.04, 0.6, expand(1.1, 0.7));
+      for (let i = 0; i < 7; i++) {
+        const a = (i / 7) * Math.PI * 2 + Math.sin(at.x * 3 + at.z * 7 + i) * 0.5;
+        const [vx, vz] = [
+          Math.cos(a) * (0.6 + (i % 3) * 0.25),
+          Math.sin(a) * (0.6 + (i % 3) * 0.25),
+        ];
+        const up = 2.4 + (i % 2) * 0.8;
+        add(chunk, i % 2 ? '#6b707a' : '#8a8f99', at, 0.2, 0.75, (t, m, mat, reduced) => {
+          const s = reduced ? 0.3 : t * 0.75;
+          m.position.set(at.x + vx * s, Math.max(0.05, 0.2 + up * s - 4.9 * s * s), at.z + vz * s);
+          m.rotation.set(s * 9 + i, s * 7, 0);
+          mat.opacity = Math.min(1, (1 - t) / 0.3);
+        });
       }
     },
 

@@ -19,6 +19,7 @@ import { createInstanceBatch } from './instances';
 import { pedalHead } from './pedal-models';
 import {
   TURRET_TOP,
+  filledAtPoint,
   neighbourhood,
   updateRaster,
   wallMesh,
@@ -43,7 +44,27 @@ type CreepView = {
   prev: { x: number; y: number };
   cur: { x: number; y: number };
   height: number;
+  /** Ground creeps step aside from wall bands; fliers pass over. */
+  fly: boolean;
+  /** Eased sideways offset from the sim's centre line, in cells. */
+  off: { x: number; y: number };
 };
+
+/**
+ * Presentation only: the sim walks creeps through cell centres, but diagonal wall bands and bevels
+ * reach up to 0.33 cells into a free cell. Probe a ring round the creep and push away from wall.
+ */
+function wallPush(filled: (x: number, y: number) => boolean, x: number, y: number) {
+  let [px, py] = [0, 0];
+  for (let k = 0; k < 8; k++) {
+    const a = (k * Math.PI) / 4;
+    const [dx, dy] = [Math.cos(a), Math.sin(a)];
+    if (filled(x + dx * 0.4, y + dy * 0.4)) [px, py] = [px - dx, py - dy];
+  }
+  const l = Math.hypot(px, py);
+  // shortcut: fixed 0.22-cell sidestep, not a true clearance solve; tune if wide bosses still clip.
+  return l > 1e-6 ? { x: (px / l) * 0.22, y: (py / l) * 0.22 } : { x: 0, y: 0 };
+}
 
 const key = (c: Cell) => c.y * 64 + c.x;
 /** Wall chunk size in cells: a maze change re-merges only the chunks it touches. */
@@ -78,7 +99,7 @@ function extraTower(name: string, options: Parameters<typeof createStone>[0]) {
   const base = createStone({ ...options, towerBase: true });
   const head = new THREE.Group();
   const tablet = name.includes('shiban');
-  if (tablet) base.children[0].scale.y = 0.12;
+  if (tablet) base.children[0].scale.y = 0.05;
   if (tablet) head.add(pedalHead(name));
   else {
     const body = new THREE.Mesh(
@@ -378,6 +399,8 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
           (map === cells && !occupied.get(k)!.name) ||
           (map === walls && floor.has(k))
         ) {
+          // A stone removed (not just a joint rebuild): the block crumbles.
+          if (map === walls && !occupied.has(k)) pedals.crumble(p.obj.position);
           dispose(p.obj);
           map.delete(k);
           version++;
@@ -513,6 +536,8 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
           prev: { x: c.x, y: c.y },
           cur: { x: c.x, y: c.y },
           height: new THREE.Box3().setFromObject(obj).max.y + 0.15,
+          fly: c.fly,
+          off: { x: 0, y: 0 },
         };
         creeps.set(c.id, v);
         changed = true;
@@ -621,6 +646,10 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
             (x, y) => toScene({ x, y }),
             game.creeps,
             e.target,
+            e.allies.flatMap((id) => {
+              const ally = game.gems.find((a) => a.id === id);
+              return ally ? [toScene(ally.cell)] : [];
+            }),
           );
         }
       syncCreeps();
@@ -634,8 +663,13 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
       for (const v of creeps.values()) {
         const x = v.prev.x + (v.cur.x - v.prev.x) * alpha;
         const y = v.prev.y + (v.cur.y - v.prev.y) * alpha;
-        // Creeps follow the sim's path through cell centres exactly.
-        const s = toScene({ x, y });
+        if (!v.fly) {
+          const goal = wallPush((px, py) => filledAtPoint(raster, px, py), x, y);
+          const k = 1 - Math.exp(-10 * dt);
+          v.off.x += (goal.x - v.off.x) * k;
+          v.off.y += (goal.y - v.off.y) * k;
+        }
+        const s = toScene({ x: x + v.off.x, y: y + v.off.y });
         // The creep factory already lifts flying bodies; the group stays on the ground with the shadow.
         v.obj.position.set(s.x, 0, s.z);
         const [dx, dy] = [v.cur.x - v.prev.x, v.cur.y - v.prev.y];
@@ -663,7 +697,8 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
       for (const g of game.gems) {
         const obj = cells.get(key(g.cell))?.obj;
         const t = g.target !== null ? creeps.get(g.target) : undefined;
-        if (!obj) continue;
+        // Aura-only towers keep a static model.
+        if (!obj || !game.attacks(g.name)) continue;
         // Heads ease toward the target and turn smoothly onto the next one (issue #14).
         const aimer = obj.userData.aimer as ReturnType<typeof createAimer>;
         aimer.update(t?.obj.position.x, t?.obj.position.z, dt, reducedMotion);

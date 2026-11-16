@@ -23,8 +23,8 @@ import './hud/skin-a.css';
 
 const mode: Mode = 'classic';
 const params = new URLSearchParams(location.search);
-// `?title` shows the title screen over an idle board instead of a run.
-const title = params.has('title');
+// A bare launch (or `?title`) shows the title screen over an idle board; a run needs `?seed` or `?resume`.
+const title = params.has('title') || !(params.has('seed') || params.has('resume'));
 // The seed is the only outside input; `?seed=` replays a game.
 const seed = Number(params.get('seed')) || Date.now() >>> 0;
 // `?wip` keeps the free hero loadout (sandbox); a normal run's hero is fixed by its config.

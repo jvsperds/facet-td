@@ -132,7 +132,10 @@ const AURA_OPACITY: Record<AuraFamily, [number, number, number]> = {
   shred: [0.32, 0.04, 0.35],
 };
 const MAX_AURAS = 256;
-const MAX_FIELD_TILES = 4096;
+const MAX_FIELD_TILES = 8192;
+/** Field pulse: a ring sweeps out on create or merge, then again every FIELD_PULSE_EVERY seconds. */
+const FIELD_PULSE_EVERY = 5;
+const FIELD_PULSE_LIFE = 1.1;
 const MAX_FIELD_MOTES = 6000;
 /** Enemy fields drawn on the ground (tiles, glaze, motes) instead of as rings. */
 export type GroundFamily = 'burn' | 'frost' | 'shred';
@@ -317,19 +320,25 @@ export function groundFamily(a: TowerAbility): GroundFamily | null {
   return 'frost';
 }
 
-/** Board cells inside towers' enemy fields: each family's highest level reaching each cell. */
+/**
+ * Board cells inside towers' enemy fields: each family's highest level reaching each cell. With
+ * `step` 0.5 it returns half-cell tiles whose centres lie inside the true circle, for drawing.
+ */
 export function fieldCells(
   towers: readonly { x: number; z: number; abilities: readonly TowerAbility[] }[],
+  step = 1,
 ) {
+  const shift = step < 1 ? 0.5 : 0;
   const level = new Map<string, number>();
   for (const t of towers)
     for (const a of t.abilities) {
       const family = groundFamily(a);
       if (!family || a.kind !== 'field') continue;
-      // Same reach as the sim: cell centres within the radius (squared distance in cells).
-      const r = Math.floor(a.radius);
-      for (let dx = -r; dx <= r; dx++)
-        for (let dz = -r; dz <= r; dz++) {
+      // Same reach as the sim at step 1: cell centres within the radius (squared distance in cells).
+      const r = Math.ceil(a.radius / step);
+      for (let i = -r; i <= r; i++)
+        for (let j = -r; j <= r; j++) {
+          const [dx, dz] = [(i + shift) * step, (j + shift) * step];
           if (dx * dx + dz * dz > a.radius * a.radius) continue;
           const x = t.x + dx;
           const z = t.z + dz;
@@ -602,6 +611,30 @@ export function createEffects(scene: THREE.Scene) {
   fieldMotes.visible = false;
   fieldGroup.add(fieldMotes);
   let motes: { x: number; z: number; phase: number; family: GroundFamily }[] = [];
+  let fieldPulses: {
+    id: string;
+    x: number;
+    z: number;
+    radius: number;
+    family: GroundFamily;
+    born: number;
+  }[] = [];
+  // Additive: an instance colour fading to black fades the ring out.
+  const fieldPulse = new THREE.InstancedMesh(
+    new THREE.RingGeometry(0.9, 1, 64).rotateX(-Math.PI / 2),
+    new THREE.MeshBasicMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    }),
+    MAX_AURAS,
+  );
+  fieldPulse.name = 'field-pulse';
+  fieldPulse.count = 0;
+  fieldPulse.renderOrder = 2;
+  fieldPulse.frustumCulled = false;
+  fieldGroup.add(fieldPulse);
+  const pulseColor = new THREE.Color();
   let auras: {
     x: number;
     z: number;
@@ -700,7 +733,7 @@ export function createEffects(scene: THREE.Scene) {
     /** Rebuild aura rings when the set of towers changes. */
     setTowers(towers: Tower[], blocked: readonly { x: number; z: number }[] = []) {
       const key =
-        towers.map((t) => `${t.id}:${t.x}:${t.z}:${t.color}`).join() +
+        towers.map((t) => `${t.id}:${t.x}:${t.z}:${t.color}:${t.name}`).join() +
         `|${blocked.map((c) => `${c.x}:${c.z}`).join()}`;
       if (key === auraKey) return;
       auraKey = key;
@@ -721,7 +754,25 @@ export function createEffects(scene: THREE.Scene) {
             auraPose.compose(auraAt.set(t.x, 0.012, t.z), flat, auraScale.setScalar(radius)),
           );
         }
+      // One pulse ring per field tower; a new or merged tower (new id or name) pulses at once.
+      const born = new Map(fieldPulses.map((p) => [p.id, p.born]));
+      fieldPulses = [];
+      for (const t of towers)
+        for (const a of t.abilities) {
+          const family = groundFamily(a);
+          if (!family || a.kind !== 'field' || fieldPulses.length >= MAX_AURAS) continue;
+          const id = `${t.id}:${t.name ?? t.color}:${a.name}`;
+          fieldPulses.push({
+            id,
+            x: t.x,
+            z: t.z,
+            radius: a.radius,
+            family,
+            born: born.get(id) ?? clock,
+          });
+        }
       const tiles = fieldCells(towers).slice(0, MAX_FIELD_TILES);
+      const subTiles = fieldCells(towers, 0.5).slice(0, MAX_FIELD_TILES);
       const solid = new Set(blocked.map((c) => `${c.x},${c.z}`));
       const placed = {
         burn: { tiles: 0, glaze: 0, turret: 0 },
@@ -731,19 +782,28 @@ export function createEffects(scene: THREE.Scene) {
       motes = [];
       let rnd = 1;
       const random = () => ((rnd = (rnd * 16807) % 2147483647) - 1) / 2147483646;
+      // Ground tint: half-cell tiles inside the circle, so the field's edge reads round.
+      for (const tile of subTiles) {
+        const n = placed[tile.family];
+        const [hx, hz] = [Math.floor(tile.x * 2), Math.floor(tile.z * 2)];
+        // A quarter turn per tile (fixed by position) so the 16x16 texture does not visibly repeat.
+        turn.setFromAxisAngle(UP, ((((hx * 7 + hz * 13) % 4) + 4) % 4) * (Math.PI / 2));
+        auraPose.compose(
+          auraAt.set(tile.x, FIELD_LIFT[tile.family], tile.z),
+          turn,
+          auraScale.setScalar(0.5),
+        );
+        fieldLayers[tile.family].tiles.setMatrixAt(n.tiles, auraPose);
+        fieldLayers[tile.family].tiles.setColorAt(
+          n.tiles++,
+          FIELD_TINT[tile.family][tile.level - 1],
+        );
+      }
       for (const tile of tiles) {
         const tint = FIELD_TINT[tile.family][tile.level - 1];
         const layer = fieldLayers[tile.family];
         const n = placed[tile.family];
-        // A quarter turn per cell (fixed by position) so the 16x16 texture does not visibly repeat.
         turn.setFromAxisAngle(UP, ((((tile.x * 7 + tile.z * 13) % 4) + 4) % 4) * (Math.PI / 2));
-        auraPose.compose(
-          auraAt.set(tile.x, FIELD_LIFT[tile.family], tile.z),
-          turn,
-          auraScale.setScalar(1),
-        );
-        layer.tiles.setMatrixAt(n.tiles, auraPose);
-        layer.tiles.setColorAt(n.tiles++, tint);
         if (solid.has(`${tile.x},${tile.z}`)) {
           auraPose.compose(auraAt.set(tile.x, 0, tile.z), turn, auraScale.setScalar(1));
           const lone = ![
@@ -813,6 +873,28 @@ export function createEffects(scene: THREE.Scene) {
           );
         }
       for (const f of FAMILIES) layers[f].pulse.instanceMatrix.needsUpdate = true;
+      // Field pulses: a ring sweeps from the tower to the field's edge, fading as it goes.
+      let pulses = 0;
+      if (!reducedMotion)
+        for (const p of fieldPulses) {
+          const t = ((clock - p.born) % FIELD_PULSE_EVERY) / FIELD_PULSE_LIFE;
+          if (t >= 1) continue;
+          fieldPulse.setMatrixAt(
+            pulses,
+            auraPose.compose(
+              auraAt.set(p.x, 0.03, p.z),
+              flat,
+              auraScale.setScalar(p.radius * (0.1 + 0.9 * t)),
+            ),
+          );
+          fieldPulse.setColorAt(
+            pulses++,
+            pulseColor.copy(MOTE_COLOR[p.family]).multiplyScalar(1 - t),
+          );
+        }
+      fieldPulse.count = pulses;
+      fieldPulse.instanceMatrix.needsUpdate = true;
+      if (fieldPulse.instanceColor) fieldPulse.instanceColor.needsUpdate = true;
       // Field motes rise and loop; reduced motion hides them.
       fieldMotes.visible = !reducedMotion && motes.length > 0;
       if (fieldMotes.visible) {

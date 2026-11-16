@@ -361,6 +361,8 @@ kbd {
 .card.collapsed .portrait-art img.glyph {
   width: 190px;
   height: 190px;
+  /* The render frames the gem head, so the shaft ends at the image edge: fade it, never cut it. */
+  mask-image: linear-gradient(to bottom, #000 55%, transparent 92%);
 }
 .card-main,
 .selection-stack .selection-actions {

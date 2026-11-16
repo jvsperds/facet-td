@@ -651,7 +651,7 @@ function CellCard({
   const combines = gem ? game.combineOptions(gem.id) : [];
   // The first enabled command is the primary action and takes the accent fill.
   const primary = combines.length ? -1 : buttons.findIndex(([, check]) => check.ok);
-  const aims = !!gem && !!name && !isTablet(name);
+  const aims = !!gem && !!name && !isTablet(name) && game.attacks(name);
   const portrait = name ? (
     <TowerIcon name={name} portrait />
   ) : (
@@ -762,9 +762,7 @@ function CellCard({
           send({
             type: 'aim',
             id: gem.id,
-            mode:
-              Number((e.target as HTMLSelectElement).value) +
-              ((gem.aim ?? 0) >= AIM_BOSS ? AIM_BOSS : 0),
+            mode: Number((e.target as HTMLSelectElement).value),
           })
         }
       >
@@ -774,16 +772,6 @@ function CellCard({
           </option>
         ))}
       </select>
-      <button
-        class="boss"
-        aria-pressed={(gem.aim ?? 0) >= AIM_BOSS}
-        title="Bosses and elite creeps are targeted first"
-        onClick={() =>
-          send({ type: 'aim', id: gem.id, mode: ((gem.aim ?? 0) + AIM_BOSS) % (2 * AIM_BOSS) })
-        }
-      >
-        Boss first
-      </button>
     </div>
   );
   const mvpLevel = gem?.level ?? 0;

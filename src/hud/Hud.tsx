@@ -58,6 +58,7 @@ const SPEEDS = [
 const SHORTCUTS: [keys: string, what: string][] = [
   ['Space or P', 'Pause or resume'],
   ['7 8 9 0', 'Speed 1×, 2×, 4×, 10×'],
+  ['< / >', 'Slower / faster'],
   ['1 – 5', "Select this round's gem 1 to 5"],
   ['Q', 'Keep the selected gem (else: arm Place gem)'],
   ['W', 'Downgrade and keep (else: arm Remove stone)'],
@@ -270,8 +271,13 @@ export function Hud(props: Props) {
           return;
         actions.moveCursor(e.key as Arrow);
       } else if (k === 'b') actions.buildAtCursor();
-      else if (k === ',' || k === '<') actions.turn(-90);
-      else if (k === '.' || k === '>') actions.turn(90);
+      else if (k === '<' || k === '>') {
+        const i = SPEEDS.findIndex(([s]) => s === speed.value);
+        const [s, label] =
+          SPEEDS[Math.max(0, Math.min(SPEEDS.length - 1, i + (k === '>' ? 1 : -1)))];
+        setSpeed(s, label);
+      } else if (k === ',') actions.turn(-90);
+      else if (k === '.') actions.turn(90);
       else if (k === 'v') actions.reset();
       else if (k === ']') cycleTower(1);
       else if (k === '[') cycleTower(-1);

@@ -85,7 +85,7 @@ export class Sim {
     this.rng = new Rng(seed);
     this.players = Array.from({ length: playerCount }, (_, id) => ({ id }));
     // shortcut: one shared single-player board; co-op and race boards per player come with phase 6.
-    this.board = new Board(data);
+    this.board = new Board(data, 1, this.config.map);
     this.game = new Game(data, this.board, this.rng, this.config);
   }
 

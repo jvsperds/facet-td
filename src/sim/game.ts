@@ -174,7 +174,14 @@ export type GameEvent =
     }
   | { type: 'kill'; id: number; gold: number }
   /** A tablet (pedal) fired; its planned operations, for presentation. */
-  | { type: 'tablet'; from: number; target: number; operations: readonly TabletOperation[] }
+  | {
+      type: 'tablet';
+      from: number;
+      target: number;
+      operations: readonly TabletOperation[];
+      /** Towers a howl buffed, for the rally effect. */
+      allies: number[];
+    }
   | { type: 'leak'; id: number; damage: number }
   /** The win streak moved the creeps-per-wave count (#text_win_streak_up / _down). */
   | { type: 'enemy-count'; count: number; delta: 1 | -1 };
@@ -294,6 +301,11 @@ export class Game {
 
   private luaValue<T>(name: string) {
     return this.lua[name].value as T;
+  }
+  /** False for aura-only towers and pedals: they never pick a target. */
+  attacks(name: string) {
+    const u = this.units[name];
+    return !!u && u.AttackCapabilities !== 'DOTA_UNIT_CAP_NO_ATTACK' && num(u, 'AttackRate') > 0;
   }
   unit(name: string): Unit {
     return this.units[name];
@@ -1746,11 +1758,13 @@ export class Game {
         );
         if (!plan.ok) continue;
         this.tabletReady[g.id] = plan.cooldownUntil;
+        const allies: number[] = [];
         this.events.push({
           type: 'tablet',
           from: g.id,
           target: plan.target,
           operations: plan.plans,
+          allies,
         });
         for (const operation of plan.plans) {
           if (operation.modifier === 'modifier_howl_unit_datadriven') {
@@ -1759,6 +1773,7 @@ export class Game {
                 this.near(g.cell, ally.cell, operation.radius!) &&
                 this.units[ally.name]?.AttackCapabilities === 'DOTA_UNIT_CAP_RANGED_ATTACK'
               ) {
+                allies.push(ally.id);
                 ally.buffs ??= {};
                 ally.buffs[operation.modifier] = {
                   expires: tick + operation.duration!,
@@ -1990,7 +2005,7 @@ export class Game {
   private attack(g: Gem, tick: number) {
     if (g.cooldown > 0) g.cooldown--;
     const u = this.units[g.name];
-    if (u.AttackCapabilities === 'DOTA_UNIT_CAP_NO_ATTACK' || num(u, 'AttackRate') <= 0) return;
+    if (!this.attacks(g.name)) return;
     if ((g.disabledUntil ?? 0) > tick) return;
     if (g.holdFire) {
       g.target = null;
