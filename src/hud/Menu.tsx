@@ -145,7 +145,7 @@ export function TitleScreen({ data, audio }: { data: GameData; audio: Audio }) {
           close={() => (loadout.value = false)}
           start={() => {
             clearSavedRun();
-            go({});
+            newRun();
           }}
         />
       )}
