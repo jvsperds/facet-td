@@ -11,6 +11,7 @@ import { createFeedback } from './hud/feedback';
 import { createCameraInput, cursor, hovered, selected, selectedCreep } from './input/camera';
 import { Sim, TICK_HZ, type Cmd } from './sim/sim';
 import { WIP } from './hud/flags';
+import { loadRunConfig } from './profile/profile';
 import { createWorld } from './world/world';
 import { prewarmTowers } from './world/pieces';
 import { setupPreview } from './preview';
@@ -25,7 +26,12 @@ const title = params.has('title');
 // The seed is the only outside input; `?seed=` replays a game.
 const seed = Number(params.get('seed')) || Date.now() >>> 0;
 // `?wip` keeps the free hero loadout (sandbox); a normal run's hero is fixed by its config.
-const sim = new Sim(loadData(mode), seed, { sandbox: WIP });
+const data = loadData(mode);
+const sim = new Sim(
+  data,
+  seed,
+  WIP ? { ...loadRunConfig(data), sandbox: true } : loadRunConfig(data),
+);
 const board = sim.board;
 const world = createWorld(board, sim.game);
 document.body.prepend(world.canvas);

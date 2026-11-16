@@ -164,6 +164,7 @@ export function createAudio() {
   let bossAnnounced = false;
   let draft = -1;
   let stones = -1;
+  const heroCasts: Record<string, number> = {};
 
   const api = {
     enabled,
@@ -277,6 +278,7 @@ export function createAudio() {
       if (!context || context.state !== 'running') {
         draft = game.draft.length;
         stones = game.stones.size;
+        Object.assign(heroCasts, game.stats.heroCasts);
         return;
       }
       castleMax = Math.max(castleMax, game.castleHp);
@@ -317,6 +319,20 @@ export function createAudio() {
       draft = game.draft.length;
       if (stones >= 0 && game.stones.size > stones && cue !== 'build') api.play('stone');
       stones = game.stones.size;
+      for (const [action, count] of Object.entries(game.stats.heroCasts)) {
+        if (count > (heroCasts[action] ?? 0)) {
+          api.play(
+            action.endsWith('_huichun')
+              ? 'cast-heal'
+              : action.endsWith('_xuanfeng')
+                ? 'cast-whirlwind'
+                : /_(shanbi|shouhu|kuaisusheji|baoji|miaozhun|lianjie)$/.test(action)
+                  ? 'cast-buff'
+                  : 'cast',
+          );
+        }
+        heroCasts[action] = count;
+      }
       const low = castleMax > 0 && game.castleHp > 0 && game.castleHp <= castleMax * 0.25;
       if (low && !castleWarned) api.play('castle-low');
       castleWarned = low;

@@ -1457,6 +1457,57 @@ dialog::backdrop {
   align-items: center;
   gap: 12px;
 }
+.loadout {
+  width: min(680px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  overflow: auto;
+}
+.loadout h2 {
+  margin: 3px 0 0;
+  color: var(--amber);
+  font-size: 22px;
+  text-transform: uppercase;
+}
+.shell-count {
+  color: var(--amber-1);
+  font-size: 16px;
+}
+.loadout-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 16px 0;
+}
+.loadout-skills {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+.loadout-skills label {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+}
+.profile-shop {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 16px;
+}
+.loadout-result {
+  color: var(--amber-1);
+}
+@media (max-width: 600px) {
+  .profile-shop {
+    grid-template-columns: 1fr;
+  }
+}
 .actions {
   display: flex;
   flex-wrap: wrap;

@@ -18,11 +18,11 @@ import {
 import { DamageMeter } from './DamageMeter';
 import { HeroPanel } from './HeroPanel';
 import { GlyphDefs, ICONS, Icon } from './icons';
-import { WIP } from './flags';
 import { GameMenu, TitleScreen, exitToTitle, newRun, restartSeed, type MenuAsk } from './Menu';
 import { TowerIcon } from './TowerIcon';
 import { code, compact, displayName } from './names';
 import { PinnedRecipes, RecipeBook } from './RecipeBook';
+import { claimRunReward, loadProfile } from '../profile/profile';
 import {
   announcement,
   cursor,
@@ -151,6 +151,21 @@ export function Hud(props: Props) {
   };
   const ended = game.phase === 'lost' || game.phase === 'won';
 
+  // Profile rewards are a UI persistence concern, kept outside the deterministic simulation.
+  useEffect(() => {
+    if (!ended) return;
+    const reward = claimRunReward(
+      loadProfile(sim.data),
+      `${sim.seed}:${sim.tick}:${game.stats.result}`,
+      game.stats.wavesCleared,
+      sim.config.difficulty,
+    );
+    if (reward > 0) {
+      audio.play('shell');
+      announcement.value = `${reward} shells earned`;
+    }
+  }, [ended]);
+
   // A refused placement: say why at the top, in red, and mark the cell for a moment.
   useEffect(
     () =>
@@ -266,7 +281,7 @@ export function Hud(props: Props) {
         // Handled: a selected gem's Q/W/E/R command was available.
       } else if (k === 'q') arm('build');
       else if (k === 'w') arm('remove');
-      else if (k === 'h' && WIP) heroOpen.value = true;
+      else if (k === 'h' && game.hero.selected) heroOpen.value = true;
       else if (k === 't') actions.toggleMode();
       else if (k === 'a') {
         aurasVisible.value = !aurasVisible.value;
@@ -285,7 +300,7 @@ export function Hud(props: Props) {
           selectedCreep.value = null;
           announcement.value = 'Selection cleared';
         } else openMenu();
-      } else if (WIP && SKILL_KEYS.includes(e.key.toUpperCase())) {
+      } else if (game.hero.selected && SKILL_KEYS.includes(e.key.toUpperCase())) {
         const g = sim.game;
         const skill = heroSkills(g)[SKILL_KEYS.indexOf(e.key.toUpperCase())];
         if (!skill) return;
@@ -316,7 +331,7 @@ export function Hud(props: Props) {
     return () => removeEventListener('keydown', onKey);
   }, []);
 
-  if (props.title) return <TitleScreen />;
+  if (props.title) return <TitleScreen data={sim.data} />;
   return (
     <>
       <GlyphDefs />
@@ -413,9 +428,9 @@ export function Hud(props: Props) {
                     ? `Sound ${audio.enabled.value ? 'on' : 'off'}`
                     : 'Sound unavailable'}
                 </button>
-                {WIP && (
+                {game.hero.selected && (
                   <button aria-haspopup="dialog" onClick={() => (heroOpen.value = true)}>
-                    Hero loadout <kbd aria-hidden="true">H</kbd>
+                    Hero actions <kbd aria-hidden="true">H</kbd>
                   </button>
                 )}
               </div>

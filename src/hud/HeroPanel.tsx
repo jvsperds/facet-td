@@ -1,6 +1,6 @@
 import { useSignal } from '@preact/signals';
 import { useEffect, useRef } from 'preact/hooks';
-import { readHeroCatalog } from '../sim/hero';
+import { heroActionCost, readHeroCatalog } from '../sim/hero';
 import type { Cmd, Sim } from '../sim/sim';
 import { selected } from '../input/camera';
 
@@ -39,8 +39,8 @@ export function HeroPanel({
   }, []);
   return (
     <dialog ref={dialog} class="panel hero-panel" aria-labelledby="hero-title" onClose={close}>
-      <h2 id="hero-title">Offline hero</h2>
-      <p>Choose any hero, skills, and skill levels for free. Casting still costs gold.</p>
+      <h2 id="hero-title">Hero actions</h2>
+      <p>Move within range, select a valid target, then cast with run gold.</p>
       {game.hero.selected && (
         <section aria-label="Hero actions">
           <p>
@@ -79,7 +79,7 @@ export function HeroPanel({
                       close();
                     }}
                   >
-                    {name(a.name)} Lv {a.level}
+                    {name(a.name)} Lv {a.level} · {heroActionCost(sim.data, a.name, a.level)} gold
                     {remaining ? ` (${remaining}s)` : ''}
                     {!check.ok && !remaining ? ` · ${check.reason}` : ''}
                   </button>
@@ -88,59 +88,71 @@ export function HeroPanel({
           </div>
         </section>
       )}
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          send({ type: 'hero-loadout', hero: hero.value, abilities: { ...skills.value } });
-          close();
-        }}
-      >
-        <label>
-          Hero{' '}
-          <select value={hero.value} onChange={(e) => (hero.value = e.currentTarget.value)}>
-            {Object.entries(catalog.heroes).map(([id, unit]) => (
-              <option key={id} value={id}>
-                {name(unit)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div class="hero-skills">
-          {Object.values(catalog.abilities)
-            .filter((a) => a.startsWith('gemtd_hero_'))
-            .map((a) => (
-              <label key={a}>
-                {name(a)}
-                <select
-                  aria-label={`${name(a)} level`}
-                  value={skills.value[a] ?? 0}
-                  onChange={(e) => {
-                    const next = { ...skills.value },
-                      level = Number(e.currentTarget.value);
-                    if (level) next[a] = level;
-                    else delete next[a];
-                    skills.value = next;
-                  }}
-                >
-                  {Array.from({ length: Number(definitions[a]?.MaxLevel ?? 1) + 1 }, (_, level) => (
-                    <option key={level} value={level}>
-                      {level ? `Level ${level}` : 'None'}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ))}
-        </div>
+      {sim.config.sandbox && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            send({ type: 'hero-loadout', hero: hero.value, abilities: { ...skills.value } });
+            close();
+          }}
+        >
+          <label>
+            Hero{' '}
+            <select value={hero.value} onChange={(e) => (hero.value = e.currentTarget.value)}>
+              {Object.entries(catalog.heroes).map(([id, unit]) => (
+                <option key={id} value={id}>
+                  {name(unit)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div class="hero-skills">
+            {Object.values(catalog.abilities)
+              .filter((a) => a.startsWith('gemtd_hero_'))
+              .map((a) => (
+                <label key={a}>
+                  {name(a)}
+                  <select
+                    aria-label={`${name(a)} level`}
+                    value={skills.value[a] ?? 0}
+                    onChange={(e) => {
+                      const next = { ...skills.value },
+                        level = Number(e.currentTarget.value);
+                      if (level) next[a] = level;
+                      else delete next[a];
+                      skills.value = next;
+                    }}
+                  >
+                    {Array.from(
+                      { length: Number(definitions[a]?.MaxLevel ?? 1) + 1 },
+                      (_, level) => (
+                        <option key={level} value={level}>
+                          {level ? `Level ${level}` : 'None'}
+                        </option>
+                      ),
+                    )}
+                  </select>
+                </label>
+              ))}
+          </div>
+          <div class="actions">
+            <button type="submit" disabled={game.phase !== 'build' || game.draft.length > 0}>
+              Apply loadout
+            </button>
+            <button type="button" onClick={() => dialog.current?.close()}>
+              Close
+            </button>
+          </div>
+          <small>Loadouts can be changed between drafts.</small>
+        </form>
+      )}
+      {!sim.config.sandbox && (
         <div class="actions">
-          <button type="submit" disabled={game.phase !== 'build' || game.draft.length > 0}>
-            Apply loadout
-          </button>
           <button type="button" onClick={() => dialog.current?.close()}>
             Close
           </button>
         </div>
-        <small>Loadouts can be changed between drafts.</small>
-      </form>
+      )}
     </dialog>
   );
 }
