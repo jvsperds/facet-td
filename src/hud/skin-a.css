@@ -377,6 +377,11 @@ kbd {
    tower with no abilities neither shrinks the card nor lets the portrait overflow into a scrollbar. */
 .card.tower .card-main {
   min-height: 104px;
+  flex-direction: column;
+}
+/* The aim row sits at the bottom of that reserved space, level on every tower, ability or not. */
+.card.tower .card-body {
+  margin-top: auto;
 }
 
 /* ---- UX pass: notices, the card dock, phone layouts, touch targets, help and end card. ---- */
