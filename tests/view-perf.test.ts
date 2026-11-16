@@ -38,9 +38,10 @@ test('late-game board: bounded meshes, and no growth across repeated maze change
   const { game, scene, pieces } = setup();
   const meshes = visibleMeshes(scene);
   const objects = scene.children.length;
-  // Today ~154 visible meshes for this maze (towers are not instanced yet); keep it from creeping.
-  expect(meshes).toBeLessThanOrEqual(170);
-  expect(wallChunks(scene).length).toBeLessThanOrEqual(25);
+  // The audit's phone budget is 80 draw calls. This GPU-free proxy counts every visible mesh,
+  // including helpers that a renderer may cull, so staying below it is deliberately conservative.
+  expect(meshes).toBeLessThanOrEqual(80);
+  expect(wallChunks(scene).length).toBeLessThanOrEqual(4);
   const free = { x: 20, y: 30 };
   const k = free.y * 64 + free.x;
   expect(game.stones.has(k)).toBe(false);

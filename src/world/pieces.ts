@@ -15,6 +15,7 @@ import { mergeStatic, mergedCopy } from './merge';
 import { creepPartScale } from './clearance';
 import { createEffects } from './effects';
 import { createPedalEffects } from './pedals';
+import { createInstanceBatch } from './instances';
 import { pedalHead } from './pedal-models';
 import {
   TURRET_TOP,
@@ -46,9 +47,9 @@ type CreepView = {
 
 const key = (c: Cell) => c.y * 64 + c.x;
 /** Wall chunk size in cells: a maze change re-merges only the chunks it touches. */
-const WALL_CHUNK = 8;
+const WALL_CHUNK = 20;
 const chunkOf = (k: number) =>
-  Math.floor((k % 64) / WALL_CHUNK) + 16 * Math.floor(k / 64 / WALL_CHUNK);
+  Math.floor((k % 64) / WALL_CHUNK) + 4 * Math.floor(k / 64 / WALL_CHUNK);
 const BAR_FILL = new THREE.Color(BAR.fill);
 const BAR_LOW = new THREE.Color(BAR.low);
 /** Most health bars drawn at once. */
@@ -273,6 +274,19 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
   /** Wall blocks by cell key, for every stone and tower cell. */
   const walls = new Map<number, Piece>();
   const creeps = new Map<number, CreepView>();
+  let towerBatch = createInstanceBatch([]);
+  let creepBatch = createInstanceBatch([]);
+  scene.add(towerBatch.group, creepBatch.group);
+  const rebuildTowers = () => {
+    towerBatch.dispose();
+    towerBatch = createInstanceBatch([...cells.values()].map((piece) => piece.obj));
+    scene.add(towerBatch.group);
+  };
+  const rebuildCreeps = () => {
+    creepBatch.dispose();
+    creepBatch = createInstanceBatch([...creeps.values()].map((creep) => creep.obj));
+    scene.add(creepBatch.group);
+  };
   const effects = createEffects(scene);
   const pedals = createPedalEffects(scene);
   let version = 0;
@@ -393,10 +407,10 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
       obj.position.set(sx, 0, sz);
       obj.userData.aimer = createAimer(obj);
       obj.userData.cell = cell;
-      scene.add(obj);
       cells.set(k, { sig: name, obj });
       version++;
     }
+    rebuildTowers();
     return true;
   }
 
@@ -481,17 +495,18 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
   const barRight = new THREE.Vector3();
 
   function syncCreeps() {
+    let changed = false;
     const alive = new Set(game.creeps.map((c) => c.id));
     for (const [id, v] of creeps)
       if (!alive.has(id)) {
         dispose(v.obj);
         creeps.delete(id);
+        changed = true;
       }
     for (const c of game.creeps) {
       let v = creeps.get(c.id);
       if (!v) {
         const obj = creepModel(c.name, c.fly, c.boss, c.elite);
-        scene.add(obj);
         v = {
           obj,
           ratio: 1,
@@ -500,11 +515,13 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
           height: new THREE.Box3().setFromObject(obj).max.y + 0.15,
         };
         creeps.set(c.id, v);
+        changed = true;
       }
       v.prev = v.cur;
       v.cur = { x: c.x, y: c.y };
       v.ratio = Math.max(0, c.hp / c.maxHp);
     }
+    if (changed) rebuildCreeps();
   }
 
   return {
@@ -532,6 +549,9 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
     },
     /** Fade these towers and wall blocks (they stand between the camera and the focus). */
     fade(hit: Set<THREE.Object3D>) {
+      const towerFadeChanged = [...cells.values()].some(
+        ({ obj }) => faded.has(obj) !== hit.has(obj),
+      );
       // Only chunks whose blocks change state are re-merged.
       for (const o of [...faded, ...hit])
         if (faded.has(o) !== hit.has(o) && o.userData.wall) markWall(key(o.userData.cell));
@@ -543,6 +563,7 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
           o.userData.solid ??= o.material;
           o.material = hit.has(obj) ? fadedOf(o.userData.solid) : o.userData.solid;
         });
+      if (towerFadeChanged) rebuildTowers();
       if (dirtyChunks.size) rebuildWalls();
     },
     /** Call after every sim tick. */
@@ -633,6 +654,8 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
           bars++;
         }
       }
+      towerBatch.update();
+      creepBatch.update();
       barBack.count = barFill.count = bars;
       barBack.instanceMatrix.needsUpdate = barFill.instanceMatrix.needsUpdate = true;
       if (barFill.instanceColor) barFill.instanceColor.needsUpdate = true;
