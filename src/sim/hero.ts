@@ -109,6 +109,13 @@ function value(raw: string | undefined, level: number): number {
   return values.length === 1 ? values[0] : values[level - 1];
 }
 
+/** Gold charged by a configured hero skill at its current level. */
+export function heroActionCost(data: GameData, action: string, level: number): number {
+  const def = (data.files['npc/abilities.json'] as { DOTAAbilities: Record<string, Definition> })
+    .DOTAAbilities[action];
+  return value(def?.AbilityValues?.cost, level) ?? 0;
+}
+
 /** Roll is the original inclusive integer roll, supplied by the deterministic simulation. */
 export function adjustDraftOdds<T extends { color: number; quality: string }>(
   draft: T,

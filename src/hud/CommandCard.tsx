@@ -12,7 +12,7 @@ import {
   type Check,
   type Game,
 } from '../sim/game';
-import { readHeroCatalog } from '../sim/hero';
+import { heroActionCost, readHeroCatalog } from '../sim/hero';
 import type { RecipeKind } from '../sim/progression';
 import type { Cmd, Sim } from '../sim/sim';
 import { announcement, refusal, selected, selectedCreep, targeting } from '../input/camera';
@@ -28,7 +28,6 @@ import {
   skillText,
 } from './names';
 import { StatusIcon, Statuses, iconForText, levelOf } from './Statuses';
-import { WIP } from './flags';
 import { CreepIcon, TowerIcon } from './TowerIcon';
 
 // The command card: Dota 2's bottom bar, as Gem TD shows it. A portrait with the unit's name over
@@ -370,7 +369,7 @@ function HeroSkills({ sim, send, empty }: { sim: Sim; send: (cmd: Cmd) => void; 
             label={skillName(sim.data, a.name)}
             hint={key}
             check={check}
-            level={`Level ${a.level}`}
+            level={`Level ${a.level} · ${heroActionCost(sim.data, a.name, a.level)} gold`}
             text={skillText(sim.data, a.name)}
             cooldown={left}
             onClick={() => send({ type: 'hero-cast', action: a.name, target, point })}
@@ -424,12 +423,11 @@ function HeroCard({
       ]}
       abilities={
         <>
-          {WIP &&
-            (game.hero.selected ? (
-              <HeroSkills sim={sim} send={send} empty />
-            ) : (
-              SKILL_KEYS.map((k) => <Empty key={k} hint={k} />)
-            ))}
+          {game.hero.selected ? (
+            <HeroSkills sim={sim} send={send} empty />
+          ) : (
+            SKILL_KEYS.map((k) => <Empty key={k} hint={k} />)
+          )}
         </>
       }
       bars={[
@@ -449,17 +447,15 @@ function HeroCard({
         },
       ]}
     >
-      {WIP && (
-        <button
-          class="hero-button"
-          aria-label="Hero"
-          aria-haspopup="dialog"
-          aria-keyshortcuts="H"
-          onClick={openHero}
-        >
-          {game.hero.selected ? 'Hero & skills' : 'Choose hero'} <kbd aria-hidden="true">H</kbd>
-        </button>
-      )}
+      <button
+        class="hero-button"
+        aria-label="Hero"
+        aria-haspopup="dialog"
+        aria-keyshortcuts="H"
+        onClick={openHero}
+      >
+        Hero actions <kbd aria-hidden="true">H</kbd>
+      </button>
     </Card>
   );
 }
@@ -753,7 +749,7 @@ function CellCard({
           ))}
         </div>
       )}
-      {WIP && <HeroSkills sim={sim} send={send} />}
+      {game.hero.selected && <HeroSkills sim={sim} send={send} />}
     </>
   );
   const aim = aims && gem && !pending.value && (
@@ -854,7 +850,7 @@ export function CommandCard({
     return <CreepCard sim={sim} id={selectedCreep.value} tick={tick} />;
   const cell = selected.value;
   if (cell) return <CellCard sim={sim} send={send} cell={cell} tick={tick} />;
-  return WIP && sim.game.hero.selected ? (
+  return sim.game.hero.selected ? (
     <HeroCard sim={sim} send={send} openHero={openHero} tick={tick} />
   ) : null;
 }

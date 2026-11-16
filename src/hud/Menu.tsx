@@ -1,5 +1,7 @@
 import { useSignal } from '@preact/signals';
 import { useEffect, useRef } from 'preact/hooks';
+import type { GameData } from '../data';
+import { Loadout } from './Loadout';
 
 // The in-game menu (top right, or Esc with nothing selected) and the title screen it exits to.
 // A run is the page: restarting loads a new seed (or the same one), exiting loads the title.
@@ -99,7 +101,8 @@ export function GameMenu({
 }
 
 /** The title: the game's name over the idle cave, and a way in. */
-export function TitleScreen() {
+export function TitleScreen({ data }: { data: GameData }) {
+  const loadout = useSignal(false);
   return (
     <div class="title-screen" role="dialog" aria-modal="true" aria-labelledby="title-name">
       <div class="title-card">
@@ -111,10 +114,13 @@ export function TitleScreen() {
           Place random gems, keep one, wall in the rest. Combine towers and hold the crystal vault
           for fifty waves.
         </p>
-        <button class="primary big" ref={(b) => b?.focus()} onClick={() => go({})}>
+        <button class="primary big" ref={(b) => b?.focus()} onClick={() => (loadout.value = true)}>
           New game
         </button>
       </div>
+      {loadout.value && (
+        <Loadout data={data} close={() => (loadout.value = false)} start={() => go({})} />
+      )}
     </div>
   );
 }
