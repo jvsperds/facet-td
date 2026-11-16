@@ -700,7 +700,7 @@ export function createWorld(board: Board, game: Game) {
       cells.slice(0, BOARD_CELLS).forEach((c, i) => {
         const { x, z } = toScene(c);
         // On the floor: a stone or tower built here covers it.
-        mazeGuide.setMatrixAt(i, ringPose.makeTranslation(x, 0.02, z));
+        mazeGuide.setMatrixAt(i, ringPose.makeTranslation(x, 0.006, z));
       });
       mazeGuide.instanceMatrix.needsUpdate = true;
     },
