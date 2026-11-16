@@ -174,8 +174,24 @@ effect(() => {
   }
 });
 effect(() => {
+  void ticked.value; // re-filter as stones and towers are built or removed
   const guide = GUIDES.find((g) => g.name === mazeGuide.value);
-  world.setMazeGuide(guide ? guideCells(guide.rows) : []);
+  const marked = guide ? guideCells(guide.rows) : [];
+  const want = new Set(marked.map((c) => `${c.x},${c.y}`));
+  const g = sim.game;
+  const built = (c: Cell) => g.stoneAt(c) || !!g.gemAt(c);
+  // Gold on open floor only; an X on player stones the guide leaves open (fixed walls excepted).
+  const clear: Cell[] = [];
+  if (guide)
+    for (let x = 1; x <= board.size; x++)
+      for (let y = 1; y <= board.size; y++) {
+        const c = { x, y };
+        if (!want.has(`${x},${y}`) && g.stoneAt(c) && board.kind(c) !== 'stone') clear.push(c);
+      }
+  world.setMazeGuide(
+    marked.filter((c) => !built(c)),
+    clear,
+  );
   try {
     localStorage.setItem('facet-td:maze-guide', mazeGuide.value);
   } catch {

@@ -4,7 +4,8 @@ import type { Game } from '../sim/game';
 import { TICK_HZ } from '../sim/game';
 import { createEnvironment } from './environment';
 import { createPieces } from './pieces';
-import { TURRET_TOP } from './walls';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { TURRET_TOP, WALL_TOP } from './walls';
 
 const BOARD_CELLS = 37 * 37;
 import { azimuth, elevation, frame, toCell, toScene, type Rect, type ViewState } from './view';
@@ -358,6 +359,17 @@ export function createWorld(board: Board, game: Game) {
   mazeGuide.renderOrder = 1;
   mazeGuide.frustumCulled = false;
   scene.add(mazeGuide);
+  // A built stone the guide wants open: a faint dark X on its top (GemTD's remove mark).
+  const guideClear = new THREE.InstancedMesh(
+    mergeGeometries(
+      [Math.PI / 4, -Math.PI / 4].map((a) => new THREE.BoxGeometry(0.62, 0.012, 0.07).rotateY(a)),
+    ),
+    new THREE.MeshBasicMaterial({ color: '#280000', transparent: true, opacity: 0.55 }),
+    BOARD_CELLS,
+  );
+  guideClear.count = 0;
+  guideClear.frustumCulled = false;
+  scene.add(guideClear);
 
   // The selected creep: a gold ring that follows it.
   const creepRing = new THREE.Group().add(
@@ -677,12 +689,18 @@ export function createWorld(board: Board, game: Game) {
       mvpRing.position.set(x, TURRET_TOP + 0.03, z);
     },
     /** Mark a maze guide's cells, or clear it with an empty list. */
-    setMazeGuide(cells: readonly Cell[]) {
+    setMazeGuide(cells: readonly Cell[], clear: readonly Cell[] = []) {
+      guideClear.count = Math.min(BOARD_CELLS, clear.length);
+      clear.slice(0, BOARD_CELLS).forEach((c, i) => {
+        const { x, z } = toScene(c);
+        guideClear.setMatrixAt(i, ringPose.makeTranslation(x, WALL_TOP + 0.01, z));
+      });
+      guideClear.instanceMatrix.needsUpdate = true;
       mazeGuide.count = Math.min(BOARD_CELLS, cells.length);
       cells.slice(0, BOARD_CELLS).forEach((c, i) => {
         const { x, z } = toScene(c);
-        // Above the wall tops, so a guide cell stays visible once its stone is built.
-        mazeGuide.setMatrixAt(i, ringPose.makeTranslation(x, TURRET_TOP + 0.01, z));
+        // On the floor: a stone or tower built here covers it.
+        mazeGuide.setMatrixAt(i, ringPose.makeTranslation(x, 0.02, z));
       });
       mazeGuide.instanceMatrix.needsUpdate = true;
     },
