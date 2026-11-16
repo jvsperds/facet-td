@@ -102,6 +102,21 @@ test('a splash attack lands a shell, then a shockwave sized to the splash radius
   expect(wave.count).toBe(0);
 });
 
+test('a lethal hit has a larger death burst than an ordinary hit', () => {
+  const scaleOf = (lethal: boolean) => {
+    const scene = new THREE.Scene();
+    const fx = createEffects(scene);
+    fx.hit('attack', tower('gemtd_d1'), from, to, lethal);
+    fx.frame(0.2, false);
+    const ring = mesh(scene, 'combat-impacts');
+    expect(ring.count).toBe(1);
+    const matrix = new THREE.Matrix4();
+    ring.getMatrixAt(0, matrix);
+    return new THREE.Vector3().setFromMatrixScale(matrix).x;
+  };
+  expect(scaleOf(true)).toBeGreaterThan(scaleOf(false));
+});
+
 test('lightning strikes instantly; poison ticks puff; reduced motion skips travel', () => {
   const scene = new THREE.Scene();
   const fx = createEffects(scene);

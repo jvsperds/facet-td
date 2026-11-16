@@ -26,7 +26,7 @@ audio output.
 | 5 | Major | Touch targets under 44px: menu 32, toolbar 32x40, draft slots 43x57, commands 35-39x40, card toggle 24, recipe pins 26, recipe close 30. | CSS | Partly fixed, unverified |
 | 6 | Major | Menu and title lack help, controls, volume, difficulty, hero select, run history, seed entry. Logo wraps at 1366px. | `Menu.tsx` | Help overlay added; rest open |
 | 7 | Major | End-of-run card shows only wave and gold; clock keeps running behind it; Play again drops URL flags. | `Hud.tsx:626-655` | Fixed with data available; full stats open |
-| 8 | Major | Towers (about 10px) and creeps are tiny at default zoom; pre-placed stones are flat discs; no projectiles or hit effects visible. | models, default fit | Open |
+| 8 | Major | Towers (about 10px) and creeps are tiny at default zoom; pre-placed stones are flat discs; no projectiles or hit effects visible. | models, default fit | Fixed: enlarged models, joined walls and combat/death effects |
 | 9 | Major | Zoom, arrow cursor and B work only with canvas focus. | `camera.ts:215-245` | Fixed |
 | 10 | Major | Picking uses the ground plane, so clicking a tall piece in iso can select the cell behind. | `world.ts:516-522` | Fixed |
 | 11 | Minor | Damage meter shows an empty header before any damage. | `Hud.tsx:357-360` | Unverified |
@@ -36,8 +36,8 @@ audio output.
 | 15 | Minor | Hidden double-press on 1-5 to keep. | `Hud.tsx:144-176` | Unverified |
 | 16 | Minor | No rotate shortcut. | `Hud.tsx:280-281` | Fixed |
 | 17 | Minor | Recipe book on phone is a side sheet over the board and card. | CSS | Open |
-| 18 | Polish | Floor is a flat grey checker; route bands are faint; waypoint walkways look placeholder. | `environment.ts` | Open |
-| 19 | Polish | Top view crops the cave into a blurred mosaic with blank margins. | `environment.ts` | Open |
+| 18 | Polish | Floor is a flat grey checker; route bands are faint; waypoint walkways look placeholder. | `environment.ts` | Fixed with field surfaces and the sunken cavern floor |
+| 19 | Polish | Top view crops the cave into a blurred mosaic with blank margins. | `environment.ts` | Fixed with the continuous fading cavern backdrop |
 
 Shortcuts before this work: 1-5 draft slots, Q/W/E/R gem commands, K keep, C combine, S hold fire,
 G recipes, M damage meter, A auras, T view, P pause, Esc; arrows, Enter/Space, B, +/- on canvas

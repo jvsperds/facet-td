@@ -37,7 +37,7 @@ verifying or porting any rule.
 | Route search speed | Done | Typed-array A\*, occupancy grid, route and `canBuild` memos, public `game.mazeVersion`. Wave-50 maze in Node: build 134 ms to 3 ms, keep 63 ms to 0.1 ms, combine 54 ms to 0.2 ms. Routes proven identical (`tests/path-equivalence.test.ts`); budgets in `tests/perf-budget.test.ts`. |
 | Sim rules | Done | `RunConfig` (`src/sim/config.ts`): difficulty 1-4, hero, up to 4 skills with levels, `sandbox`. Win streak and wave enemy count. Run stats (`src/sim/stats.ts`). Quests (`src/sim/quests.ts`). `Sim.save()` / `Sim.restore()` with `SIM_VERSION`. Rule fixes: thief no longer steals at the castle, rare boss variants rolled, endless replays the creep chosen per wave. |
 | Audio | Done, never listened to | `src/audio/`: four volume buses saved under `facet-td:volume`, cave ambience with build/wave/boss moods, optional music, 32 named sounds, 16 attack families, voice limits. |
-| Rendering speed | Partial | Chunked wall re-merge, integer signatures, icon studio idle during waves, quality tiers (`facet-td:quality` = `auto`/`high`/`low`), occluder check by cell track, bundle 4.99 MB to 1.85 MB. |
+| Rendering speed | Partial | Joined wall geometry, enlarged towers and creeps, combat/death and floor effects, cavern/top-view backdrop, chunked wall re-merge, integer signatures, icon studio idle during waves, quality tiers (`facet-td:quality` = `auto`/`high`/`low`), occluder check by cell track, bundle 4.99 MB to 1.85 MB. Instancing remains. |
 | HUD and UX | Partial | Visible notices, Place gem button, global shortcuts, `?` help overlay, hidden seed, fuller end card, piece-first picking, aim modes shown, phone top-bar stats and bottom sheet, larger touch targets. |
 
 Unit tests: 162 pass. Type check, ESLint and Prettier are clean on `src` and `tests`.
@@ -49,7 +49,7 @@ Unit tests: 162 pass. Type check, ESLint and Prettier are clean on `src` and `te
   Place button on phone, global zoom keys, help overlay, hidden seed) were not written. Items not
   confirmed done: recipe book as a full-screen sheet on phones, stat-row labels, dead CSS removal
   across `style.css`, `skin-a.css` and `slate.css`.
-- **Rendering was stopped before instancing.** Towers and creeps are still per-material clones, so
+- **Rendering is complete except for instancing.** Towers and creeps are still per-material clones, so
   draw calls grow about 4.5 per tower (about 270 at wave 45). Before/after numbers for the view
   changes were not reported. Nothing has been measured on a real GPU or phone.
 - **Audio:** no volume sliders or music toggle in the settings UI. `combine`, `upgrade`,
@@ -78,8 +78,9 @@ Unit tests: 162 pass. Type check, ESLint and Prettier are clean on `src` and `te
    `game.stats`, autosave each wave and resume with `Sim.save()`/`restore()`, quests screen paying
    shells, settings with volume sliders, music toggle and quality tier. Extend the end-of-run card
    with the full stats.
-4. **Models and effects:** stones as real joined walls, larger and more readable towers and creeps
-   at default zoom, projectiles, hit and death effects, floor effects, the top-view backdrop.
+4. **Models and effects: done.** Stones use joined wall geometry; towers and creeps are enlarged at
+   the default fit; projectiles, hit/death bursts, floor fields and the cavern/top-view backdrop are
+   integrated and covered by the world/effect tests.
 5. **Instancing** for creeps, stones and towers; target 120 draw calls on laptop, 80 on phone.
 6. **Maze guide:** in the original, non-race maps show four guide mazes per player: slot 0 is the
    player's own saved maze (else `maze_coop0`), then `maze_coop1`, `maze_coop2`, `maze_coop4` for
