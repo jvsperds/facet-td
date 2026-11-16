@@ -14,6 +14,8 @@ import { readHeroCatalog } from './hero';
  */
 export interface RunConfig {
   difficulty: 1 | 2 | 3 | 4;
+  /** Continue automatically after wave 50; otherwise clearing 50 wins the run. */
+  endless: boolean;
   hero: string | null;
   skills: Record<string, number>;
   sandbox?: boolean;
@@ -21,6 +23,7 @@ export interface RunConfig {
 
 export const DEFAULT_CONFIG: Readonly<RunConfig> = Object.freeze({
   difficulty: 1,
+  endless: true,
   hero: null,
   skills: {},
 });
@@ -37,6 +40,7 @@ export class RunConfigError extends Error {
 export function resolveConfig(data: GameData, input: Partial<RunConfig> = {}): RunConfig {
   const config: RunConfig = {
     difficulty: input.difficulty ?? DEFAULT_CONFIG.difficulty,
+    endless: input.endless ?? DEFAULT_CONFIG.endless,
     hero: input.hero ?? null,
     skills: { ...(input.skills ?? {}) },
     ...(input.sandbox ? { sandbox: true } : {}),
@@ -64,6 +68,8 @@ export function resolveConfig(data: GameData, input: Partial<RunConfig> = {}): R
       throw new RunConfigError(
         `Hero skill "${key}" level must be 1..${max} (got ${String(level)}).`,
       );
+    if (typeof config.endless !== 'boolean')
+      throw new RunConfigError('Endless must be true or false.');
   }
   return config;
 }

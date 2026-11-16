@@ -10,7 +10,7 @@ import { resolveConfig, type RunConfig } from './config';
  * Version of the rules. Bump it whenever a change can make the same seed and commands play out
  * differently: saves made under another version are refused instead of desyncing.
  */
-export const SIM_VERSION = 2;
+export const SIM_VERSION = 3;
 export const SAVE_FORMAT = 'facet-td-save';
 
 /** A saved run: replaying `log` from `seed` under `config` rebuilds the game at `tick`. */

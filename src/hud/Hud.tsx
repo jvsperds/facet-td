@@ -125,6 +125,7 @@ export function Hud(props: Props) {
   const menuOpen = useSignal(false);
   const recipesOpen = useSignal(false);
   const helpOpen = useSignal(false);
+  const quality = useSignal(localStorage.getItem('facet-td:quality') ?? 'auto');
   const menuAsk = useSignal<MenuAsk>(null);
   const flash = useSignal<Flash | null>(null);
   const meterOpen = useSignal(matchMedia('(min-width: 1101px)').matches);
@@ -331,7 +332,7 @@ export function Hud(props: Props) {
     return () => removeEventListener('keydown', onKey);
   }, []);
 
-  if (props.title) return <TitleScreen data={sim.data} />;
+  if (props.title) return <TitleScreen data={sim.data} audio={audio} />;
   return (
     <>
       <GlyphDefs />
@@ -428,6 +429,41 @@ export function Hud(props: Props) {
                     ? `Sound ${audio.enabled.value ? 'on' : 'off'}`
                     : 'Sound unavailable'}
                 </button>
+                {(['master', 'music', 'ambience', 'effects'] as const).map((bus) => (
+                  <label class="setting-range">
+                    {bus[0].toUpperCase() + bus.slice(1)}
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      value={audio.volume.value[bus]}
+                      onInput={(e) => audio.setVolume(bus, Number(e.currentTarget.value))}
+                    />
+                  </label>
+                ))}
+                <label class="setting-check">
+                  <input
+                    type="checkbox"
+                    checked={audio.isMusicOn()}
+                    onChange={(e) => audio.setMusicOn(e.currentTarget.checked)}
+                  />
+                  Music
+                </label>
+                <label class="setting-select">
+                  Graphics
+                  <select
+                    value={quality.value}
+                    onChange={(e) => {
+                      quality.value = e.currentTarget.value;
+                      localStorage.setItem('facet-td:quality', quality.value);
+                    }}
+                  >
+                    <option value="auto">Auto</option>
+                    <option value="high">High</option>
+                    <option value="low">Low</option>
+                  </select>
+                </label>
                 {game.hero.selected && (
                   <button aria-haspopup="dialog" onClick={() => (heroOpen.value = true)}>
                     Hero actions <kbd aria-hidden="true">H</kbd>
@@ -787,6 +823,7 @@ function DraftSlots({ sim, select }: { sim: Sim; tick: number; select: (cell: Ce
 /** The run's end: the result, what data the run has, and the ways on. */
 function EndCard({ sim, feedback }: { sim: Sim; feedback: Feedback; tick: number }) {
   const game = sim.game;
+  const stats = game.stats;
   const won = game.phase === 'won';
   const totals = feedback.totals.value;
   const dealt = game.damageThisWave;
@@ -817,7 +854,9 @@ function EndCard({ sim, feedback }: { sim: Sim; feedback: Feedback; tick: number
           </div>
           <div>
             <dt>Kills</dt>
-            <dd>{totals.kills}</dd>
+            <dd>
+              {stats.kills} · score {stats.killScore}
+            </dd>
           </div>
           <div>
             <dt>Reached castle</dt>
@@ -825,7 +864,29 @@ function EndCard({ sim, feedback }: { sim: Sim; feedback: Feedback; tick: number
           </div>
           <div>
             <dt>Gold</dt>
-            <dd>{compact(game.gold)}</dd>
+            <dd>
+              {compact(stats.goldEarned)} earned · {compact(stats.goldSpent)} spent
+            </dd>
+          </div>
+          <div>
+            <dt>Run time</dt>
+            <dd>{clock(stats.ticks / TICK_HZ)}</dd>
+          </div>
+          <div>
+            <dt>Castle damage</dt>
+            <dd>{stats.castleDamageTaken}</dd>
+          </div>
+          <div>
+            <dt>Combinations</dt>
+            <dd>{Object.values(stats.combined).reduce((sum, n) => sum + n, 0)}</dd>
+          </div>
+          <div>
+            <dt>Hero casts</dt>
+            <dd>{Object.values(stats.heroCasts).reduce((sum, n) => sum + n, 0)}</dd>
+          </div>
+          <div>
+            <dt>MVP awards</dt>
+            <dd>{stats.mvpAwards}</dd>
           </div>
           <div>
             <dt>Towers</dt>

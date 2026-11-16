@@ -1,7 +1,10 @@
 import { useSignal } from '@preact/signals';
 import { useEffect, useRef } from 'preact/hooks';
 import type { GameData } from '../data';
+import type { Audio } from '../audio';
+import { clearSavedRun, hasSavedRun } from '../profile/runs';
 import { Loadout } from './Loadout';
+import { HistoryDialog, QuestsDialog, SettingsDialog } from './MetaDialogs';
 
 // The in-game menu (top right, or Esc with nothing selected) and the title screen it exits to.
 // A run is the page: restarting loads a new seed (or the same one), exiting loads the title.
@@ -9,7 +12,7 @@ import { Loadout } from './Loadout';
 /** Load the page with `patch` applied to the URL's query, keeping flags such as `?wip`. */
 function go(patch: Record<string, string | null>) {
   const params = new URLSearchParams(location.search);
-  for (const key of ['seed', 'title']) params.delete(key);
+  for (const key of ['seed', 'title', 'resume']) params.delete(key);
   for (const [key, value] of Object.entries(patch)) if (value !== null) params.set(key, value);
   location.search = params.toString().replace(/=(?=&|$)/g, '');
 }
@@ -101,8 +104,12 @@ export function GameMenu({
 }
 
 /** The title: the game's name over the idle cave, and a way in. */
-export function TitleScreen({ data }: { data: GameData }) {
+export function TitleScreen({ data, audio }: { data: GameData; audio: Audio }) {
   const loadout = useSignal(false);
+  const history = useSignal(false);
+  const quests = useSignal(false);
+  const settings = useSignal(false);
+  const resume = hasSavedRun();
   return (
     <div class="title-screen" role="dialog" aria-modal="true" aria-labelledby="title-name">
       <div class="title-card">
@@ -114,13 +121,37 @@ export function TitleScreen({ data }: { data: GameData }) {
           Place random gems, keep one, wall in the rest. Combine towers and hold the crystal vault
           for fifty waves.
         </p>
-        <button class="primary big" ref={(b) => b?.focus()} onClick={() => (loadout.value = true)}>
+        {resume && (
+          <button class="primary big" ref={(b) => b?.focus()} onClick={() => go({ resume: '' })}>
+            Resume run
+          </button>
+        )}
+        <button
+          class={resume ? '' : 'primary big'}
+          ref={!resume ? (b) => b?.focus() : undefined}
+          onClick={() => (loadout.value = true)}
+        >
           New game
         </button>
+        <div class="title-links">
+          <button onClick={() => (quests.value = true)}>Quests</button>
+          <button onClick={() => (history.value = true)}>Run history</button>
+          <button onClick={() => (settings.value = true)}>Settings</button>
+        </div>
       </div>
       {loadout.value && (
-        <Loadout data={data} close={() => (loadout.value = false)} start={() => go({})} />
+        <Loadout
+          data={data}
+          close={() => (loadout.value = false)}
+          start={() => {
+            clearSavedRun();
+            go({});
+          }}
+        />
       )}
+      {history.value && <HistoryDialog close={() => (history.value = false)} />}
+      {quests.value && <QuestsDialog data={data} close={() => (quests.value = false)} />}
+      {settings.value && <SettingsDialog audio={audio} close={() => (settings.value = false)} />}
     </div>
   );
 }

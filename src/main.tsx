@@ -11,7 +11,9 @@ import { createFeedback } from './hud/feedback';
 import { createCameraInput, cursor, hovered, selected, selectedCreep } from './input/camera';
 import { Sim, TICK_HZ, type Cmd } from './sim/sim';
 import { WIP } from './hud/flags';
-import { loadRunConfig } from './profile/profile';
+import { completeProfileQuests, loadProfile, loadRunConfig } from './profile/profile';
+import { loadSavedRun, recordRun, saveRun } from './profile/runs';
+import { completedQuests } from './sim/quests';
 import { createWorld } from './world/world';
 import { prewarmTowers } from './world/pieces';
 import { setupPreview } from './preview';
@@ -27,11 +29,10 @@ const title = params.has('title');
 const seed = Number(params.get('seed')) || Date.now() >>> 0;
 // `?wip` keeps the free hero loadout (sandbox); a normal run's hero is fixed by its config.
 const data = loadData(mode);
-const sim = new Sim(
-  data,
-  seed,
-  WIP ? { ...loadRunConfig(data), sandbox: true } : loadRunConfig(data),
-);
+const restored = params.has('resume') ? loadSavedRun(data) : null;
+const sim =
+  restored ??
+  new Sim(data, seed, WIP ? { ...loadRunConfig(data), sandbox: true } : loadRunConfig(data));
 const board = sim.board;
 const world = createWorld(board, sim.game);
 document.body.prepend(world.canvas);
@@ -150,6 +151,8 @@ world.afterStep();
 let last = performance.now();
 let acc = 0;
 let lastShown = NaN;
+let savedLevel = sim.game.level;
+let recordedEnd = false;
 /** Small integer ids for strings the HUD signature mixes (gem names, aim modes, hero skills). */
 const stringIds = new Map<string, number>();
 const towerId = (text: string) => {
@@ -204,6 +207,16 @@ setInterval(() => {
   if (stepped && shown !== lastShown) {
     lastShown = shown;
     ticked.value++;
+  }
+  if (!title && stepped && g.level !== savedLevel && g.phase !== 'lost' && g.phase !== 'won') {
+    savedLevel = g.level;
+    saveRun(sim);
+  }
+  if (!title && !recordedEnd && (g.phase === 'lost' || g.phase === 'won')) {
+    recordedEnd = true;
+    const profile = loadProfile(data);
+    completeProfileQuests(profile, completedQuests(g.stats, sim.config));
+    recordRun(sim);
   }
 }, 1000 / TICK_HZ);
 
