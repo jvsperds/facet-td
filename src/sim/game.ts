@@ -71,7 +71,7 @@ export type Phase = 'build' | 'wave' | 'lost' | 'won';
 /**
  * Aim modes a player can set per tower (GemTD's aim options). Closest is the original's
  * acquisition and keeps its target while it stays in range; every other mode re-aims before each
- * attack. First to exit is spawn order: the earliest spawned creep still alive.
+ * attack. First to exit uses the remaining distance along each creep's route.
  */
 export const AIM = [
   'Closest',
@@ -81,8 +81,6 @@ export const AIM = [
   'Lowest HP %',
   'Highest HP %',
 ] as const;
-/** Added to an aim mode: bosses and elite (mutated) creeps are targeted before the rest. */
-export const AIM_BOSS = 8;
 /** MVP damage bonus per level, in percent, and its cap (attack, line 3690). */
 export const MVP_STEP = 10;
 export const MVP_CAP = 100;
@@ -115,7 +113,7 @@ export interface Gem {
   buffs?: Record<string, { expires: number; values: Record<string, number> }>;
   /** Natural Emerald copies up to three resolved VPK tower abilities from nearby ranged towers. */
   stolenAbilities?: TowerAbility[];
-  /** AIM index, plus AIM_BOSS for bosses first; unset is Closest, the original's targeting. */
+  /** AIM index; unset is Closest, the original's targeting. */
   aim?: number;
   /** Ordered to hold fire (Dota's stop): it attacks nothing until told to resume. */
   holdFire?: boolean;
@@ -328,6 +326,12 @@ export class Game {
   }
   private immune(c: Creep) {
     return this.enemySkills(c).includes('enemy_momian') || this.enraged;
+  }
+  /** MVP-max towers within 290 units (modifier_mvp_aura_friend, not on the caster). */
+  private mvpAuras(g: Gem) {
+    return this.gems.filter(
+      (o) => o !== g && o.level === 10 && this.near(o.cell, g.cell, 290 / CELL_UNITS),
+    ).length;
   }
   private near(a: Cell, b: Cell, radius: number) {
     return sq(a.x - b.x) + sq(a.y - b.y) <= sq(radius);
@@ -624,11 +628,7 @@ export class Game {
   }
   /** A friendly unit on a cell: stone, tower or beacon (no hero unit stands on this board). */
   private friendlyAt(c: Cell) {
-    return (
-      this.stoneAt(c) ||
-      !!this.gemAt(c) ||
-      (this.beacon?.x === c.x && this.beacon?.y === c.y)
-    );
+    return this.stoneAt(c) || !!this.gemAt(c) || (this.beacon?.x === c.x && this.beacon?.y === c.y);
   }
   castHero(action: string, target: number | undefined, tick: number, point?: Cell): Check {
     const check = this.canHeroAction(action, target, point, tick);
@@ -1256,17 +1256,12 @@ export class Game {
       speed: this.speedOf(this.spawnName),
     };
   }
-  /** Set a tower's aim mode (AIM index, plus AIM_BOSS for bosses first). */
+  /** Set a tower's aim mode (AIM index). */
   setAim(id: number, mode: number): Check {
     const gem = this.gems.find((g) => g.id === id);
     if (!gem) return { ok: false, reason: 'No tower to aim.' };
     if (gem.name.includes('shiban')) return { ok: false, reason: 'Pedals do not attack.' };
-    if (
-      !Number.isInteger(mode) ||
-      mode < 0 ||
-      mode >= 2 * AIM_BOSS ||
-      mode % AIM_BOSS >= AIM.length
-    )
+    if (!Number.isInteger(mode) || mode < 0 || mode >= AIM.length)
       return { ok: false, reason: 'Unknown aim mode.' };
     if (mode === 0) delete gem.aim;
     else gem.aim = mode;
@@ -1296,6 +1291,9 @@ export class Game {
         count: g.level,
         effects: [`+${Math.min(MVP_CAP, g.level * MVP_STEP)}% damage`],
       });
+    const maxed = this.mvpAuras(g);
+    if (maxed)
+      out.push({ key: 'mvp_aura', good: true, count: maxed, effects: [`+${100 * maxed}% damage`] });
     const auras = new Set<string>();
     for (const source of this.gems)
       for (const a of this.gemAbilities(source)) {
@@ -1394,6 +1392,47 @@ export class Game {
         effects: [`+${4 * guards} armor`],
       });
     return out;
+  }
+
+  /**
+   * What wave `level` sends, for the upcoming-waves panel: the creep (or its random variants), count,
+   * base HP (null in endless, where spawn rolls it), armor, speed in cells per second, castle damage
+   * range (null: a boss, fatal) and skills. Read-only; the rare boss rolls only show once rolled.
+   */
+  wavePlan(level: number) {
+    const guaiLevel = level > LAST_LEVEL ? level - LAST_LEVEL : level;
+    const guai = this.luaValue<Record<string, string>>('guai');
+    let names = this.waveNames[guaiLevel]
+      ? [this.waveNames[guaiLevel]]
+      : [guai[guaiLevel], guai[guaiLevel + 100]].filter((n): n is string => !!n);
+    if (level === this.level && this.phase === 'wave' && this.spawnName) names = [this.spawnName];
+    const name = names[0],
+      u = this.units[name];
+    const boss = name.includes('boss') || name.includes('tester');
+    const difficulty =
+      this.luaValue<Record<string, number>>('gem_difficulty')[this.config.difficulty];
+    const speedFactor =
+      this.luaValue<Record<string, number>>('gem_difficulty_speed')[this.config.difficulty];
+    const spread =
+      CASTLE_DAMAGE_SPREAD[Math.min(Math.floor(level / 10), CASTLE_DAMAGE_SPREAD.length - 1)];
+    return {
+      level,
+      names,
+      count: boss ? 1 : this.waveEnemyCount,
+      boss,
+      fly: name.includes('fly'),
+      hp: level > LAST_LEVEL ? null : Math.max(1, Math.floor(num(u, 'StatusHealth') * difficulty)),
+      armor: num(u, 'ArmorPhysical'),
+      speed:
+        ((num(u, 'MovementSpeed') * speedFactor) / CELL_UNITS) * (level > LAST_LEVEL ? 1.8 : 1),
+      leak: level % 10 === 0 ? null : ([1, 1 + spread] as const),
+      skills: [
+        ...new Set([
+          ...this.skills(name),
+          ...(this.luaValue<Record<string, string[]>>('guai_ability')[guaiLevel] ?? []),
+        ]),
+      ],
+    };
   }
 
   /** A creep's own abilities (VPK skills plus any the wave grants). */
@@ -1996,7 +2035,7 @@ export class Game {
     }
   }
 
-  private attack(g: Gem, tick: number) {
+  private attack(g: Gem, tick: number, distances: Map<Creep, number>) {
     if (g.cooldown > 0) g.cooldown--;
     const u = this.units[g.name];
     if (!this.attacks(g.name)) return;
@@ -2026,17 +2065,29 @@ export class Game {
         ? this.creeps.find((c) => c.id === g.target && dist2(c) <= range * range && this.visible(c))
         : undefined;
     if (!target) {
-      const mode = aim % AIM_BOSS;
-      const bossFirst = aim >= AIM_BOSS;
-      let [bestRank, best] = [Infinity, Infinity];
+      const mode = aim;
+      let best = Infinity;
       for (const c of this.creeps) {
         const d = dist2(c);
         if (d > range * range || !this.visible(c)) continue;
-        const rank = bossFirst && (c.boss || c.elite) ? 0 : 1;
         const share = c.hp / c.maxHp;
-        const v = [d, c.id, c.hp, -c.hp, share, -share][mode];
-        if (rank < bestRank || (rank === bestRank && v < best))
-          [bestRank, best, target] = [rank, v, c];
+        let remaining = 0;
+        if (mode === 1) {
+          const cached = distances.get(c);
+          if (cached !== undefined) remaining = cached;
+          else {
+            const route = c.fly ? this.flyRoute : this.route;
+            let previous: Cell = c;
+            for (let i = c.step; i < route.length; i++) {
+              const point = route[i];
+              remaining += Math.sqrt(sq(point.x - previous.x) + sq(point.y - previous.y));
+              previous = point;
+            }
+            distances.set(c, remaining);
+          }
+        }
+        const v = [d, remaining, c.hp, -c.hp, share, -share][mode];
+        if (v < best) [best, target] = [v, c];
       }
     }
     g.target = target?.id ?? null;
@@ -2053,11 +2104,7 @@ export class Game {
     let raw =
       this.rng.int(num(u, 'AttackDamageMin'), num(u, 'AttackDamageMax')) * (1 + bonus / 100) +
       (lastStand && lastStand.expires > tick ? lastStand.values.damage : 0);
-    raw *=
-      1 +
-      (this.towerProperty(g, 'MODIFIER_PROPERTY_DAMAGEOUTGOING_PERCENTAGE') +
-        Math.min(100, (g.level ?? 0) * 10)) /
-        100;
+    raw *= 1 + this.towerProperty(g, 'MODIFIER_PROPERTY_DAMAGEOUTGOING_PERCENTAGE') / 100;
     for (const a of this.gemAbilities(g))
       if (a.kind === 'critical' && this.roll(a.chance, g, a.name, a.pseudo)) raw *= a.multiplier;
     const crit = g.buffs?.gemtd_hero_baoji;
@@ -2165,13 +2212,16 @@ export class Game {
     if (!this.creeps.includes(c)) return false;
     const attacker = this.gems.find((g) => g.id === source);
     const skills = this.enemySkills(c);
+    if (attack) this.runStats.attacks++;
     if (
       attack &&
       skills.includes('guai_shanbi') &&
       !(attacker && this.towerState(attacker, 'MODIFIER_STATE_CANNOT_MISS')) &&
       this.roll(50, c, 'evasion', true)
-    )
+    ) {
+      this.runStats.dodged++;
       return false;
+    }
     if (type === 'magical' && this.immune(c)) return true;
     if (c.shield && c.shield.charges > 0 && c.shield.expires > this.time) {
       c.shield.charges--;
@@ -2204,6 +2254,14 @@ export class Game {
       if (facing >= 0.7071067811865476) damage *= 0.3;
       else if (facing >= 0) damage *= 0.7;
     }
+    // DamageFilter (line 13041): MVP +10%/level and +100% per nearby MVP-max ally, capped at 500%, on every damage type.
+    if (attacker) {
+      const bonus = Math.min(
+        500,
+        Math.min(MVP_CAP, (attacker.level ?? 0) * MVP_STEP) + 100 * this.mvpAuras(attacker),
+      );
+      if (bonus) damage = Math.floor((damage * (100 + bonus)) / 100);
+    }
     c.hp -= damage;
     this.events.push({ type: 'attack', from: source, to: c.id, damage, x: c.x, y: c.y, via });
     this.waveDamage[source] = (this.waveDamage[source] ?? 0) + damage;
@@ -2211,6 +2269,9 @@ export class Game {
       const lifetime = (this.runStats.damageByTower[source] ??= { name: attacker.name, damage: 0 });
       lifetime.name = attacker.name;
       lifetime.damage += damage;
+      lifetime[type] = (lifetime[type] ?? 0) + damage;
+      if (damage > (this.runStats.biggestHit?.damage ?? 0))
+        this.runStats.biggestHit = { damage, name: attacker.name, level: this.level };
     }
     if (skills.includes('tidehunter_blubber')) {
       if (!c.cleanse || this.time - c.cleanse.last > 10 * TICK_HZ)
@@ -2230,6 +2291,8 @@ export class Game {
   private kill(c: Creep, source?: number) {
     const s = this.runStats;
     s.kills++;
+    const byTower = source === undefined ? undefined : s.damageByTower[source];
+    if (byTower) byTower.kills = (byTower.kills ?? 0) + 1;
     bump(s.killsByUnit, c.name);
     const bossLike = c.name.includes('boss') || c.name.includes('tester');
     // shortcut: the boss score also needs _G.is_boss_entered false, i.e. the boss had not reached the castle; one boss per wave makes that always true here.
@@ -2308,7 +2371,8 @@ export class Game {
         this.move(c);
       }
     }
-    for (const g of this.gems) this.attack(g, tick);
+    const distances = new Map<Creep, number>();
+    for (const g of this.gems) this.attack(g, tick, distances);
     if (tick % SPAWN_TICKS === 0) {
       const castle = this.flyRoute[this.flyRoute.length - 1];
       for (const c of [...this.creeps]) {
@@ -2351,6 +2415,7 @@ export class Game {
           this.gems.filter((g) => g.level === 10).length,
         );
       }
+      this.recordWave();
       this.runStats.wavesCleared++;
       if (this.level === LAST_LEVEL && !this.config.endless) {
         this.end('won');
@@ -2378,7 +2443,25 @@ export class Game {
     }
   }
 
+  /** The wave's row in the run stats: this wave's share of the running totals. */
+  private recordWave() {
+    const s = this.runStats,
+      sum = (k: 'gold' | 'kills' | 'leaks' | 'castle') => s.waves.reduce((n, w) => n + w[k], 0);
+    s.waves.push({
+      level: this.level,
+      creep: this.spawnName,
+      damage: Object.values(this.waveDamage).reduce((n, d) => n + d, 0),
+      gold: s.goldEarned - sum('gold'),
+      kills: s.kills - sum('kills'),
+      leaks: s.leaks - sum('leaks'),
+      castle: s.castleDamageTaken - sum('castle'),
+      ticks: this.waveTicks,
+    });
+  }
+
   private end(result: 'won' | 'lost') {
+    if (this.phase === 'wave' && this.runStats.waves.at(-1)?.level !== this.level)
+      this.recordWave();
     this.phase = result;
     this.runStats.result = result;
     this.runStats.castleHpEnd = this.castleHp;

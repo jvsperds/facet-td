@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { useEffect, useRef } from 'preact/hooks';
-import { createCreep } from '../../docs/art/model-study/models.js';
+import { creepModel as createCreep } from '../world/creep-model';
 import { towerModel } from '../world/pieces';
 import type { Sim } from '../sim/sim';
 import type { Feedback } from './feedback';
@@ -129,7 +129,12 @@ function createStage(canvas: HTMLCanvasElement) {
       creep = name.startsWith('creep:');
       const unit = name.slice(6);
       subject = creep
-        ? createCreep({ modelScale: 1, flying: unit.includes('fly'), boss: unit.includes('boss') })
+        ? createCreep({
+            name: unit,
+            modelScale: 1,
+            flying: unit.includes('fly'),
+            boss: unit.includes('boss'),
+          })
         : towerModel(name);
       scene.add(subject);
       subject.updateMatrixWorld(true);

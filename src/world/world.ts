@@ -202,7 +202,7 @@ export function createWorld(board: Board, game: Game) {
   const cave = createEnvironment(scene, board.waypoints[0].cell, board.waypoints.at(-1)!.cell);
 
   // Stones, towers and creeps follow the sim (pieces.ts).
-  const pieces = createPieces(scene, game, cave.tunnel);
+  const pieces = createPieces(scene, game, cave.tunnel, cave.castleGate);
   const route = new THREE.Line(
     new THREE.BufferGeometry(),
     new THREE.LineBasicMaterial({ color: '#164FAD', depthTest: false }),

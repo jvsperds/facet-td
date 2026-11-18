@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import {
-  createCreep,
   createGemTower,
   createStone,
   GEM_TYPES,
@@ -11,12 +10,14 @@ import type { Cell } from '../sim/board';
 import { isBasicGem, qualityOf, type Game } from '../sim/game';
 import { toScene } from './view';
 import { createAimer } from './aim';
+import { animateCreep, creepLimbs, creepModel as createCreep } from './creep-model';
 import { mergeStatic, mergedCopy } from './merge';
 import { creepPartScale } from './clearance';
 import { createEffects } from './effects';
 import { createPedalEffects } from './pedals';
 import { createInstanceBatch } from './instances';
 import { pedalHead } from './pedal-models';
+import { secretTowerHead } from './secret-towers';
 import {
   TURRET_TOP,
   filledAtPoint,
@@ -39,6 +40,7 @@ const BAR = { width: 0.5, height: 0.07, back: '#25282C', fill: '#7ED07A', low: '
 type Piece = { sig: string | number; obj: THREE.Object3D };
 type CreepView = {
   obj: THREE.Object3D;
+  skin: number;
   /** Health share for the bar. */
   ratio: number;
   prev: { x: number; y: number };
@@ -46,6 +48,7 @@ type CreepView = {
   height: number;
   /** Ground creeps step aside from wall bands; fliers pass over. */
   fly: boolean;
+  limbs: THREE.Object3D[];
   /** Eased sideways offset from the sim's centre line, in cells. */
   off: { x: number; y: number };
 };
@@ -99,8 +102,10 @@ function extraTower(name: string, options: Parameters<typeof createStone>[0]) {
   const base = createStone({ ...options, towerBase: true });
   const head = new THREE.Group();
   const tablet = name.includes('shiban');
+  const secret = secretTowerHead(name);
   if (tablet) base.children[0].scale.y = 0.05;
   if (tablet) head.add(pedalHead(name));
+  else if (secret) head.add(secret.head);
   else {
     const body = new THREE.Mesh(
       new THREE.BoxGeometry(0.62, 0.16, 0.62),
@@ -131,7 +136,11 @@ function extraTower(name: string, options: Parameters<typeof createStone>[0]) {
     }
   });
   base.add(head);
-  base.userData.aimAt = () => {};
+  base.userData.aimAt = secret
+    ? (x?: number, z?: number) => {
+        secret.pivot.rotation.y = x === undefined || z === undefined ? 0 : Math.atan2(-z, x);
+      }
+    : () => {};
   base.userData.extraTower = true;
   return base;
 }
@@ -266,7 +275,12 @@ function layTablet(obj: THREE.Object3D) {
  * Board pieces. `tunnel`, a point inside the cave mouth, is where the creeps still to spawn walk
  * from (presentation only): each leaves it in time to reach S just as the sim spawns it there.
  */
-export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: number; z: number }) {
+export function createPieces(
+  scene: THREE.Scene,
+  game: Game,
+  tunnel?: { x: number; z: number },
+  castleGate?: { x: number; z: number },
+) {
   const hero = new THREE.Group();
   const heroMaterial = new THREE.MeshStandardMaterial({ color: '#f4e3a4', roughness: 0.6 });
   const body = new THREE.Mesh(new THREE.ConeGeometry(0.25, 0.7, 6), heroMaterial);
@@ -295,6 +309,20 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
   /** Wall blocks by cell key, for every stone and tower cell. */
   const walls = new Map<number, Piece>();
   const creeps = new Map<number, CreepView>();
+  const attackers: { obj: THREE.Object3D; from: THREE.Vector3; age: number }[] = [];
+  const dying: { x: number; z: number; height: number; id: number; age: number }[] = [];
+  const deathVoxels = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshStandardMaterial({ color: '#c9bfb1', roughness: 1, flatShading: true }),
+    32 * 12,
+  );
+  deathVoxels.name = 'creep-death';
+  deathVoxels.count = 0;
+  deathVoxels.frustumCulled = false;
+  deathVoxels.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  scene.add(deathVoxels);
+  const deathPose = new THREE.Object3D();
+  let creepClock = 0;
   let towerBatch = createInstanceBatch([]);
   let creepBatch = createInstanceBatch([]);
   scene.add(towerBatch.group, creepBatch.group);
@@ -438,24 +466,34 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
   }
 
   /** Creeps of a model: the factory's body grown to its board size. */
-  function creepModel(name: string, flying: boolean, boss: boolean, elite = false) {
-    const id = `${name}:${flying}:${boss}:${elite}`;
+  function creepModel(name: string, flying: boolean, boss: boolean, elite = false, immunity = 0) {
+    const id = `${name}:${flying}:${boss}:${elite}:${immunity}`;
     let template = creepTemplates.get(id);
     if (!template) {
-      template = buildCreep(name, flying, boss, elite);
+      template = buildCreep(name, flying, boss, elite, immunity);
       creepTemplates.set(id, template);
     }
     return shareCopy(template);
   }
-  function buildCreep(name: string, flying: boolean, boss: boolean, elite: boolean) {
+  function buildCreep(
+    name: string,
+    flying: boolean,
+    boss: boolean,
+    elite: boolean,
+    immunity: number,
+  ) {
     const scale = Number(game.unit(name)?.ModelScale ?? 1) * (elite ? 2 : 1);
-    const obj = createCreep({ modelScale: scale, flying, boss });
+    const obj = createCreep({ name, modelScale: scale, flying, boss, immunity });
     // Grow body and shadow in place; the body's flying altitude stays as the factory set it.
     const partScale = creepPartScale(scale, flying);
     for (const part of obj.children) part.scale.setScalar(partScale);
     // Creeps carry a painted shadow disc, so they need not cast real ones; one mesh per material.
     obj.traverse((o) => (o.castShadow = false));
-    mergeStatic(obj);
+    const limbs: THREE.Object3D[] = [];
+    obj.traverse((part) => {
+      if (part.name.startsWith('creep-limb-')) limbs.push(part);
+    });
+    mergeStatic(obj, limbs);
     return obj;
   }
 
@@ -465,7 +503,7 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
   // front to back, so as the leader becomes the sim's creep at S the rest simply walk on.
   const approach: THREE.Object3D[] = [];
   let approachName = '';
-  function syncApproach(alpha: number) {
+  function syncApproach(alpha: number, reducedMotion: boolean) {
     const next = tunnel && game.spawning;
     if (next && next.name !== approachName) {
       approach.splice(0).forEach(dispose);
@@ -490,6 +528,8 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
         obj.visible = true;
         obj.position.set(s.x - (gx / length) * walk, 0, s.z - (gz / length) * walk);
         obj.rotation.y = Math.atan2(-gz, gx);
+        const limbs = creepLimbs(obj);
+        animateCreep(limbs, creepClock + k, next.name.includes('fly'), !reducedMotion);
         shown++;
       }
     }
@@ -528,15 +568,31 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
       }
     for (const c of game.creeps) {
       let v = creeps.get(c.id);
+      const skills =
+        c.skills ??
+        Object.entries(game.unit(c.name) ?? {})
+          .filter(([key]) => /^Ability\d+$/.test(key))
+          .map(([, value]) => value);
+      const skin =
+        (skills.includes('enemy_wumian') ? 1 : 0) |
+        (skills.includes('enemy_momian') || game.enraged ? 2 : 0);
+      if (v && v.skin !== skin) {
+        dispose(v.obj);
+        creeps.delete(c.id);
+        v = undefined;
+        changed = true;
+      }
       if (!v) {
-        const obj = creepModel(c.name, c.fly, c.boss, c.elite);
+        const obj = creepModel(c.name, c.fly, c.boss, c.elite, skin);
         v = {
           obj,
+          skin,
           ratio: 1,
           prev: { x: c.x, y: c.y },
           cur: { x: c.x, y: c.y },
           height: new THREE.Box3().setFromObject(obj).max.y + 0.15,
           fly: c.fly,
+          limbs: creepLimbs(obj),
           off: { x: 0, y: 0 },
         };
         creeps.set(c.id, v);
@@ -622,8 +678,25 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
       }
       // Capture endpoints before removing dead creeps, so lethal shots still arrive and burst.
       const killed = new Set(game.events.filter((e) => e.type === 'kill').map((e) => e.id));
+      for (const id of killed) {
+        const creep = creeps.get(id);
+        if (!creep) continue;
+        if (dying.length >= 32) dying.shift();
+        const at = toScene(creep.cur);
+        dying.push({ ...at, height: creep.height, id, age: 0 });
+      }
       for (const e of game.events)
-        if (e.type === 'attack') {
+        if (e.type === 'leak' && castleGate) {
+          const creep = creeps.get(e.id);
+          if (creep) {
+            const obj = shareCopy(creep.obj);
+            const from = toScene(creep.cur);
+            obj.position.set(from.x, 0, from.z);
+            obj.name = 'castle-attacker';
+            scene.add(obj);
+            attackers.push({ obj, from: obj.position.clone(), age: 0 });
+          }
+        } else if (e.type === 'attack') {
           const gem = game.gems.find((g) => g.id === e.from);
           const previous = creeps.get(e.to);
           if (!gem) continue;
@@ -656,7 +729,71 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
     },
     /** Call every frame; `alpha` is the fraction of the current tick that has elapsed. */
     frame(alpha: number, dt: number, reducedMotion = false, camera?: THREE.Camera) {
-      syncApproach(alpha);
+      creepClock += dt;
+      let voxelCount = 0;
+      for (let i = dying.length - 1; i >= 0; i--) {
+        const death = dying[i];
+        death.age += dt;
+        const t = Math.min(1, death.age / (reducedMotion ? 0.15 : 1));
+        if (t >= 1) {
+          dying.splice(i, 1);
+          continue;
+        }
+        for (let k = 0; k < 12; k++) {
+          const angle = (k * 2.399 + death.id) % (Math.PI * 2);
+          const radius =
+            0.08 + (k % 3) * 0.08 + (reducedMotion ? 0 : death.age * (0.8 + (k % 4) * 0.12));
+          const size = Math.min(0.2, death.height * 0.18) * (1 - Math.max(0, (t - 0.75) / 0.25));
+          const startHeight = death.height * (0.2 + (k % 4) * 0.17);
+          const velocity = reducedMotion ? 0 : 1.6 + (k % 4) * 0.15;
+          const gravity = 9;
+          const impact =
+            (velocity + Math.sqrt(velocity ** 2 + 2 * gravity * startHeight)) / gravity;
+          const bounceTime = Math.max(0, death.age - impact);
+          // shortcut: cubes bounce off the ground only; use rigid bodies if object collisions are needed.
+          const height =
+            death.age < impact
+              ? startHeight + velocity * death.age - (gravity * death.age ** 2) / 2
+              : Math.max(
+                  0,
+                  (gravity * impact - velocity) * 0.3 * bounceTime -
+                    (gravity * bounceTime ** 2) / 2,
+                );
+          deathPose.position.set(
+            death.x + Math.cos(angle) * radius,
+            size / 2 + height,
+            death.z + Math.sin(angle) * radius,
+          );
+          deathPose.rotation.set(t * (k % 2 ? 2 : -2), angle, t * ((k % 3) - 1));
+          deathPose.scale.setScalar(size);
+          deathPose.updateMatrix();
+          deathVoxels.setMatrixAt(voxelCount++, deathPose.matrix);
+        }
+      }
+      deathVoxels.count = voxelCount;
+      deathVoxels.instanceMatrix.needsUpdate = true;
+      syncApproach(alpha, reducedMotion);
+      for (let i = attackers.length - 1; i >= 0; i--) {
+        const attacker = attackers[i];
+        attacker.age += dt;
+        if (attacker.age >= 1.2 || !castleGate) {
+          dispose(attacker.obj);
+          attackers.splice(i, 1);
+          continue;
+        }
+        const progress = Math.min(1, attacker.age / 0.8);
+        attacker.obj.position.set(
+          attacker.from.x + (castleGate.x - attacker.from.x) * progress,
+          0,
+          attacker.from.z + (castleGate.z - attacker.from.z) * progress,
+        );
+        attacker.obj.rotation.y = Math.atan2(
+          -(castleGate.z - attacker.from.z),
+          castleGate.x - attacker.from.x,
+        );
+        if (!reducedMotion && progress === 1)
+          attacker.obj.rotation.z = -0.3 * Math.sin(((attacker.age - 0.8) * Math.PI) / 0.4);
+      }
       const facing = camera?.quaternion ?? new THREE.Quaternion();
       barRight.set(1, 0, 0).applyQuaternion(facing);
       let bars = 0;
@@ -674,6 +811,12 @@ export function createPieces(scene: THREE.Scene, game: Game, tunnel?: { x: numbe
         v.obj.position.set(s.x, 0, s.z);
         const [dx, dy] = [v.cur.x - v.prev.x, v.cur.y - v.prev.y];
         if (dx || dy) v.obj.rotation.y = Math.atan2(dy, dx);
+        animateCreep(
+          v.limbs,
+          creepClock + v.obj.id * 0.1,
+          v.fly,
+          !reducedMotion && (v.fly || !!(dx || dy)),
+        );
         if (v.ratio > 0 && bars < MAX_BARS) {
           // The fill is left-aligned on its backing in screen space.
           barAt.set(s.x, v.height, s.z);

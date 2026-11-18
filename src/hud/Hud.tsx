@@ -19,10 +19,14 @@ import { DamageMeter } from './DamageMeter';
 import { HeroPanel } from './HeroPanel';
 import { GlyphDefs, ICONS, Icon } from './icons';
 import { GUIDES } from '../world/guides';
-import { GameMenu, TitleScreen, exitToTitle, newRun, restartSeed, type MenuAsk } from './Menu';
+import { GameMenu, TitleScreen, type MenuAsk } from './Menu';
 import { TowerIcon } from './TowerIcon';
 import { code, compact, displayName } from './names';
 import { PinnedRecipes, RecipeBook } from './RecipeBook';
+import { UpcomingDialog } from './MetaDialogs';
+import { EndPanel } from './EndPanel';
+import { StatusIcon, iconForText } from './Statuses';
+import { skillName, skillText } from './names';
 import { claimRunReward, loadProfile } from '../profile/profile';
 import {
   announcement,
@@ -644,7 +648,7 @@ export function Hud(props: Props) {
         />
       )}
 
-      {ended && <EndCard sim={sim} feedback={feedback} tick={tick} />}
+      {ended && <EndPanel sim={sim} />}
 
       <div class="sr-only" aria-live="polite">
         {announcement.value}
@@ -679,6 +683,7 @@ function RoundClock({
   tick: number;
 }) {
   const game = sim.game;
+  const upcoming = useSignal(false);
   const wave = game.wavePreview;
   const creep = wave.names.map((n) => displayName(sim.data, n)).join(' or ');
   // The clocks stop when the run ends.
@@ -716,7 +721,25 @@ function RoundClock({
           <Icon name="paw" />×{left}
         </span>
       </span>
-      <span class="next-name">{creep}</span>
+      <button
+        class="next-name"
+        title="Upcoming waves"
+        aria-label={`${creep}. Show upcoming waves`}
+        onClick={() => (upcoming.value = true)}
+      >
+        {creep}
+        <span class="next-skills" aria-hidden="true">
+          {game.wavePlan(game.level).skills.map((k) => (
+            <StatusIcon
+              key={k}
+              kind={iconForText(`${skillName(sim.data, k)} ${skillText(sim.data, k)}`)}
+            />
+          ))}
+        </span>
+      </button>
+      {upcoming.value && (
+        <UpcomingDialog data={sim.data} game={game} close={() => (upcoming.value = false)} />
+      )}
       {/* Phones: castle HP and gold join the top bar, off the board. */}
       <span class="clock-res" aria-label="Castle and gold">
         <span class={game.castleHp <= 30 ? 'danger' : ''}>
@@ -877,120 +900,6 @@ function DraftSlots({ sim, select }: { sim: Sim; tick: number; select: (cell: Ce
         })}
       </div>
     </section>
-  );
-}
-
-/** The run's end: the result, what data the run has, and the ways on. */
-function EndCard({ sim, feedback }: { sim: Sim; feedback: Feedback; tick: number }) {
-  const game = sim.game;
-  const stats = game.stats;
-  const won = game.phase === 'won';
-  const totals = feedback.totals.value;
-  const dealt = game.damageThisWave;
-  const total = Object.values(dealt).reduce((sum, d) => sum + d, 0);
-  const top = game.gems
-    .map((g) => ({ g, d: dealt[g.id] ?? 0 }))
-    .filter((r) => r.d > 0)
-    .sort((a, b) => b.d - a.d || a.g.id - b.g.id)
-    .slice(0, 5);
-  const mvp = [...game.gems]
-    .filter((g) => (g.level ?? 0) > 0)
-    .sort((a, b) => (b.level ?? 0) - (a.level ?? 0) || a.id - b.id)[0];
-  return (
-    <div class="end" role="dialog" aria-modal="true" aria-labelledby="end-title">
-      <div class="panel end-card">
-        <h2 id="end-title">{won ? 'Victory' : 'The castle fell'}</h2>
-        <p>
-          {!won
-            ? `Wave ${game.level} broke through.`
-            : game.level > LAST_LEVEL
-              ? `All ${LAST_LEVEL} waves cleared; the castle held until endless wave ${game.level}.`
-              : `All ${LAST_LEVEL} waves cleared.`}
-        </p>
-        <dl class="end-stats tabular">
-          <div>
-            <dt>Wave reached</dt>
-            <dd>{game.level > LAST_LEVEL ? `∞${game.level}` : game.level}</dd>
-          </div>
-          <div>
-            <dt>Kills</dt>
-            <dd>
-              {stats.kills} · score {stats.killScore}
-            </dd>
-          </div>
-          <div>
-            <dt>Reached castle</dt>
-            <dd>{totals.leaks}</dd>
-          </div>
-          <div>
-            <dt>Gold</dt>
-            <dd>
-              {compact(stats.goldEarned)} earned · {compact(stats.goldSpent)} spent
-            </dd>
-          </div>
-          <div>
-            <dt>Run time</dt>
-            <dd>{clock(stats.ticks / TICK_HZ)}</dd>
-          </div>
-          <div>
-            <dt>Castle damage</dt>
-            <dd>{stats.castleDamageTaken}</dd>
-          </div>
-          <div>
-            <dt>Combinations</dt>
-            <dd>{Object.values(stats.combined).reduce((sum, n) => sum + n, 0)}</dd>
-          </div>
-          <div>
-            <dt>Hero casts</dt>
-            <dd>{Object.values(stats.heroCasts).reduce((sum, n) => sum + n, 0)}</dd>
-          </div>
-          <div>
-            <dt>MVP awards</dt>
-            <dd>{stats.mvpAwards}</dd>
-          </div>
-          <div>
-            <dt>Towers</dt>
-            <dd>{game.gems.length}</dd>
-          </div>
-          {mvp && (
-            <div>
-              <dt>MVP</dt>
-              <dd>
-                {displayName(sim.data, mvp.name)} · level {mvp.level}
-              </dd>
-            </div>
-          )}
-        </dl>
-        {top.length > 0 && (
-          <section class="end-damage" aria-label="Damage by tower, last wave">
-            <h3 class="section-label">Damage by tower · last wave</h3>
-            <ol class="damage-list">
-              {top.map(({ g, d }) => (
-                <li class={`gem-${g.name[6]}`} key={g.id}>
-                  <span
-                    class="bar"
-                    style={{ width: `${Math.max(2, (d / total) * 100)}%` }}
-                    aria-hidden="true"
-                  />
-                  <TowerIcon name={g.name} class="glyph mini" />
-                  <span class="damage-name">{displayName(sim.data, g.name)}</span>
-                  <span class="tabular">
-                    {compact(d)} · {Math.round((d / total) * 100)}%
-                  </span>
-                </li>
-              ))}
-            </ol>
-          </section>
-        )}
-        <div class="actions">
-          <button class="primary" ref={(b) => b?.focus()} onClick={newRun}>
-            Play again
-          </button>
-          <button onClick={() => restartSeed(sim.seed)}>Restart this seed</button>
-          <button onClick={exitToTitle}>Exit to title</button>
-        </div>
-      </div>
-    </div>
   );
 }
 

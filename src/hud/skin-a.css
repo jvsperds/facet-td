@@ -1,4 +1,4 @@
-/* A: Smooth Charcoal. Paint-only overrides for current HUD da21e57.
+/* A: Charcoal cave stone. Paint-only overrides for current HUD da21e57.
    Preserve layout, sizing, typography, content and interaction semantics. */
 :root {
   --ink: #f4f3ef;
@@ -184,12 +184,31 @@ kbd {
   border-radius: 12px;
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
 }
+.panel,
 .card,
 .draft,
 .round-clock,
 .stats-panel,
 .meter-panel.dps {
-  background-image: none;
+  background-color: #25282c;
+  background-image:
+    linear-gradient(155deg, rgb(255 255 255 / 0.045), transparent 35%, rgb(0 0 0 / 0.16)),
+    repeating-linear-gradient(
+      135deg,
+      transparent 0 15px,
+      rgb(255 255 255 / 0.018) 16px,
+      transparent 17px 37px
+    ),
+    repeating-linear-gradient(
+      25deg,
+      transparent 0 24px,
+      rgb(0 0 0 / 0.045) 25px,
+      transparent 26px 52px
+    );
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.08),
+    inset 0 -2px 0 rgb(0 0 0 / 0.22),
+    0 8px 24px rgb(0 0 0 / 0.35);
 }
 .selection-stack .card {
   border-radius: 14px;
@@ -308,7 +327,7 @@ kbd {
 .card-portrait .stats,
 .card.collapsed .card-portrait .stats {
   right: 0;
-  width: 68px;
+  width: 50%;
   padding-right: 0;
 }
 
@@ -502,10 +521,15 @@ canvas.pointer-focus:focus-visible {
   min-width: 87px;
 }
 .stats div {
-  gap: 5px;
+  flex-wrap: wrap;
+  column-gap: 5px;
+  row-gap: 0;
 }
 .stats dd {
-  white-space: nowrap;
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .stats dt {
   position: static;
@@ -588,38 +612,6 @@ dialog.menu::backdrop {
 .end {
   z-index: 6;
 }
-.end-card {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  max-width: calc(100vw - 24px);
-  max-height: calc(100dvh - 24px);
-  overflow: auto;
-}
-.end-stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 6px 14px;
-  margin: 0;
-}
-.end-stats dt {
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-}
-.end-stats dd {
-  margin: 0;
-  font-weight: 800;
-}
-.end-damage .damage-list {
-  margin-top: 4px;
-}
-.end-card .actions {
-  flex-wrap: wrap;
-}
-
 /* Castle and gold in the top bar: phones only. */
 .clock-res {
   display: none;
@@ -850,14 +842,6 @@ dialog.menu::backdrop {
   .card-head .icon-button {
     width: 44px;
     height: 44px;
-  }
-}
-/* Touch: a tap is not a hover, so command tooltips would only cover the commands. */
-@media (hover: none) {
-  .slot-cell .tip,
-  .slot-cell:hover .tip,
-  .slot-cell:focus-within .tip {
-    display: none;
   }
 }
 @media (pointer: coarse) and (max-width: 600px) {

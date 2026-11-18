@@ -361,12 +361,21 @@ describe('run statistics', () => {
     expect(s.killsByUnit.gemtd_kuangbaoyezhu ?? 0).toBe(s.kills);
     if (s.kills) expect(s.damageByTower[kept.id].damage).toBeGreaterThan(0);
     expect(s.ticks).toBe(sim.tick);
+    expect(s.waves).toHaveLength(1);
+    expect(s.waves[0]).toMatchObject({
+      level: 1,
+      kills: s.kills,
+      leaks: s.leaks,
+      gold: s.goldEarned,
+    });
+    expect(s.attacks).toBeGreaterThanOrEqual(s.dodged);
     g.castleHp = 0;
     g.phase = 'wave';
     sim.step();
     const ticks = g.stats.ticks;
     sim.step();
     expect(g.stats).toMatchObject({ result: 'lost', castleHpEnd: 0, ticks });
+    expect(g.stats.waves).toHaveLength(2);
   });
 
   test('hero casts and their gold are counted', () => {

@@ -52,7 +52,7 @@ test('clicking a creep shows its health, defences and abilities; it clears when 
   await expect(info.getByRole('meter', { name: 'Health' })).toHaveCount(0);
 });
 
-test('a tower takes an aim mode and boss priority, and shows its MVP card', async ({ page }) => {
+test('a tower takes an aim mode and shows its MVP card', async ({ page }) => {
   await startWave(page, '&wip'); // aim modes are hidden for now; ?wip shows them
   await page.keyboard.press('p');
   const tower = await page.evaluate(() => {
@@ -71,14 +71,9 @@ test('a tower takes an aim mode and boss priority, and shows its MVP card', asyn
   await expect(info.getByRole('listitem', { name: /MVP 2: \+20% damage/ })).toBeVisible();
   await page.keyboard.press('p'); // aim commands apply on the next tick
   await info.getByLabel('Aim').selectOption({ label: 'Lowest HP' });
-  await info.getByRole('button', { name: 'Boss first' }).click();
-  await expect(info.getByRole('button', { name: 'Boss first' })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
   expect(
     await page.evaluate(() => (window as unknown as { facet: Facet }).facet.sim.game.gems[0].aim),
-  ).toBe(2 + 8);
+  ).toBe(2);
 
   // Hold fire stops the tower (to steer the MVP), shown as an effect; S resumes.
   await page

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { signal } from '@preact/signals';
-import { createCreep } from '../../docs/art/model-study/models.js';
+import { creepModel as createCreep } from '../world/creep-model';
 import { towerModel } from '../world/pieces';
 import { gemType } from './names';
 import { GemGlyph } from './icons';
@@ -79,7 +79,12 @@ function render(name: string) {
   const creep = name.startsWith('creep:') ? name.slice(6) : null;
   // The tower without its stone footing: on the board it rises from a wall turret instead.
   const subject = creep
-    ? createCreep({ modelScale: 1, flying: creep.includes('fly'), boss: creep.includes('boss') })
+    ? createCreep({
+        name: creep,
+        modelScale: 1,
+        flying: creep.includes('fly'),
+        boss: creep.includes('boss'),
+      })
     : portrait
       ? towerModel(name)
       : towerModel(name).children.at(-1)!;

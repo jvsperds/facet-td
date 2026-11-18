@@ -174,12 +174,11 @@ const smoothstep = (a: number, b: number, v: number) => {
   return t * t * (3 - 2 * t);
 };
 /** How far the cave has dissolved into the backdrop at (x, z): 0 near the board, 1 at the edge. */
-const fadeAt = (x: number, z: number) => smoothstep(28, 34.5, Math.hypot(x, z));
+const fadeAt = (x: number, z: number) => smoothstep(24, 34.5, Math.hypot(x, z));
 
 /**
  * Fog: mix each fragment toward the backdrop by its distance from the board, after lighting, the
- * same for rock, floor and the structures in it. It thins round `clear` (the vault's heart
- * crystal), so the heart's light carries through; glowing crystals and halos are left unfogged.
+ * same for rock, floor, crystals and the structures in it.
  */
 function fogged<T extends THREE.Material>(material: T, clear: { x: number; z: number }) {
   material.onBeforeCompile = (shader) => {
@@ -202,8 +201,7 @@ function fogged<T extends THREE.Material>(material: T, clear: { x: number; z: nu
       )
       .replace(
         '#include <dithering_fragment>',
-        `float fogAmount = smoothstep(28.0, 34.5, length(vFogXZ));
-  fogAmount *= 1.0 - 0.8 * max(0.0, 1.0 - distance(vFogXZ, fogClear) / 7.0);
+        `float fogAmount = smoothstep(24.0, 34.5, length(vFogXZ));
   gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(${BACKDROP.map((c) => c.toFixed(4))}), fogAmount);
   #include <dithering_fragment>`,
       );
@@ -558,12 +556,15 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
     };
   };
   const crystalMaterial = (tone: THREE.Color) =>
-    new THREE.MeshLambertMaterial({
-      color: tone.clone().lerp(new THREE.Color('#ffffff'), 0.25),
-      emissive: tone,
-      emissiveIntensity: 0.75,
-      flatShading: true,
-    });
+    fogged(
+      new THREE.MeshLambertMaterial({
+        color: tone.clone().lerp(new THREE.Color('#ffffff'), 0.25),
+        emissive: tone,
+        emissiveIntensity: 0.75,
+        flatShading: true,
+      }),
+      vault,
+    );
   const shards = {
     amber: instancer(shardGeometry(), crystalMaterial(AMBER), 'cave-crystals-amber'),
     ice: instancer(shardGeometry(), crystalMaterial(ICE), 'cave-crystals-ice'),
@@ -683,7 +684,7 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
   cave.scale.setScalar(MOUTH_SCALE);
   const brick = masonry('#7c8085');
   const face = masonry('#5e6368');
-  const dark = new THREE.MeshBasicMaterial({ color: '#08090b' });
+  const dark = fogged(new THREE.MeshBasicMaterial({ color: '#08090b' }), vault);
   block(cave, 10, 6.5, 3.4, 0, 0, -2.4, face, 1);
   block(cave, 3.8, 4.1, 0.8, 0, 0, -0.9, dark); // the tunnel's depth
   block(cave, 1.3, 3, 1.6, -2.55, 0, 0.2, brick);
@@ -879,13 +880,16 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
   // Heart crystal on its pedestal, a glow round it, ice crystals in the courtyard corners.
   block(fort, 1.6, 0.6, 1.6, 0, 0.3, 0, footing);
   block(fort, 1.1, 0.4, 1.1, 0, 0.9, 0, cap);
-  const heartMaterial = new THREE.MeshStandardMaterial({
-    color: '#8fd3f4',
-    emissive: '#4aa8e8',
-    emissiveIntensity: 1.2,
-    roughness: 0.25,
-    flatShading: true,
-  });
+  const heartMaterial = fogged(
+    new THREE.MeshStandardMaterial({
+      color: '#8fd3f4',
+      emissive: '#4aa8e8',
+      emissiveIntensity: 1.2,
+      roughness: 0.25,
+      flatShading: true,
+    }),
+    vault,
+  );
   const heart = new THREE.Mesh(
     new THREE.OctahedronGeometry(0.75).scale(0.75, 1.6, 0.75),
     heartMaterial,
@@ -900,6 +904,7 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       transparent: true,
+      opacity: 1 - smoothstep(24, 34.5, Math.hypot(vault.x, vault.z)),
     }),
   );
   aura.position.copy(heart.position);
@@ -969,7 +974,12 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
   );
   haloMesh.name = 'cave-halos';
   haloMesh.renderOrder = 2;
-  halos.forEach((h, k) => haloMesh.setColorAt(k, h.tint.clone().multiplyScalar(0.55)));
+  halos.forEach((h, k) =>
+    haloMesh.setColorAt(
+      k,
+      h.tint.clone().multiplyScalar(0.55 * (1 - smoothstep(24, 34.5, Math.hypot(h.at.x, h.at.z)))),
+    ),
+  );
   group.add(haloMesh);
 
   // Each voxel keeps the pools that can reach it, so baking stays cheap on rebuild.
@@ -1118,6 +1128,7 @@ export function createEnvironment(scene: THREE.Scene, spawn: Cell, exit: Cell) {
     view,
     /** Inside the cave mouth's tunnel: where creeps start their walk to S. */
     tunnel,
+    castleGate: { x: vault.x - 4 * FORT_SCALE, z: vault.z },
     /** True while castle parts are falling, so shadows follow them. */
     get settling() {
       return parts.some((p) => p.state === 'falling');

@@ -9,6 +9,7 @@ const art = import.meta.glob<string>('./status-art/*.png', {
 });
 const FAMILY: Record<string, string> = {
   mvp: 'crit',
+  mvp_aura: 'crit',
   speed: 'speed',
   damage: 'cleave',
   range: 'range',
@@ -97,6 +98,7 @@ export function iconForText(text: string) {
 function iconOf(data: GameData, s: Status) {
   const byKey: Record<string, string> = {
     mvp: 'mvp',
+    mvp_aura: 'mvp',
     disarmed: 'disarm',
     hold: 'hold',
     enraged: 'fire',

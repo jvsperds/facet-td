@@ -3,7 +3,140 @@ import { expect, test } from 'vitest';
 import { loadData } from '../src/data';
 import { Sim } from '../src/sim/sim';
 import { createAimer } from '../src/world/aim';
-import { createPieces, placedTower } from '../src/world/pieces';
+import { createPieces, placedTower, towerModel } from '../src/world/pieces';
+import { creepModel } from '../src/world/creep-model';
+
+test('creep immunity skins are distinct and flying bosses animate their wings', () => {
+  const colors = [0, 1, 2, 3].map((immunity) => {
+    const model = creepModel({ name: 'test', immunity });
+    const body = model.children.find((child) => child instanceof THREE.Group)!;
+    return ((body.children[0] as THREE.Mesh).material as THREE.MeshStandardMaterial).color.getHex();
+  });
+  expect(new Set(colors).size).toBe(4);
+  const boss = creepModel({ name: 'boss', boss: true, flying: true, immunity: 3 });
+  for (const name of ['creep-limb-0', 'creep-limb-1']) {
+    const wing = boss.getObjectByName(name)!;
+    expect(wing.getObjectByName('wing-tip')).toBeDefined();
+  }
+});
+
+test('resistance and boss models have distinct voxel features', () => {
+  const normal = creepModel({ name: 'test' });
+  const armored = creepModel({ name: 'test', immunity: 1 });
+  const magicalBoss = creepModel({ name: 'boss', immunity: 2, boss: true });
+  expect(normal.getObjectByName('creep-muzzle')).toBeDefined();
+  expect(normal.getObjectByName('creep-armor')).toBeUndefined();
+  expect(armored.getObjectByName('creep-armor')).toBeDefined();
+  expect(magicalBoss.getObjectByName('creep-crystal')).toBeDefined();
+  expect(magicalBoss.getObjectByName('creep-tusk')).toBeDefined();
+});
+
+test('dead creeps burst outward, fall, and disappear', () => {
+  const game = new Sim(loadData('classic'), 1).game;
+  game.creeps.push({
+    id: 42,
+    name: 'test',
+    hp: 10,
+    maxHp: 10,
+    armor: 0,
+    speed: 0,
+    x: 20,
+    y: 20,
+    step: 1,
+    fly: false,
+    boss: false,
+    damage: 1,
+  });
+  const scene = new THREE.Scene();
+  const pieces = createPieces(scene, game);
+  pieces.afterStep();
+  game.creeps = [];
+  game.events = [{ type: 'kill', id: 42, gold: 5 }];
+  pieces.afterStep();
+  const death = scene.getObjectByName('creep-death') as THREE.InstancedMesh;
+  pieces.frame(1, 0.01);
+  expect(death.count).toBe(12);
+  const first = new THREE.Matrix4(),
+    second = new THREE.Matrix4();
+  death.getMatrixAt(0, first);
+  death.getMatrixAt(1, second);
+  expect(first.elements[12]).not.toBe(second.elements[12]);
+  const initialX = first.elements[12],
+    initialZ = first.elements[14];
+  const initialHeight = first.elements[13];
+  pieces.frame(1, 0.2);
+  death.getMatrixAt(0, first);
+  expect(Math.hypot(first.elements[12] - initialX, first.elements[14] - initialZ)).toBeGreaterThan(
+    0.1,
+  );
+  expect(first.elements[13]).toBeGreaterThan(initialHeight);
+  const peakHeight = first.elements[13];
+  pieces.frame(1, 0.45);
+  death.getMatrixAt(0, first);
+  expect(first.elements[13]).toBeLessThan(peakHeight);
+  expect(first.elements[13]).toBeGreaterThan(0);
+  pieces.frame(1, 0.4);
+  expect(death.count).toBe(0);
+});
+
+test('leaked creeps continue visually to the castle and disappear after striking', () => {
+  const game = new Sim(loadData('classic'), 1).game;
+  game.creeps.push({
+    id: 42,
+    name: 'test',
+    hp: 10,
+    maxHp: 10,
+    armor: 0,
+    speed: 0,
+    x: 20,
+    y: 20,
+    step: 1,
+    fly: false,
+    boss: false,
+    damage: 1,
+  });
+  const scene = new THREE.Scene();
+  const pieces = createPieces(scene, game, undefined, { x: 5, z: 0 });
+  pieces.afterStep();
+  game.creeps = [];
+  game.events = [{ type: 'leak', id: 42, damage: 1 }];
+  pieces.afterStep();
+  const attacker = scene.getObjectByName('castle-attacker')!;
+  expect(attacker).toBeDefined();
+  pieces.frame(1, 0.8);
+  expect(attacker.position.x).toBeCloseTo(5);
+  pieces.frame(1, 0.5);
+  expect(scene.getObjectByName('castle-attacker')).toBeUndefined();
+});
+
+test('secret stones have distinct tower models with aiming heads', () => {
+  const names = [
+    'gemtd_manao',
+    'gemtd_xiameishi',
+    'gemtd_ranshaozhishi',
+    'gemtd_geluanshi',
+    'gemtd_heiyaoshi',
+  ];
+  const silhouettes = names.map((name) => {
+    const model = towerModel(name);
+    const aimer = createAimer(model);
+    expect(aimer.parts).toBeGreaterThan(0);
+    const head = model.children.at(-1)!;
+    const meshes: THREE.Mesh[] = [];
+    head.traverse((o) => {
+      if (o instanceof THREE.Mesh) meshes.push(o);
+    });
+    expect(meshes.length).toBeGreaterThan(5);
+    return meshes
+      .map((m) => {
+        const geometry = m.geometry.toJSON();
+        geometry.uuid = '';
+        return JSON.stringify(geometry);
+      })
+      .join(',');
+  });
+  expect(new Set(silhouettes).size).toBe(names.length);
+});
 
 test('every combined tower, secret stone and tablet has a finite board model', () => {
   const data = loadData('classic'),
