@@ -219,6 +219,8 @@ button {
   text-transform: none;
   text-align: left;
   white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
   background: none;
   text-shadow: none;
 }
@@ -351,9 +353,10 @@ button {
 .abilities:empty {
   display: none;
 }
-/* Tower abilities: up to five 34px icons in one row, then one fixed-height description. */
+/* Tower abilities: icons followed by their full description. */
 .ability-strip {
   display: flex;
+  flex-wrap: wrap;
   gap: 5px;
   margin: 0;
   padding: 0;
@@ -377,9 +380,8 @@ button {
 .ability-detail {
   flex-basis: 100%;
   box-sizing: border-box;
-  /* Four lines fits the longest tooltip (about 130 characters) at this width. */
-  height: calc(4 * 14px + 8px);
-  overflow-y: auto;
+  min-height: calc(4 * 14px + 8px);
+  overflow-wrap: anywhere;
   margin: 0;
   padding: 4px 6px;
   border: 1px solid #4b5862;
@@ -573,12 +575,16 @@ button {
   max-width: min(280px, calc(100vw - 30px));
   font-size: 12px;
 }
-.context-commands .tip {
+.selection-stack .tip {
   position: fixed;
   bottom: 58px;
   left: calc(var(--safe-l) + 280px);
   right: auto;
   transform: none;
+  max-height: min(50dvh, 320px);
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  pointer-events: auto;
 }
 .game-controls {
   position: fixed;
@@ -714,7 +720,7 @@ button {
     width: 32px;
     min-width: 32px;
   }
-  .context-commands .tip {
+  .selection-stack .tip {
     left: 8px;
     bottom: 52px;
   }

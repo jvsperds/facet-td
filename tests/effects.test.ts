@@ -209,9 +209,9 @@ test('field ground effects are textured per family and stay when auras are hidde
     // A pattern, not a flat fill: alpha varies across the cell.
     expect(new Set(px.filter((_, i) => i % 4 === 3)).size).toBeGreaterThanOrEqual(4);
   }
-  // Burn is red-to-yellow only: no dark pixels.
+  // Burn stays translucent enough to leave the board visible.
   const burn = fieldTexturePixels('burn');
-  expect(burn.filter((_, i) => i % 4 === 0).every((r) => r >= 200)).toBe(true);
+  expect(Math.max(...burn.filter((_, i) => i % 4 === 3))).toBeLessThanOrEqual(51);
   const scene = new THREE.Scene();
   const fx = createEffects(scene);
   fx.setTowers([{ ...tower('gemtd_xingcaihongbaoshi'), x: 0, z: 0 }], [{ x: 1, z: 0 }]);
@@ -219,6 +219,9 @@ test('field ground effects are textured per family and stay when auras are hidde
   expect((scene.getObjectByName('field-tiles-burn') as THREE.InstancedMesh).count).toBeGreaterThan(
     0,
   );
+  const edge = scene.getObjectByName('field-edge-burn') as THREE.InstancedMesh;
+  expect(edge.count).toBeGreaterThan(0);
+  expect(edge.geometry.getAttribute('position').count).toBe(8);
   // A lone blocked cell gets the octagonal turret band.
   expect((scene.getObjectByName('field-turret-burn') as THREE.InstancedMesh).count).toBe(1);
   fx.setAurasVisible(false);

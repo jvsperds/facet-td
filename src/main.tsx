@@ -32,8 +32,9 @@ import './hud/skin-a.css';
 
 const mode: Mode = 'classic';
 const params = new URLSearchParams(location.search);
-// A bare launch (or `?title`) shows the title screen over an idle board; a run needs `?seed` or `?resume`.
-const title = params.has('title') || !(params.has('seed') || params.has('resume'));
+const preview = params.get('preview') === 'all';
+// A bare launch (or `?title`) shows the title screen over an idle board.
+const title = !preview && (params.has('title') || !(params.has('seed') || params.has('resume')));
 // The seed is the only outside input; `?seed=` replays a game.
 const seed = Number(params.get('seed')) || Date.now() >>> 0;
 // `?wip` keeps the free hero loadout (sandbox); a normal run's hero is fixed by its config.
@@ -148,6 +149,16 @@ effect(() => {
 });
 effect(() => world.setMarks(selected.value, cursor.value));
 effect(() => world.markCreep(selectedCreep.value));
+// A boss is selected when it spawns, once, so deselecting it sticks.
+let autoBoss = -1;
+effect(() => {
+  void ticked.value;
+  const boss = sim.game.creeps.find((c) => c.boss);
+  if (boss && boss.id !== autoBoss) {
+    autoBoss = boss.id;
+    selectedCreep.value = boss.id;
+  }
+});
 // The last wave's MVP stays circled on the board through the build phase.
 effect(() => {
   void ticked.value;
@@ -283,11 +294,18 @@ setInterval(() => {
     lastShown = shown;
     ticked.value++;
   }
-  if (!title && stepped && g.level !== savedLevel && g.phase !== 'lost' && g.phase !== 'won') {
+  if (
+    !preview &&
+    !title &&
+    stepped &&
+    g.level !== savedLevel &&
+    g.phase !== 'lost' &&
+    g.phase !== 'won'
+  ) {
     savedLevel = g.level;
     saveRun(sim);
   }
-  if (!title && !recordedEnd && (g.phase === 'lost' || g.phase === 'won')) {
+  if (!preview && !title && !recordedEnd && (g.phase === 'lost' || g.phase === 'won')) {
     recordedEnd = true;
     const profile = loadProfile(data);
     completeProfileQuests(profile, completedQuests(g.stats, sim.config));
@@ -306,7 +324,7 @@ prewarmTowers(towerNames);
 // Icons render only between waves, so the second WebGL context never competes with play.
 setIconsBusy(() => sim.game.phase === 'wave');
 prewarmIcons(towerNames);
-if (params.get('preview') === 'all') setupPreview(sim, towerNames);
+if (preview) setupPreview(sim, towerNames);
 
 // Test hook for the Playwright smoke test (dev server only).
 if (import.meta.env.DEV) Object.assign(window, { facet: { world, board, sim } });

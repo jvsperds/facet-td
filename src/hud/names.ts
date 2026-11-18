@@ -1,6 +1,7 @@
 import type { GameData } from '../data';
 import type { TowerAbility } from '../sim/abilities';
 import { isBasicGem, qualityOf } from '../sim/game';
+import { creepTheme } from '../creep-theme';
 
 // Display names and short labels from the original localization, shared by the HUD panels.
 
@@ -10,6 +11,8 @@ const tokensOf = (data: GameData) =>
 
 /** English display name, e.g. "chipped sapphire/B1" -> "Chipped sapphire". */
 export function displayName(data: GameData, unit: string) {
+  const themed = creepTheme(unit)?.name;
+  if (themed) return themed;
   const text = (tokensOf(data)[unit] ?? unit.replace(/^gemtd_/, '').replaceAll('_', ' ')).split(
     '/',
   )[0];
@@ -59,6 +62,7 @@ const token = (data: GameData, key: string) => {
 };
 const SKILL_NAMES: Record<string, string> = {
   mvp: 'MVP',
+  mvp_aura: 'MVP max aura',
   disarmed: 'Disarmed',
   hold: 'Holding fire',
   enraged: 'Enraged',

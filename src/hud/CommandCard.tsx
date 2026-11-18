@@ -4,13 +4,13 @@ import { useEffect, useId } from 'preact/hooks';
 import { CELL_UNITS, type Cell } from '../sim/board';
 import {
   AIM,
-  AIM_BOSS,
   DRAFT_SIZE,
   TICK_HZ,
   isBasicGem,
   qualityOf,
   type Check,
   type Game,
+  type Gem,
 } from '../sim/game';
 import { heroActionCost, readHeroCatalog } from '../sim/hero';
 import type { RecipeKind } from '../sim/progression';
@@ -309,10 +309,12 @@ function Card(p: {
 }
 
 /** A tower's skills from its unit (Ability1..n), skipping internal ones with no tooltip. */
-function towerSkills(sim: Sim, name: string): [string, string, string][] {
-  return Object.entries(sim.game.unit(name) ?? {})
+export function towerSkills(sim: Sim, gem: Gem): [string, string, string][] {
+  const fixed = Object.entries(sim.game.unit(gem.name) ?? {})
     .filter(([k, v]) => /^Ability\d+$/.test(k) && v)
-    .map(([, k]) => [skillName(sim.data, String(k)), skillText(sim.data, String(k))] as const)
+    .map(([, v]) => String(v));
+  return [...new Set([...fixed, ...(gem.stolenAbilities ?? []).map((a) => a.name)])]
+    .map((k) => [skillName(sim.data, k), skillText(sim.data, k)] as const)
     .filter(([, text]) => text)
     .map(([n, text]) => [n, text, iconForText(`${n} ${text}`)]);
 }
@@ -572,7 +574,7 @@ function CellCard({
     title = displayName(sim.data, name);
     subtitle = [
       isTablet(name) ? 'Pedal' : isBasicGem(name) ? 'Gem' : 'Combined tower',
-      roleOf(game.abilities(name)),
+      roleOf([...game.abilities(name), ...(gem.stolenAbilities ?? [])]),
       ...(draftGem ? ['this round'] : []),
     ].join(' · ');
     const interval = game.attackInterval(gem);
@@ -589,7 +591,7 @@ function CellCard({
       ['target', 'Range', game.attackRange(gem).toFixed(1), 'tiles'],
       ['meter', 'Dealt', compact(dealt), 'this wave'],
     );
-    cards = towerSkills(sim, name);
+    cards = towerSkills(sim, gem);
     // Keep and downgrade apply only to this round's gems while placing.
     for (const up of draftGem && game.phase === 'build' ? ([0, -1, 1, 2] as const) : []) {
       if (up === -1) {
@@ -757,7 +759,7 @@ function CellCard({
       <label for="aim-mode">Aim</label>
       <select
         id="aim-mode"
-        value={(gem.aim ?? 0) % AIM_BOSS}
+        value={gem.aim ?? 0}
         onChange={(e) =>
           send({
             type: 'aim',

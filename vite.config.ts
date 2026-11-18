@@ -15,6 +15,8 @@ const iconSources = [
     .map((f) => `docs/art/model-study/${f}`),
   'src/world/pieces.ts',
   'src/world/pedal-models.ts',
+  'src/world/secret-towers.ts',
+  'src/world/creep-model.ts',
   'src/world/pedals.ts',
   'src/hud/TowerIcon.tsx',
 ];

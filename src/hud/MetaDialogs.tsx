@@ -5,6 +5,11 @@ import type { GameData } from '../data';
 import { claimQuest, loadProfile } from '../profile/profile';
 import { bestRun, loadHistory } from '../profile/runs';
 import { questTitle } from '../sim/quests';
+import type { Game } from '../sim/game';
+import { Icon } from './icons';
+import { compact, displayName, skillName, skillText } from './names';
+import { StatusIcon, iconForText } from './Statuses';
+import { CreepIcon } from './TowerIcon';
 
 function Modal({
   title,
@@ -145,6 +150,79 @@ export function SettingsDialog({ audio, close }: { audio: Audio; close: () => vo
         </label>
       </div>
       <p class="muted">Graphics changes apply on the next run.</p>
+    </Modal>
+  );
+}
+
+/** The next waves: creep, count, HP, armor, speed, castle damage and skills. */
+export function UpcomingDialog({
+  data,
+  game,
+  close,
+}: {
+  data: GameData;
+  game: Game;
+  close: () => void;
+}) {
+  const first = game.phase === 'wave' ? game.level + 1 : game.level;
+  const plans = Array.from({ length: 5 }, (_, i) => game.wavePlan(first + i)).filter(
+    (p) => p.names.length && (game.config.endless || p.level <= 50),
+  );
+  return (
+    <Modal title="Upcoming waves" close={close}>
+      <ol class="upcoming-list">
+        {plans.map((p) => (
+          <li key={p.level} class={p.boss ? 'boss' : ''}>
+            <header>
+              <span class="upcoming-wave">
+                <small>Wave</small>
+                {p.level}
+              </span>
+              <CreepIcon name={p.names[0]} />
+              <span>
+                <strong>{p.names.map((n) => displayName(data, n)).join(' or ')}</strong>
+                <small>{p.boss ? 'Boss' : `${p.count} enemies${p.fly ? ' · flying' : ''}`}</small>
+              </span>
+            </header>
+            <dl class="upcoming-stats">
+              <div>
+                <dt>
+                  <Icon name="heart" /> HP
+                </dt>
+                <dd>{p.hp === null ? '?' : compact(p.hp)}</dd>
+              </div>
+              <div>
+                <dt>
+                  <Icon name="shield" /> Armor
+                </dt>
+                <dd>{p.armor}</dd>
+              </div>
+              <div>
+                <dt>
+                  <Icon name="boot" /> Speed
+                </dt>
+                <dd>{p.speed.toFixed(1)}/s</dd>
+              </div>
+              <div>
+                <dt>
+                  <Icon name="castle" /> Leak
+                </dt>
+                <dd>{p.leak ? `${p.leak[0]}-${p.leak[1]}` : 'Fatal'}</dd>
+              </div>
+            </dl>
+            {p.skills.length > 0 && (
+              <ul class="upcoming-skills">
+                {p.skills.map((k) => (
+                  <li key={k}>
+                    <StatusIcon kind={iconForText(`${skillName(data, k)} ${skillText(data, k)}`)} />
+                    <b>{skillName(data, k)}</b> {skillText(data, k)}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </li>
+        ))}
+      </ol>
     </Modal>
   );
 }

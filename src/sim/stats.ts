@@ -41,9 +41,37 @@ export interface RunStats {
   maxWaveEnemyCount: number;
   /** Castle HP when the run ended; null while it runs. */
   castleHpEnd: number | null;
-  /** Lifetime damage per tower id, with the tower's latest name. */
-  damageByTower: Record<number, { name: string; damage: number }>;
+  /** Lifetime damage per tower id, with the tower's latest name, damage by type and kills. */
+  damageByTower: Record<
+    number,
+    {
+      name: string;
+      damage: number;
+      physical?: number;
+      magical?: number;
+      pure?: number;
+      kills?: number;
+    }
+  >;
+  /** One row per wave fought (cleared or lost), endless waves included. */
+  waves: WaveStats[];
+  /** Tower attacks thrown, and how many creeps dodged. */
+  attacks: number;
+  dodged: number;
+  /** The single biggest hit landed. */
+  biggestHit: { damage: number; name: string; level: number } | null;
   result: 'won' | 'lost' | null;
+}
+
+export interface WaveStats {
+  level: number;
+  creep: string;
+  damage: number;
+  gold: number;
+  kills: number;
+  leaks: number;
+  castle: number;
+  ticks: number;
 }
 
 export function emptyStats(enemyCount: number): RunStats {
@@ -69,6 +97,10 @@ export function emptyStats(enemyCount: number): RunStats {
     maxWaveEnemyCount: enemyCount,
     castleHpEnd: null,
     damageByTower: {},
+    waves: [],
+    attacks: 0,
+    dodged: 0,
+    biggestHit: null,
     result: null,
   };
 }

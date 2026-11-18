@@ -33,11 +33,11 @@ const FX_GAP = 0.09;
 /** Seconds on screen per attack style (GemTD's FX_LIFE at a mid tier). */
 const FX_LIFE: Record<AttackStyle, number> = {
   line: 0.15,
-  beam: 0.26,
+  beam: 0.32,
   zap: 0.2,
   laguna: 0.42,
   finger: 0.47,
-  orb: 0.2,
+  orb: 0.25,
   glob: 0.28,
   shard: 0.18,
   ray: 0.3,
@@ -119,17 +119,17 @@ const IMPACT_OF: Record<ShotStyle, ImpactStyle> = {
 };
 const AURA_COLOR: Record<AuraFamily, string> = {
   // Opal-style attack speed auras are everywhere late on: grey and barely there.
-  support: '#9AA0A6',
+  support: '#B3ACD1',
   burn: '#F0803C',
   frost: '#8FD3F4',
   shred: '#3CC8B4',
 };
 /** Ring, fill and pulse opacity by family. */
 const AURA_OPACITY: Record<AuraFamily, [number, number, number]> = {
-  support: [0.14, 0.02, 0.12],
-  burn: [0.32, 0.04, 0.35],
-  frost: [0.32, 0.04, 0.35],
-  shred: [0.32, 0.04, 0.35],
+  support: [0.08, 0.01, 0.04],
+  burn: [0.12, 0.015, 0.06],
+  frost: [0.12, 0.015, 0.06],
+  shred: [0.12, 0.015, 0.06],
 };
 const MAX_AURAS = 256;
 const MAX_FIELD_TILES = 8192;
@@ -141,7 +141,7 @@ const MAX_FIELD_MOTES = 6000;
 export type GroundFamily = 'burn' | 'frost' | 'shred';
 /** Tile and glaze tint by field level 1-3 (e.g. tower_huiyao, huiyao2, huiyao3): stronger as it grows. */
 /** Burn's wall band is untextured, so it takes the full colour the burn texture bakes in. */
-const BURN_BAND = ['#F8A060', '#F56A28', '#F23A12'].map((c) => new THREE.Color(c));
+const BURN_BAND = ['#A77D64', '#B67D5D', '#C27855'].map((c) => new THREE.Color(c));
 const FIELD_TINT: Record<GroundFamily, THREE.Color[]> = {
   burn: ['#FFE2C8', '#FFB08A', '#FF6A50'].map((c) => new THREE.Color(c)),
   frost: ['#CFEFFF', '#7FC8F8', '#2E8CF0'].map((c) => new THREE.Color(c)),
@@ -184,8 +184,7 @@ function sideBand(width: number, height: number, sides: 4 | 8) {
 }
 
 /**
- * Burn: smouldering ground. Two octaves of tileable value noise pick, per pixel, clear ground,
- * dull red embers, orange heat or a yellow hot spot, so patches glow unevenly like coals. The
+ * Burn: scorched ground. Two octaves of tileable value noise pick subtle warm ash tones. The
  * colour is baked in (the level tint only deepens it); edges wrap so cells join seamlessly.
  */
 function burnPixels() {
@@ -217,12 +216,12 @@ function burnPixels() {
       const n = noise(x, y);
       const [r, g, b, a] =
         n > 0.72
-          ? [255, 214, 120, 0.55] // hot spot
+          ? [238, 180, 135, 0.2]
           : n > 0.58
-            ? [255, 140, 60, 0.42] // heat
+            ? [229, 159, 120, 0.16]
             : n > 0.44
-              ? [226, 72, 36, 0.28] // embers
-              : [240, 120, 70, 0.1]; // warm ground
+              ? [216, 143, 111, 0.12]
+              : [207, 138, 112, 0.08];
       px.set([r, g, b, Math.round(a * 255)], (y * N + x) * 4);
     }
   return px;
@@ -230,7 +229,7 @@ function burnPixels() {
 
 /**
  * A 16x16 pixel texture per field family, white so the instance colour tints it, with alpha
- * carrying the pattern: burn is a warm haze with glowing cracks, frost is rime with ice
+ * carrying the pattern: burn is warm ash, frost is rime with ice
  * crystals, shred is pitted, corroded stone. Nearest filtering keeps the pixels crisp.
  */
 export function fieldTexturePixels(family: GroundFamily) {
@@ -488,9 +487,9 @@ export function createEffects(scene: THREE.Scene) {
   const auraGroup = new THREE.Group();
   auraGroup.name = 'tower-auras';
   scene.add(auraGroup);
-  const ringGeometry = new THREE.RingGeometry(0.96, 1, 64).rotateX(-Math.PI / 2);
+  const ringGeometry = new THREE.RingGeometry(0.985, 1, 24).rotateX(-Math.PI / 2);
   const discGeometry = new THREE.CircleGeometry(1, 48).rotateX(-Math.PI / 2);
-  const pulseGeometry = new THREE.RingGeometry(0.97, 1, 48).rotateX(-Math.PI / 2);
+  const pulseGeometry = new THREE.RingGeometry(0.99, 1, 24).rotateX(-Math.PI / 2);
   const auraLayer = (geometry: THREE.BufferGeometry, family: AuraFamily, layer: number) => {
     const mesh = new THREE.InstancedMesh(
       geometry,
@@ -532,6 +531,23 @@ export function createEffects(scene: THREE.Scene) {
   fieldGroup.name = 'field-ground';
   scene.add(fieldGroup);
   const tileGeometry = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+  const edgeShape = new THREE.Shape();
+  edgeShape.moveTo(-0.5, -0.25);
+  for (const [x, y] of [
+    [-0.25, -0.5],
+    [0.25, -0.5],
+    [0.5, -0.25],
+    [0.5, 0.25],
+    [0.25, 0.5],
+    [-0.25, 0.5],
+    [-0.5, 0.25],
+  ])
+    edgeShape.lineTo(x, y);
+  edgeShape.closePath();
+  const edgeGeometry = new THREE.ShapeGeometry(edgeShape);
+  const uv = edgeGeometry.getAttribute('uv');
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) + 0.5, uv.getY(i) + 0.5);
+  edgeGeometry.rotateX(-Math.PI / 2);
   // The glaze is a low band on the sides of walls and tower bases standing in a field, strongest
   // at the ground and fading out a short way up: no top face, nothing on the tower itself.
   // Square along connected walls (no gaps at the joins), octagonal round a lone turret.
@@ -574,16 +590,22 @@ export function createEffects(scene: THREE.Scene) {
       return [
         f,
         {
-          tiles: fieldMesh(tileGeometry, map, `field-tiles-${f}`, 1),
+          tiles: fieldMesh(tileGeometry, map, `field-tiles-${f}`, 0.3),
+          edge: fieldMesh(edgeGeometry, map, `field-edge-${f}`, 0.3),
           // Solid tint, no texture: the band is thin and the texture's faint alpha would vanish.
-          glaze: fieldMesh(glazeGeometry, null, `field-glaze-${f}`, 0.55),
-          turret: fieldMesh(turretGlazeGeometry, null, `field-turret-${f}`, 0.55),
+          glaze: fieldMesh(glazeGeometry, null, `field-glaze-${f}`, 0.15),
+          turret: fieldMesh(turretGlazeGeometry, null, `field-turret-${f}`, 0.15),
         },
       ];
     }),
   ) as unknown as Record<
     GroundFamily,
-    { tiles: THREE.InstancedMesh; glaze: THREE.InstancedMesh; turret: THREE.InstancedMesh }
+    {
+      tiles: THREE.InstancedMesh;
+      edge: THREE.InstancedMesh;
+      glaze: THREE.InstancedMesh;
+      turret: THREE.InstancedMesh;
+    }
   >;
   /** Overlapping families stack a hair apart instead of z-fighting. */
   const FIELD_LIFT: Record<GroundFamily, number> = { burn: 0.014, frost: 0.017, shred: 0.02 };
@@ -601,7 +623,7 @@ export function createEffects(scene: THREE.Scene) {
       sizeAttenuation: false,
       vertexColors: true,
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.35,
       depthWrite: false,
     }),
   );
@@ -621,9 +643,10 @@ export function createEffects(scene: THREE.Scene) {
   }[] = [];
   // Additive: an instance colour fading to black fades the ring out.
   const fieldPulse = new THREE.InstancedMesh(
-    new THREE.RingGeometry(0.9, 1, 64).rotateX(-Math.PI / 2),
+    new THREE.RingGeometry(0.98, 1, 64).rotateX(-Math.PI / 2),
     new THREE.MeshBasicMaterial({
       transparent: true,
+      opacity: 0.12,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
     }),
@@ -773,11 +796,12 @@ export function createEffects(scene: THREE.Scene) {
         }
       const tiles = fieldCells(towers).slice(0, MAX_FIELD_TILES);
       const subTiles = fieldCells(towers, 0.5).slice(0, MAX_FIELD_TILES);
+      const fieldAt = new Set(subTiles.map((tile) => `${tile.family},${tile.x},${tile.z}`));
       const solid = new Set(blocked.map((c) => `${c.x},${c.z}`));
       const placed = {
-        burn: { tiles: 0, glaze: 0, turret: 0 },
-        frost: { tiles: 0, glaze: 0, turret: 0 },
-        shred: { tiles: 0, glaze: 0, turret: 0 },
+        burn: { tiles: 0, edge: 0, glaze: 0, turret: 0 },
+        frost: { tiles: 0, edge: 0, glaze: 0, turret: 0 },
+        shred: { tiles: 0, edge: 0, glaze: 0, turret: 0 },
       };
       motes = [];
       let rnd = 1;
@@ -793,9 +817,16 @@ export function createEffects(scene: THREE.Scene) {
           turn,
           auraScale.setScalar(0.5),
         );
-        fieldLayers[tile.family].tiles.setMatrixAt(n.tiles, auraPose);
-        fieldLayers[tile.family].tiles.setColorAt(
-          n.tiles++,
+        const edge = [
+          [0.5, 0],
+          [-0.5, 0],
+          [0, 0.5],
+          [0, -0.5],
+        ].some(([dx, dz]) => !fieldAt.has(`${tile.family},${tile.x + dx},${tile.z + dz}`));
+        const part = edge ? 'edge' : 'tiles';
+        fieldLayers[tile.family][part].setMatrixAt(n[part], auraPose);
+        fieldLayers[tile.family][part].setColorAt(
+          n[part]++,
           FIELD_TINT[tile.family][tile.level - 1],
         );
       }
@@ -820,7 +851,10 @@ export function createEffects(scene: THREE.Scene) {
           );
         }
         // Ambient only: about one cell in ten per level sends a mote.
-        if (random() < 0.1 * tile.level && motes.length < MAX_FIELD_MOTES)
+        if (
+          random() < (tile.family === 'burn' ? 0.04 : 0.1) * tile.level &&
+          motes.length < MAX_FIELD_MOTES
+        )
           motes.push({
             x: tile.x + (random() - 0.5) * 0.8,
             z: tile.z + (random() - 0.5) * 0.8,
@@ -829,7 +863,7 @@ export function createEffects(scene: THREE.Scene) {
           });
       }
       for (const f of GROUND)
-        for (const part of ['tiles', 'glaze', 'turret'] as const) {
+        for (const part of ['tiles', 'edge', 'glaze', 'turret'] as const) {
           const mesh = fieldLayers[f][part];
           mesh.count = placed[f][part];
           mesh.visible = mesh.count > 0;
@@ -1013,7 +1047,7 @@ export function createEffects(scene: THREE.Scene) {
     );
     switch (f.style ?? f.shot) {
       case 'orb':
-        strokes.dot(pose.position, 0.34, f.color, 0.6);
+        strokes.dot(pose.position, 0.46, f.color, 0.7);
         strokes.dot(pose.position, 0.13, WHITE, 0.95);
         return;
       case 'glob':
@@ -1051,9 +1085,10 @@ export function createEffects(scene: THREE.Scene) {
         strokes.line([a, b], 0.06, core, fade);
         break;
       case 'beam':
-        strokes.line([a, b], 0.46 * big, f.color, 0.3 * fade);
+        strokes.line([a, b], 0.6 * big, f.color, 0.38 * fade);
         strokes.line([a, b], 0.16, f.color, 0.65 * fade);
         strokes.line([a, b], 0.05, WHITE, fade);
+        strokes.dot(a, 0.3 * big, f.color, 0.45 * fade);
         strokes.dot(b, 0.3 * big, core, fade);
         break;
       case 'zap': {

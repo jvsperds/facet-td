@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { loadData } from '../src/data';
 import { Sim } from '../src/sim/sim';
 
@@ -67,7 +67,7 @@ test('three aligned tablets upgrade without leaving blocking stones behind', () 
   expect(g.stones.size).toBe(before);
 });
 
-test('natural emerald steals three distinct nearby ranged tower abilities', () => {
+test('natural emerald steals three distinct nearby ranged tower abilities', async () => {
   const sim = new Sim(data, 5),
     g = sim.game;
   g.phase = 'wave';
@@ -84,6 +84,14 @@ test('natural emerald steals three distinct nearby ranged tower abilities', () =
   expect(emerald.stolenAbilities?.map((a) => a.name).sort()).toEqual(
     ['tower_jianjia1', 'tower_slow1', 'tower_speed_aura1'].sort(),
   );
+  vi.stubGlobal('matchMedia', () => ({ matches: false }));
+  const { towerSkills } = await import('../src/hud/CommandCard');
+  expect(
+    towerSkills(sim, emerald)
+      .map(([name]) => name)
+      .sort(),
+  ).toEqual(['Pierce 1', 'Slow 1', 'Aura 1'].sort());
+  vi.unstubAllGlobals();
 });
 
 test('downgrade and the perfect +2 special outcome are reachable through replayable commands', () => {

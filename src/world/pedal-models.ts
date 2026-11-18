@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { PEDAL_COLORS, type PedalFamily } from './pedals';
 
-// Pedal (tablet) models: a thin slate plate flush with the floor, cut like the gems: a hexagonal
+// Pedal (tablet) models: a thin slate plate flush with the floor, cut like the gems: an octagonal
 // rune rim and a flat faceted crystal inlay glowing in the spell's colour (PEDAL_COLORS). The tier
 // adds rim notches (copper 0, silver 2, gold 4). Everything stays low: creeps walk over pedals.
 
@@ -43,14 +43,16 @@ export function pedalHead(name: string) {
   const head = new THREE.Group();
   head.name = `pedal-${family}`;
   const plate = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.33, 0.35, 0.04, 6),
+    new THREE.CylinderGeometry(0.33, 0.35, 0.04, 8),
     new THREE.MeshStandardMaterial({ color: STONE, roughness: 0.95, flatShading: true }),
   );
   plate.position.y = TOP - 0.02;
+  plate.rotation.y = Math.PI / 8;
   head.add(plate);
   const lit = glow(color);
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.014, 3, 6), lit);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.014, 3, 8), lit);
   rim.rotation.x = -Math.PI / 2;
+  rim.rotation.z = Math.PI / 8;
   rim.position.y = TOP + 0.002;
   head.add(rim);
   const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.15, 0), glow(color, 0.8));
