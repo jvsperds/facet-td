@@ -751,7 +751,9 @@ function RoundClock({
           <span class={game.castleHp <= 30 ? 'danger' : ''}>
             <Icon name="castle" />
             <span class="clock-res-label">Castle</span>
-            <span class="tabular">{Math.max(0, game.castleHp)}</span>
+            <span class="tabular hp-pop" key={game.castleHp}>
+              {Math.max(0, game.castleHp)}
+            </span>
             <span class="sr-only"> of 100 castle HP</span>
           </span>
           <span>
@@ -842,7 +844,10 @@ function StatsPanel({
     <section class="stats-panel" data-exclude aria-label="Game stats">
       <div class="run-resources">
         <span>
-          Castle <strong>{Math.max(0, game.castleHp)} / 100</strong>
+          Castle{' '}
+          <strong class="hp-pop" key={game.castleHp}>
+            {Math.max(0, game.castleHp)} / 100
+          </strong>
         </span>
         <span>
           Gold <strong>{compact(game.gold)}</strong>

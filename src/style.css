@@ -2217,3 +2217,20 @@ button.big {
     transition: none;
   }
 }
+
+/* Castle HP pops red when it changes (the element remounts on each new value). */
+.hp-pop {
+  display: inline-block;
+  animation: hp-pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes hp-pop {
+  from {
+    transform: scale(1.35);
+    color: #e2453c;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hp-pop {
+    animation: none;
+  }
+}
