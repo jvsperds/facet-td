@@ -53,7 +53,7 @@ test('the inspector collapses on tablets and Deselect clears the selection', asy
     'false',
   );
   expect((await info.boundingBox())!.height).toBeLessThan(before);
-  await expect(page.getByRole('button', { name: 'Place gem' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Remove stone' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Deselect' }).click();
   await expect(info).not.toContainText('Cell 12, 12');
@@ -259,6 +259,10 @@ test('phone recipe book is a viewport sheet and landscape notices clear the draf
   await page.waitForFunction(() => !window.facet.world.moving);
   const point = await page.evaluate(() => window.facet.world.screenOf({ x: 12, y: 12 }));
   await page.mouse.click(point.x, point.y);
-  const place = page.getByRole('button', { name: 'Place gem' });
-  await expect(place).toBeVisible();
+  // Open floor shows no card; tapping the selected cell again places the gem.
+  await expect(page.getByLabel('Selection')).toHaveCount(0);
+  await page.mouse.click(point.x, point.y);
+  await expect(page.getByRole('button', { name: /^Gem 1 of 5: / })).not.toHaveAccessibleName(
+    /not placed/,
+  );
 });

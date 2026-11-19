@@ -547,6 +547,8 @@ export function createWorld(board: Board, game: Game) {
     triangles: 0,
     programs: 0,
   };
+  /** Screen-shake trauma, 0..1; shake is trauma squared and decays in real time. */
+  let trauma = 0;
   const smooth = (key: keyof typeof perf, since: number) =>
     (perf[key] += (performance.now() - since - perf[key]) * 0.1);
   renderer.setAnimationLoop((now) => {
@@ -586,7 +588,14 @@ export function createWorld(board: Board, game: Game) {
       renderer.shadowMap.needsUpdate = true;
     }
     t = performance.now();
+    // Visual-only shake: offset the camera for this draw and undo it, so picks see the true view.
+    trauma = Math.max(0, trauma - 1.5 * dt);
+    const shake = reducedMotion.matches ? 0 : trauma * trauma * 0.35;
+    const sx = shake * Math.sin(now / 21);
+    const sy = shake * Math.sin(now / 17 + 1);
+    if (shake) camera.translateX(sx).translateY(sy);
     renderer.render(scene, camera);
+    if (shake) camera.translateX(-sx).translateY(-sy);
     smooth('render', t);
     perf.calls = renderer.info.render.calls;
     perf.triangles = renderer.info.render.triangles;
@@ -609,6 +618,8 @@ export function createWorld(board: Board, game: Game) {
       pieces.afterStep();
       const leaked = game.events.reduce((sum, e) => sum + (e.type === 'leak' ? e.damage : 0), 0);
       cave.castle(game.castleHp / CASTLE_MAX_HP, leaked);
+      // Castle hits shake the view; trauma adds up so a boss leak punches harder than a runt.
+      if (leaked) trauma = Math.min(1, trauma + 0.3 + leaked * 0.04);
       if (routes.visible) syncRoute();
       lastStep = performance.now();
     },

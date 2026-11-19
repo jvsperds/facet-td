@@ -1,0 +1,231 @@
+/*
+ * Desktop HUD (the approved "Desktop 1280 · wave, tower selected" layout): one top bar, the damage
+ * list down the left, the selection or this round's gems in a right panel, board tools in the
+ * board's bottom-left corner and the hero in a bottom strip. Loaded last; phones keep their rules.
+ */
+.desk-bar,
+.ability-text {
+  display: none;
+}
+/* Phones and small windows keep the tools inline in the bottom control row. */
+.board-tools {
+  display: contents;
+}
+
+@media (min-width: 1101px) and (min-height: 641px) {
+  :root {
+    --desk-top: 60px;
+    --desk-right: 340px;
+    --desk-left: 220px;
+    --desk-bottom: 72px;
+  }
+
+  /* Zone backdrops. The card dock doubles as the right panel and keeps the camera fit clear. */
+  .desk-bar {
+    display: block;
+    position: fixed;
+    inset: 0 0 auto 0;
+    height: var(--desk-top);
+    background: #24272c;
+    border-bottom: 1px solid #383d44;
+    z-index: 1;
+  }
+  .card-dock {
+    visibility: visible;
+    inset: var(--desk-top) 0 var(--desk-bottom) auto;
+    left: auto;
+    width: var(--desk-right);
+    height: auto;
+    background: #24272c;
+    border-left: 1px solid #383d44;
+    z-index: 1;
+  }
+
+  /* Top bar: menu, round clock, castle and gold, then pause and speed on the right. */
+  .top-left {
+    top: 8px;
+    left: 12px;
+    z-index: 4;
+  }
+  .tools .menu-button {
+    width: 44px;
+    height: 44px;
+  }
+  .round-clock {
+    top: 1px;
+    left: 68px;
+    transform: none;
+    background: none;
+    border: none;
+    box-shadow: none;
+    z-index: 4;
+  }
+  .stats-panel {
+    top: 10px;
+    left: 340px;
+    right: auto;
+    background: none;
+    border: none;
+    box-shadow: none;
+    z-index: 4;
+  }
+  .wave-info {
+    position: fixed;
+    top: 12px;
+    left: 590px;
+    transform: none;
+    z-index: 4;
+  }
+  .game-controls {
+    top: 8px;
+    right: 12px;
+    bottom: auto;
+    left: auto;
+    z-index: 4;
+  }
+  .game-controls button {
+    min-width: 44px;
+    height: 44px;
+  }
+
+  /* Camera, maze guide, recipes and help sit on the board, visible in every phase. */
+  .board-tools {
+    position: fixed;
+    left: 16px;
+    bottom: calc(var(--desk-bottom) + 16px);
+    display: flex;
+    gap: 8px;
+  }
+  body:has(.meter-panel.dps) .board-tools {
+    left: calc(var(--desk-left) + 16px);
+  }
+  .board-tools button {
+    border-radius: 22px;
+  }
+  .guide-picker {
+    left: 16px;
+    right: auto;
+    top: auto;
+    bottom: calc(var(--desk-bottom) + 72px);
+  }
+
+  /* The notice centres over the board, between the side panels. */
+  .notice-banner {
+    top: calc(var(--desk-top) + 12px);
+    left: calc((100vw - var(--desk-right)) / 2);
+    transform: translateX(-50%);
+  }
+
+  /* Left: this wave's damage list, full height. */
+  .meter-panel.dps {
+    position: fixed;
+    inset: var(--desk-top) auto var(--desk-bottom) 0;
+    width: var(--desk-left);
+    max-height: none;
+    border-radius: 0;
+    border: none;
+    border-right: 1px solid #383d44;
+    background: #202327;
+    box-sizing: border-box;
+    overflow-y: auto;
+  }
+
+  /* Right panel: the selection card, or this round's gem slots while building. */
+  .selection-stack {
+    inset: calc(var(--desk-top) + 8px) 8px calc(var(--desk-bottom) + 8px) auto;
+    left: auto;
+    width: calc(var(--desk-right) - 16px);
+    max-height: none;
+    overflow-y: auto;
+    transform: none;
+    z-index: 3;
+  }
+  .selection-stack .card,
+  .selection-stack .selection-actions {
+    width: 100%;
+  }
+  .top-left > .draft {
+    position: fixed;
+    top: calc(var(--desk-top) + 8px);
+    right: 8px;
+    width: calc(var(--desk-right) - 16px);
+    box-sizing: border-box;
+  }
+  /* The gem slots stay on top while building; a selection card stacks below them. */
+  body:has(.top-left > .draft) .selection-stack {
+    top: calc(var(--desk-top) + 124px);
+  }
+  .top-left > .draft .slots > * {
+    flex: 1;
+  }
+
+  /* Skills: every skill listed with its level, not one description at a time. */
+  .card .ability-strip {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .card .ability-strip li {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .card .ability-text {
+    display: block;
+    font-size: 13px;
+    line-height: 1.3;
+  }
+  .card .ability-detail {
+    display: none;
+  }
+
+  /* Hero: one strip along the bottom. Castle and gold already sit in the top bar. */
+  .hero-hud {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    height: var(--desk-bottom);
+    transform: none;
+    border-radius: 0;
+    grid-template-columns: 220px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    padding: 6px 16px;
+    background: #24272c;
+    border-top: 1px solid #383d44;
+    box-shadow: none;
+  }
+  .hero-hud::before {
+    display: none;
+  }
+  .hero-hud .hero-identity {
+    grid-row: 1;
+    height: 100%;
+    overflow: hidden;
+  }
+  .hero-hud .hero-identity > :not(.hero-portrait),
+  .hero-hud .hero-resources,
+  .hero-hud .hero-bar > .section-label {
+    display: none;
+  }
+  .hero-hud .hero-portrait {
+    flex-direction: row-reverse;
+    justify-content: flex-end;
+    gap: 10px;
+    height: 100%;
+    padding: 0 10px;
+    box-sizing: border-box;
+    background: #2d3137;
+    border: 1px solid #3c424a;
+    border-radius: 10px;
+  }
+  .hero-hud .hero-portrait svg {
+    width: 32px;
+    height: 32px;
+  }
+  .hero-hud .hero-bar {
+    background: none;
+    grid-column: 2;
+    grid-row: 1;
+  }
+}
