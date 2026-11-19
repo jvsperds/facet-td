@@ -9,6 +9,8 @@ import type { RecipeKind } from '../sim/progression';
 import type { Cmd, Sim } from '../sim/sim';
 import {
   CommandCard,
+  HeroSkills,
+  HeroCard,
   SKILL_KEYS,
   arm,
   heroSkills,
@@ -16,7 +18,6 @@ import {
   pending as pendingTablet,
 } from './CommandCard';
 import { DamageMeter } from './DamageMeter';
-import { HeroPanel } from './HeroPanel';
 import { GlyphDefs, ICONS, Icon } from './icons';
 import { GUIDES } from '../world/guides';
 import { GameMenu, TitleScreen, type MenuAsk } from './Menu';
@@ -67,6 +68,7 @@ const SHORTCUTS: [keys: string, what: string][] = [
   ['1 – 5', "Select this round's gem 1 to 5"],
   ['Q', 'Keep the selected gem (else: arm Place gem)'],
   ['W', 'Downgrade and keep (else: arm Remove stone)'],
+  ['Z / X / D / F', 'Hero abilities 1 to 4'],
   ['E / R', 'Keep the selected gem one / two qualities higher'],
   ['K', 'Keep the selected gem'],
   ['C', 'Combine the selected gem (first recipe)'],
@@ -131,7 +133,7 @@ export function Hud(props: Props) {
   const tick = ticked.value;
   const game = sim.game;
   const flyout = useSignal(false);
-  const heroOpen = useSignal(false);
+  const settingsTab = useSignal('Camera');
   const menuOpen = useSignal(false);
   const recipesOpen = useSignal(false);
   const guidesOpen = useSignal(false);
@@ -266,8 +268,7 @@ export function Hud(props: Props) {
         const [s, label] = SPEEDS[SPEED_KEYS[k]];
         setSpeed(s, label);
       } else if (/^[1-5]$/.test(k)) {
-        if (e.repeat || menuOpen.value || heroOpen.value || flyout.value || pendingTablet.value)
-          return;
+        if (e.repeat || menuOpen.value || flyout.value || pendingTablet.value) return;
         const g = sim.game;
         const gem = g.gems.find((piece) => piece.id === g.draft[Number(k) - 1]);
         if (!gem) return;
@@ -298,7 +299,6 @@ export function Hud(props: Props) {
         // Handled: a selected gem's Q/W/E/R command was available.
       } else if (k === 'q') arm('build');
       else if (k === 'w') arm('remove');
-      else if (k === 'h' && game.hero.selected) heroOpen.value = true;
       else if (k === 't') actions.toggleMode();
       else if (k === 'a') {
         aurasVisible.value = !aurasVisible.value;
@@ -382,131 +382,144 @@ export function Hud(props: Props) {
           </button>
           {flyout.value && (
             <div class="panel settings" id="settings" role="group" aria-label="Settings">
-              <p class="section-label">Camera</p>
-              <div class="settings-grid">
-                <MenuToggle
-                  label={v.mode === 'iso' ? 'Switch to top view' : 'Switch to isometric view'}
-                  text={v.mode === 'iso' ? 'Top view' : 'Isometric view'}
-                  hint="T"
-                  onClick={actions.toggleMode}
-                >
-                  {v.mode === 'iso' ? ICONS.top : ICONS.iso}
-                </MenuToggle>
-                <MenuToggle
-                  label="Rotate board: drag turns instead of pans"
-                  text="Drag rotates"
-                  pressed={rotateMode.value}
-                  onClick={actions.toggleRotate}
-                >
-                  {rotateMode.value ? ICONS.rotate : ICONS.lock}
-                </MenuToggle>
-                <button onClick={() => actions.turn(-90)}>Turn left</button>
-                <button onClick={() => actions.turn(90)}>Turn right</button>
-                <button onClick={() => actions.zoomBy(1.25)}>Zoom in</button>
-                <button onClick={() => actions.zoomBy(1 / 1.25)}>Zoom out</button>
-                <button onClick={actions.reset}>Reset view</button>
-              </div>
-              <p class="section-label">Show</p>
-              <div class="settings-grid">
-                <MenuToggle
-                  label="Recipes"
-                  hint="G"
-                  pressed={recipesOpen.value}
-                  onClick={() => (recipesOpen.value = !recipesOpen.value)}
-                >
-                  {ICONS.book}
-                </MenuToggle>
-                <MenuToggle
-                  label="Damage"
-                  text="DPS list"
-                  hint="M"
-                  pressed={meterOpen.value}
-                  onClick={() => (meterOpen.value = !meterOpen.value)}
-                >
-                  {ICONS.meter}
-                </MenuToggle>
-                <MenuToggle
-                  label="Show routes"
-                  text="Routes"
-                  pressed={routeVisible.value}
-                  onClick={() => (routeVisible.value = !routeVisible.value)}
-                >
-                  {ICONS.route}
-                </MenuToggle>
-                <MenuToggle
-                  label="Show auras"
-                  text="Auras"
-                  hint="A"
-                  pressed={aurasVisible.value}
-                  onClick={() => (aurasVisible.value = !aurasVisible.value)}
-                >
-                  {ICONS.target}
-                </MenuToggle>
-                <label class="setting-range">
-                  Maze guide
-                  <select
-                    value={mazeGuide.value}
-                    onChange={(e) => (mazeGuide.value = e.currentTarget.value)}
+              <div class="settings-tabs" role="group" aria-label="Settings categories">
+                {['Camera', 'Display', 'Audio'].map((tab) => (
+                  <button
+                    aria-pressed={settingsTab.value === tab}
+                    onClick={() => (settingsTab.value = tab)}
                   >
-                    <option value="">None</option>
-                    {GUIDES.map((g) => (
-                      <option key={g.name} value={g.name}>
-                        {g.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  disabled={!audio.available.value}
-                  aria-pressed={audio.enabled.value}
-                  onClick={() => audio.toggle()}
-                >
-                  {audio.available.value
-                    ? `Sound ${audio.enabled.value ? 'on' : 'off'}`
-                    : 'Sound unavailable'}
-                </button>
-                {(['master', 'music', 'ambience', 'effects'] as const).map((bus) => (
-                  <label class="setting-range">
-                    {bus[0].toUpperCase() + bus.slice(1)}
-                    <input
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.05"
-                      value={audio.volume.value[bus]}
-                      onInput={(e) => audio.setVolume(bus, Number(e.currentTarget.value))}
-                    />
-                  </label>
-                ))}
-                <label class="setting-check">
-                  <input
-                    type="checkbox"
-                    checked={audio.isMusicOn()}
-                    onChange={(e) => audio.setMusicOn(e.currentTarget.checked)}
-                  />
-                  Music
-                </label>
-                <label class="setting-select">
-                  Graphics
-                  <select
-                    value={quality.value}
-                    onChange={(e) => {
-                      quality.value = e.currentTarget.value;
-                      localStorage.setItem('facet-td:quality', quality.value);
-                    }}
-                  >
-                    <option value="auto">Auto</option>
-                    <option value="high">High</option>
-                    <option value="low">Low</option>
-                  </select>
-                </label>
-                {game.hero.selected && (
-                  <button aria-haspopup="dialog" onClick={() => (heroOpen.value = true)}>
-                    Hero actions <kbd aria-hidden="true">H</kbd>
+                    {tab}
                   </button>
-                )}
+                ))}
               </div>
-              <small class="muted legend">Routes: ground solid · flying dashed</small>
+              <div hidden={settingsTab.value !== 'Camera'}>
+                <p class="section-label">Camera</p>
+                <div class="settings-grid">
+                  <MenuToggle
+                    label={v.mode === 'iso' ? 'Switch to top view' : 'Switch to isometric view'}
+                    text={v.mode === 'iso' ? 'Top view' : 'Isometric view'}
+                    hint="T"
+                    onClick={actions.toggleMode}
+                  >
+                    {v.mode === 'iso' ? ICONS.top : ICONS.iso}
+                  </MenuToggle>
+                  <MenuToggle
+                    label="Rotate board: drag turns instead of pans"
+                    text="Drag rotates"
+                    pressed={rotateMode.value}
+                    onClick={actions.toggleRotate}
+                  >
+                    {rotateMode.value ? ICONS.rotate : ICONS.lock}
+                  </MenuToggle>
+                  <button onClick={() => actions.turn(-90)}>Turn left</button>
+                  <button onClick={() => actions.turn(90)}>Turn right</button>
+                  <button onClick={() => actions.zoomBy(1.25)}>Zoom in</button>
+                  <button onClick={() => actions.zoomBy(1 / 1.25)}>Zoom out</button>
+                  <button onClick={actions.reset}>Reset view</button>
+                </div>
+              </div>
+              <div hidden={settingsTab.value !== 'Display'}>
+                <p class="section-label">Show</p>
+                <div class="settings-grid">
+                  <MenuToggle
+                    label="Recipes"
+                    hint="G"
+                    pressed={recipesOpen.value}
+                    onClick={() => (recipesOpen.value = !recipesOpen.value)}
+                  >
+                    {ICONS.book}
+                  </MenuToggle>
+                  <MenuToggle
+                    label="Damage"
+                    text="DPS list"
+                    hint="M"
+                    pressed={meterOpen.value}
+                    onClick={() => (meterOpen.value = !meterOpen.value)}
+                  >
+                    {ICONS.meter}
+                  </MenuToggle>
+                  <MenuToggle
+                    label="Show routes"
+                    text="Routes"
+                    pressed={routeVisible.value}
+                    onClick={() => (routeVisible.value = !routeVisible.value)}
+                  >
+                    {ICONS.route}
+                  </MenuToggle>
+                  <MenuToggle
+                    label="Show auras"
+                    text="Auras"
+                    hint="A"
+                    pressed={aurasVisible.value}
+                    onClick={() => (aurasVisible.value = !aurasVisible.value)}
+                  >
+                    {ICONS.target}
+                  </MenuToggle>
+                  <label class="setting-range">
+                    Maze guide
+                    <select
+                      value={mazeGuide.value}
+                      onChange={(e) => (mazeGuide.value = e.currentTarget.value)}
+                    >
+                      <option value="">None</option>
+                      {GUIDES.map((g) => (
+                        <option key={g.name} value={g.name}>
+                          {g.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label class="setting-select">
+                    Graphics
+                    <select
+                      value={quality.value}
+                      onChange={(e) => {
+                        quality.value = e.currentTarget.value;
+                        localStorage.setItem('facet-td:quality', quality.value);
+                      }}
+                    >
+                      <option value="auto">Auto</option>
+                      <option value="high">High</option>
+                      <option value="low">Low</option>
+                    </select>
+                  </label>
+                </div>
+                <small class="muted legend">Routes: ground solid · flying dashed</small>
+              </div>
+              <div hidden={settingsTab.value !== 'Audio'}>
+                <div class="settings-grid">
+                  <button
+                    disabled={!audio.available.value}
+                    aria-pressed={audio.enabled.value}
+                    onClick={() => audio.toggle()}
+                  >
+                    {audio.available.value
+                      ? `Sound ${audio.enabled.value ? 'on' : 'off'}`
+                      : 'Sound unavailable'}
+                  </button>
+                  {(['master', 'music', 'ambience', 'effects'] as const).map((bus) => (
+                    <label class="setting-range">
+                      {bus[0].toUpperCase() + bus.slice(1)}
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        value={audio.volume.value[bus]}
+                        onInput={(e) => audio.setVolume(bus, Number(e.currentTarget.value))}
+                      />
+                    </label>
+                  ))}
+                  <label class="setting-check">
+                    <input
+                      type="checkbox"
+                      checked={audio.isMusicOn()}
+                      onChange={(e) => audio.setMusicOn(e.currentTarget.checked)}
+                    />
+                    Music
+                  </label>
+                </div>
+              </div>
               <button
                 class="run-button"
                 ref={menuButton}
@@ -552,8 +565,17 @@ export function Hud(props: Props) {
           <span class="muted"> · Shift keeps it · Esc cancels</span>
         </p>
       )}
-      {!ended && (
-        <CommandCard sim={sim} send={send} tick={tick} openHero={() => (heroOpen.value = true)} />
+      {!ended && <CommandCard sim={sim} send={send} tick={tick} />}
+      {!ended && game.hero.selected && (
+        <section class="panel hero-hud" data-exclude aria-label="Hero HUD">
+          <HeroCard sim={sim} tick={tick} />
+          <section class="hero-bar" aria-label="Hero abilities">
+            <span class="section-label">Hero abilities</span>
+            <div class="hero-slots">
+              <HeroSkills sim={sim} send={send} />
+            </div>
+          </section>
+        </section>
       )}
       <nav class="game-controls" data-exclude aria-label="Game controls">
         <button
@@ -602,7 +624,10 @@ export function Hud(props: Props) {
           aria-expanded={flyout.value}
           aria-controls="settings"
           title="Camera controls"
-          onClick={() => (flyout.value = true)}
+          onClick={() => {
+            settingsTab.value = 'Camera';
+            flyout.value = true;
+          }}
         >
           <Icon name="iso" />
         </button>
@@ -635,7 +660,6 @@ export function Hud(props: Props) {
         </div>
       )}
       {helpOpen.value && <HelpDialog close={() => (helpOpen.value = false)} />}
-      {heroOpen.value && <HeroPanel sim={sim} send={send} close={() => (heroOpen.value = false)} />}
       {menuOpen.value && (
         <GameMenu
           seed={sim.seed}
@@ -699,30 +723,53 @@ function RoundClock({
   const run = (stopped.current?.run ?? sim.tick) / TICK_HZ;
   const left = creepsLeft(game);
   return (
-    <section class="round-clock" data-exclude aria-label="Round">
-      <span class="clock-cell">
-        <span class="label">Round</span>
-        <span class="clock-value tabular">
-          <Icon name="flag" />
-          {game.level > LAST_LEVEL ? `∞${game.level}` : game.level}
+    <>
+      <section class="round-clock" data-exclude aria-label="Round">
+        <span class="clock-cell">
+          <span class="label">Round</span>
+          <span class="clock-value tabular">
+            <Icon name="flag" />
+            {game.level > LAST_LEVEL ? `∞${game.level}` : game.level}
+          </span>
         </span>
-      </span>
-      <span class="clock-cell clock-main">
-        <span class="label tabular" title="Run time">
-          {clock(run)}
+        <span class="clock-cell clock-main">
+          <span class="label tabular" title="Run time">
+            {clock(run)}
+          </span>
+          <span class="clock-value big tabular" title="Round time">
+            {clock(round)}
+          </span>
         </span>
-        <span class="clock-value big tabular" title="Round time">
-          {clock(round)}
+        <span class="clock-cell next" title={creep}>
+          <span class="label">{game.phase === 'wave' ? 'Left' : 'Next'}</span>
+          <span class="clock-value tabular">
+            <Icon name="paw" />×{left}
+          </span>
         </span>
-      </span>
-      <span class="clock-cell next" title={creep}>
-        <span class="label">{game.phase === 'wave' ? 'Left' : 'Next'}</span>
-        <span class="clock-value tabular">
-          <Icon name="paw" />×{left}
+        {/* Phones: castle HP and gold join the top bar, off the board. */}
+        <span class="clock-res" aria-label="Castle and gold">
+          <span class={game.castleHp <= 30 ? 'danger' : ''}>
+            <Icon name="castle" />
+            <span class="clock-res-label">Castle</span>
+            <span class="tabular">{Math.max(0, game.castleHp)}</span>
+            <span class="sr-only"> of 100 castle HP</span>
+          </span>
+          <span>
+            <Icon name="coin" />
+            <span class="clock-res-label">Gold</span>
+            <span class="tabular">{compact(game.gold)}</span>
+            <span class="sr-only"> gold</span>
+          </span>
         </span>
-      </span>
+        {(paused || game.enraged) && (
+          <span class={`flag ${game.enraged && !paused ? 'danger' : ''}`}>
+            {paused ? 'Paused' : 'Enraged'}
+          </span>
+        )}
+      </section>
       <button
-        class="next-name"
+        class="panel wave-info"
+        data-exclude
         title="Upcoming waves"
         aria-label={`${creep}. Show upcoming waves`}
         onClick={() => (upcoming.value = true)}
@@ -740,27 +787,7 @@ function RoundClock({
       {upcoming.value && (
         <UpcomingDialog data={sim.data} game={game} close={() => (upcoming.value = false)} />
       )}
-      {/* Phones: castle HP and gold join the top bar, off the board. */}
-      <span class="clock-res" aria-label="Castle and gold">
-        <span class={game.castleHp <= 30 ? 'danger' : ''}>
-          <Icon name="castle" />
-          <span class="clock-res-label">Castle</span>
-          <span class="tabular">{Math.max(0, game.castleHp)}</span>
-          <span class="sr-only"> of 100 castle HP</span>
-        </span>
-        <span>
-          <Icon name="coin" />
-          <span class="clock-res-label">Gold</span>
-          <span class="tabular">{compact(game.gold)}</span>
-          <span class="sr-only"> gold</span>
-        </span>
-      </span>
-      {(paused || game.enraged) && (
-        <span class={`flag ${game.enraged && !paused ? 'danger' : ''}`}>
-          {paused ? 'Paused' : 'Enraged'}
-        </span>
-      )}
-    </section>
+    </>
   );
 }
 

@@ -1065,12 +1065,7 @@ img.glyph.mini {
   padding: 0 8px;
   font-size: 11px;
 }
-.hero-button {
-  align-self: flex-start;
-  min-height: 26px;
-  padding: 0 8px;
-  font-size: 12px;
-}
+
 .aim label {
   font-size: 10px;
   font-weight: 800;
@@ -1447,32 +1442,12 @@ dialog.panel {
 dialog::backdrop {
   background: rgb(5 6 8 / 0.65);
 }
-.hero-panel {
-  width: min(720px, calc(100vw - 24px));
-  max-height: calc(100dvh - 24px);
-}
-.hero-panel h2,
 .menu h2 {
   margin-bottom: 8px;
   color: var(--amber);
   font-size: 18px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-}
-.hero-panel section {
-  margin: 16px 0;
-}
-.hero-skills {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 8px 24px;
-  margin-top: 16px;
-}
-.hero-panel label {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
 }
 .loadout {
   width: min(680px, calc(100vw - 24px));

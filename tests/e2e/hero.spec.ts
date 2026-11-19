@@ -1,31 +1,16 @@
 import { expect, test } from '@playwright/test';
 import type { Sim } from '../../src/sim/sim';
 
-test('offline loadout freely selects hero and skill level without spending gold', async ({
-  page,
-}) => {
-  await page.goto('/?seed=17&wip'); // ?wip keeps the development-only free loadout editor.
+test('hero actions dialog and shortcut are removed', async ({ page }) => {
+  await page.goto('/?seed=17&wip');
   await page.waitForFunction(() => window.facet);
-  await page.getByRole('button', { name: 'Hero', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Hero actions' });
-  await expect(dialog).toBeVisible();
-  await dialog.getByRole('combobox', { name: 'Hero', exact: true }).selectOption('h102');
-  await dialog.locator('.hero-skills select').first().selectOption('4');
-  await dialog.getByRole('button', { name: 'Apply loadout' }).click();
-  await expect(dialog).toHaveCount(0);
-  await expect
-    .poll(() =>
-      page.evaluate(() => {
-        const g = (window.facet as unknown as { sim: Sim }).sim.game;
-        return { hero: g.hero.selected, level: g.hero.abilities.gemtd_hero_huichun, gold: g.gold };
-      }),
-    )
-    .toEqual({ hero: 'h102', level: 4, gold: 0 });
-  await page.getByRole('button', { name: 'Hero', exact: true }).click();
-  await expect(dialog).toBeVisible();
-  await expect(dialog.locator('.hero-skills select').first()).toHaveValue('4');
-  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
-  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Hero', exact: true })).toHaveCount(0);
+  await page.keyboard.press('h');
+  await expect(page.getByRole('dialog', { name: 'Hero actions' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Menu', exact: true }).click();
+  await page.getByRole('button', { name: 'Display', exact: true }).click();
+  await expect(page.getByRole('button', { name: /Hero actions/ })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Hero abilities' })).toBeVisible();
 });
 
 test('title loadout builds a normal run with owned hero skills and gold costs', async ({
@@ -40,11 +25,13 @@ test('title loadout builds a normal run with owned hero skills and gold costs', 
   await loadout.getByRole('button', { name: 'Start run' }).click();
   await page.waitForFunction(() => window.facet);
 
-  await page.getByRole('button', { name: 'Hero', exact: true }).click();
-  const hero = page.getByRole('dialog', { name: 'Hero actions' });
-  await expect(hero).toBeVisible();
-  await expect(hero).toContainText('gold');
-  await expect(hero.getByRole('button', { name: 'Apply loadout' })).toHaveCount(0);
+  const abilities = page.getByRole('region', { name: 'Hero abilities' });
+  await expect(abilities).toBeVisible();
+  await expect(abilities.getByRole('button', { name: 'Heal', exact: true })).toHaveAttribute(
+    'aria-keyshortcuts',
+    'Z',
+  );
+  await expect(page.getByRole('dialog', { name: 'Hero actions' })).toHaveCount(0);
 });
 
 test('title exposes settings, history and a resumable autosave', async ({ page }) => {

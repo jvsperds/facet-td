@@ -33,7 +33,7 @@ import { CreepIcon, TowerIcon } from './TowerIcon';
 // The command card: Dota 2's bottom bar, as Gem TD shows it. A portrait with the unit's name over
 // it, its stats down the right edge and its level in the corner; then the buffs and debuffs, one
 // line of abilities and actions with their hotkeys above, and the health and mana bars. It shows
-// the builder (Q places a gem, W removes a stone; with `?wip`, E D F R are the hero's skills) when
+// the builder (Q places a gem, W removes a stone; Z X D F cast the hero's skills) when
 // nothing is selected, and otherwise the selected cell, gem, tower or creep.
 
 const WAYPOINT_NAMES = [
@@ -47,13 +47,43 @@ const WAYPOINT_NAMES = [
 ];
 const XP_LEVELS = [0, 250, 650, 1200, 1900];
 const CASTLE_MAX = 100;
-/** Hero skill hotkeys, in skill order, after the hero's own Q (place gem) and W (remove stone). */
-export const SKILL_KEYS = ['E', 'D', 'F', 'R'];
+/** Hero shortcuts stay separate from tower Q/W/E/R commands. */
+export const SKILL_KEYS = ['Z', 'X', 'D', 'F'];
 const COMMAND_ICONS: Partial<Record<Cmd['type'], keyof typeof ICONS>> = {
   build: 'stone',
   remove: 'close',
   keep: 'check',
   downgrade: 'down',
+};
+
+const HERO_GEMS: Record<string, string> = {
+  lanse: 'gemtd_b1',
+  baise: 'gemtd_d1',
+  fense: 'gemtd_p1',
+  danbai: 'gemtd_e1',
+  lvse: 'gemtd_g1',
+  huangse: 'gemtd_y1',
+  hongse: 'gemtd_r1',
+  zise: 'gemtd_q1',
+};
+const HERO_ICONS: Record<string, string> = {
+  huichun: 'heart',
+  shanbi: 'boot',
+  shouhu: 'shield',
+  huidaoguoqu: 'rotate',
+  kuaisusheji: 'bolt',
+  baoji: 'sword',
+  miaozhun: 'target',
+  lianjie: 'route',
+  yixinghuanwei: 'upgradeMax',
+  qingyi: 'down',
+  shitou: 'stone',
+  xuanfeng: 'gear',
+  guangzhudaobiao: 'pin',
+  beishuiyizhan: 'flag',
+  putong: 'check',
+  wuxia: 'upgrade',
+  wanmei: 'tower',
 };
 
 /** An effect-style icon (Statuses.tsx) for a passive ability. */
@@ -189,14 +219,6 @@ function Passive({ name, text, icon }: { name: string; text: string; icon?: Comp
   );
 }
 
-/** An empty ability or item slot, so the bar keeps Dota's fixed grid. */
-const Empty = ({ hint }: { hint?: string }) => (
-  <div class="slot-cell" aria-hidden="true">
-    <kbd class="slot-key">{hint ?? ''}</kbd>
-    <span class="cmd empty" />
-  </div>
-);
-
 type Stat = [icon: keyof typeof ICONS, label: string, value: ComponentChildren, sub?: string];
 type Bar = { label: string; value: number; max: number; text: string; kind: 'hp' | 'mana' };
 
@@ -248,7 +270,7 @@ function Card(p: {
       {p.effects && <div class="card-effects">{p.effects}</div>}
       <section
         class={`card ${p.kind ?? ''} ${collapsed.value ? 'collapsed' : ''}`}
-        aria-label="Selection"
+        aria-label={p.kind === 'hero' ? 'Hero summary' : 'Selection'}
       >
         <div class="card-portrait">
           <h2 class="portrait-name" title={p.name}>
@@ -282,7 +304,7 @@ function Card(p: {
               class="icon-button collapse"
               aria-label={collapsed.value ? 'Show details' : 'Hide details'}
               aria-expanded={!collapsed.value}
-              aria-controls="info-body"
+              aria-controls={`${p.kind ?? 'cell'}-info-body`}
               onClick={() => (collapsed.value = !collapsed.value)}
             >
               <Icon name={collapsed.value ? 'chevronUp' : 'chevronDown'} />
@@ -291,7 +313,7 @@ function Card(p: {
           <div class="abilities" role="group" aria-label="Commands">
             {p.abilities}
           </div>
-          <div class="card-body" id="info-body">
+          <div class="card-body" id={`${p.kind ?? 'cell'}-info-body`}>
             {p.bars?.map((b) => (
               <ResourceBar key={b.label} bar={b} />
             ))}
@@ -352,8 +374,8 @@ function AbilityList({ items }: { items: [string, string, string][] }) {
   );
 }
 
-/** Hero skills on E, D, F, R, cast at the current selection; free keys show empty slots. */
-function HeroSkills({ sim, send, empty }: { sim: Sim; send: (cmd: Cmd) => void; empty?: boolean }) {
+/** Hero skills on Z, X, D, F, cast at the current selection. */
+export function HeroSkills({ sim, send }: { sim: Sim; send: (cmd: Cmd) => void }) {
   const game = sim.game;
   if (!game.hero.selected) return null;
   const { point, target } = heroTarget(game);
@@ -362,7 +384,7 @@ function HeroSkills({ sim, send, empty }: { sim: Sim; send: (cmd: Cmd) => void; 
     <>
       {SKILL_KEYS.map((key, i) => {
         const a = skills[i];
-        if (!a) return empty ? <Empty key={key} hint={key} /> : null;
+        if (!a) return null;
         const check = game.canHeroAction(a.name, target, point, sim.tick);
         const left = Math.max(0, Math.ceil(((game.hero.cooldowns[a.name] ?? 0) - sim.tick) / 30));
         return (
@@ -370,6 +392,13 @@ function HeroSkills({ sim, send, empty }: { sim: Sim; send: (cmd: Cmd) => void; 
             key={a.name}
             label={skillName(sim.data, a.name)}
             hint={key}
+            icon={
+              HERO_GEMS[a.name.replace('gemtd_hero_', '')] ? (
+                <TowerIcon name={HERO_GEMS[a.name.replace('gemtd_hero_', '')]} />
+              ) : (
+                <Icon name={HERO_ICONS[a.name.replace('gemtd_hero_', '')] ?? 'hero'} />
+              )
+            }
             check={check}
             level={`Level ${a.level} · ${heroActionCost(sim.data, a.name, a.level)} gold`}
             text={skillText(sim.data, a.name)}
@@ -382,17 +411,8 @@ function HeroSkills({ sim, send, empty }: { sim: Sim; send: (cmd: Cmd) => void; 
   );
 }
 
-/** Nothing selected: the hero, with Q/W building and the hero's skills (GemTD's idle card). */
-function HeroCard({
-  sim,
-  send,
-  openHero,
-}: {
-  sim: Sim;
-  send: (cmd: Cmd) => void;
-  openHero: () => void;
-  tick: number;
-}) {
+/** Persistent hero summary, independent of the selected tower or creep. */
+export function HeroCard({ sim }: { sim: Sim; tick: number }) {
   const game = sim.game;
   const catalog = readHeroCatalog(sim.data);
   const unit = catalog.heroes[game.hero.selected];
@@ -400,65 +420,59 @@ function HeroCard({
   const level = game.heroLevel;
   const next = XP_LEVELS[level];
   return (
-    <Card
-      kind="hero"
-      portrait={
-        <svg class="hero-mark" viewBox="0 0 24 24" aria-hidden="true">
-          {ICONS.hero}
-        </svg>
-      }
-      name={name}
-      badge={String(level)}
-      badgeTitle={
-        next ? `Build level ${level}: ${game.xp}/${next} XP` : `Build level ${level} (max)`
-      }
-      subtitle={
-        game.phase === 'build'
-          ? `Place gem ${Math.min(game.draft.length + 1, DRAFT_SIZE)} of 5 · Q, then pick a cell`
-          : 'Select a tower or creep to inspect it'
-      }
-      stats={[
-        ['flag', 'Build lv', String(level), next ? `${game.xp}/${next} XP` : 'max'],
-        ['coin', 'Gold', compact(game.gold)],
-        ['tower', 'Towers', String(game.gems.length)],
-        ['stone', 'Stones', String(game.stones.size)],
-      ]}
-      abilities={
-        <>
-          {game.hero.selected ? (
-            <HeroSkills sim={sim} send={send} empty />
-          ) : (
-            SKILL_KEYS.map((k) => <Empty key={k} hint={k} />)
-          )}
-        </>
-      }
-      bars={[
-        {
-          label: 'Castle',
-          kind: 'hp',
-          value: Math.max(0, game.castleHp),
-          max: CASTLE_MAX,
-          text: `${Math.max(0, game.castleHp)} / ${CASTLE_MAX}`,
-        },
-        {
-          label: 'Gems placed',
-          kind: 'mana',
-          value: game.draft.length,
-          max: DRAFT_SIZE,
-          text: `${game.draft.length} / ${DRAFT_SIZE}`,
-        },
-      ]}
-    >
-      <button
-        class="hero-button"
-        aria-label="Hero"
-        aria-haspopup="dialog"
-        aria-keyshortcuts="H"
-        onClick={openHero}
-      >
-        Hero actions <kbd aria-hidden="true">H</kbd>
-      </button>
-    </Card>
+    <section class="hero-summary" aria-label="Hero summary">
+      <div class="hero-identity">
+        <div class="hero-portrait" title={name}>
+          <strong>{name}</strong>
+          <svg class="hero-mark" viewBox="0 0 24 24" aria-hidden="true">
+            {ICONS.hero}
+          </svg>
+          <span
+            class="hero-level"
+            title={next ? `Build level ${level}: ${game.xp}/${next} XP` : 'Maximum build level'}
+          >
+            {level}
+          </span>
+        </div>
+        <dl class="hero-stats tabular">
+          {(
+            [
+              ['coin', 'Gold', compact(game.gold)],
+              ['tower', 'Towers', String(game.gems.length)],
+              ['stone', 'Stones', String(game.stones.size)],
+            ] as const
+          ).map(([icon, label, value]) => (
+            <div title={label}>
+              <dt>
+                <Icon name={icon} />
+                <span class="sr-only">{label}</span>
+              </dt>
+              <dd>{value}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+      <div class="hero-resources">
+        <ResourceBar
+          bar={{
+            label: 'Castle',
+            kind: 'hp',
+            value: Math.max(0, game.castleHp),
+            max: CASTLE_MAX,
+            text: `${Math.max(0, game.castleHp)} / ${CASTLE_MAX}`,
+          }}
+        />
+        <ResourceBar
+          bar={{
+            label: 'Gems placed',
+            kind: 'mana',
+            value: game.draft.length,
+            max: DRAFT_SIZE,
+            text: `${game.draft.length} / ${DRAFT_SIZE}`,
+          }}
+        />
+      </div>
+    </section>
   );
 }
 
@@ -751,7 +765,6 @@ function CellCard({
           ))}
         </div>
       )}
-      {game.hero.selected && <HeroSkills sim={sim} send={send} />}
     </>
   );
   const aim = aims && gem && !pending.value && (
@@ -794,7 +807,12 @@ function CellCard({
       stats={stats}
       effects={gem && <Statuses data={sim.data} list={game.towerStatuses(gem)} />}
       abilities={cards.length > 0 && <AbilityList items={cards} />}
-      actions={actions}
+      actions={
+        <>
+          {aim}
+          {actions}
+        </>
+      }
       bars={
         gem && !isTablet(gem.name)
           ? [
@@ -816,7 +834,6 @@ function CellCard({
           : undefined
       }
     >
-      {aim}
       {detail && <p>{detail}</p>}
       {pending.value && (
         <p>Select an empty cell for {displayName(sim.data, pending.value.result)}.</p>
@@ -829,18 +846,14 @@ export function CommandCard({
   sim,
   send,
   tick,
-  openHero,
 }: {
   sim: Sim;
   send: (cmd: Cmd) => void;
   tick: number;
-  openHero: () => void;
 }) {
   if (selectedCreep.value !== null)
     return <CreepCard sim={sim} id={selectedCreep.value} tick={tick} />;
   const cell = selected.value;
   if (cell) return <CellCard sim={sim} send={send} cell={cell} tick={tick} />;
-  return sim.game.hero.selected ? (
-    <HeroCard sim={sim} send={send} openHero={openHero} tick={tick} />
-  ) : null;
+  return null;
 }
