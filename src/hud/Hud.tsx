@@ -549,6 +549,8 @@ export function Hud(props: Props) {
       {/* Reserved room for the selection card: the camera fit always avoids it, so the board
           does not move when a card opens or closes under a tap sequence. */}
       {!ended && <div class="card-dock" data-exclude aria-hidden="true" />}
+      {/* Desktop top bar backdrop; hidden on smaller screens. */}
+      <div class="desk-bar" aria-hidden="true" />
       <StatsPanel sim={sim} mode={mode} feedback={feedback} tick={tick} />
       {meterOpen.value && !ended && game.phase === 'wave' && (
         <DamageMeter data={sim.data} game={game} />
@@ -599,48 +601,51 @@ export function Hud(props: Props) {
             </button>
           ))}
         </div>
-        <button
-          aria-label="Maze guides"
-          aria-keyshortcuts="L"
-          aria-expanded={guidesOpen.value}
-          aria-controls="maze-guides"
-          aria-pressed={!!mazeGuide.value}
-          title={`Maze guide: ${mazeGuide.value || 'none'} (L cycles)`}
-          onClick={() => (guidesOpen.value = !guidesOpen.value)}
-        >
-          <Icon name="maze" />
-        </button>
-        <button
-          aria-label="Recipe book"
-          aria-keyshortcuts="G"
-          aria-pressed={recipesOpen.value}
-          title="Recipes (G)"
-          onClick={() => (recipesOpen.value = !recipesOpen.value)}
-        >
-          <Icon name="book" />
-        </button>
-        <button
-          aria-label="Camera controls"
-          aria-expanded={flyout.value}
-          aria-controls="settings"
-          title="Camera controls"
-          onClick={() => {
-            settingsTab.value = 'Camera';
-            flyout.value = true;
-          }}
-        >
-          <Icon name="iso" />
-        </button>
-        <button
-          class="help-button"
-          aria-label="Controls and help"
-          aria-keyshortcuts="Shift+?"
-          aria-haspopup="dialog"
-          title="Controls and help (?)"
-          onClick={() => (helpOpen.value = true)}
-        >
-          ?
-        </button>
+        {/* Board tools: inline with the speed strip on phones, the board's corner on desktop. */}
+        <div class="board-tools">
+          <button
+            aria-label="Maze guides"
+            aria-keyshortcuts="L"
+            aria-expanded={guidesOpen.value}
+            aria-controls="maze-guides"
+            aria-pressed={!!mazeGuide.value}
+            title={`Maze guide: ${mazeGuide.value || 'none'} (L cycles)`}
+            onClick={() => (guidesOpen.value = !guidesOpen.value)}
+          >
+            <Icon name="maze" />
+          </button>
+          <button
+            aria-label="Recipe book"
+            aria-keyshortcuts="G"
+            aria-pressed={recipesOpen.value}
+            title="Recipes (G)"
+            onClick={() => (recipesOpen.value = !recipesOpen.value)}
+          >
+            <Icon name="book" />
+          </button>
+          <button
+            aria-label="Camera controls"
+            aria-expanded={flyout.value}
+            aria-controls="settings"
+            title="Camera controls"
+            onClick={() => {
+              settingsTab.value = 'Camera';
+              flyout.value = true;
+            }}
+          >
+            <Icon name="iso" />
+          </button>
+          <button
+            class="help-button"
+            aria-label="Controls and help"
+            aria-keyshortcuts="Shift+?"
+            aria-haspopup="dialog"
+            title="Controls and help (?)"
+            onClick={() => (helpOpen.value = true)}
+          >
+            ?
+          </button>
+        </div>
       </nav>
       {guidesOpen.value && (
         <div class="panel guide-picker" id="maze-guides" role="radiogroup" aria-label="Maze guides">

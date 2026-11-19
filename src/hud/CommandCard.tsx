@@ -364,6 +364,10 @@ function AbilityList({ items }: { items: [string, string, string][] }) {
               {effectIcon(icon)}
               {levelOf(n) && <b class="ability-level tabular">{levelOf(n)}</b>}
             </button>
+            {/* The full list (desktop shows every skill, not one at a time). */}
+            <span class="ability-text" aria-hidden="true">
+              <b>{n}</b> {t}
+            </span>
           </li>
         ))}
       </ul>

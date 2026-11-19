@@ -29,6 +29,7 @@ import { GUIDES, guideCells } from './world/guides';
 import './style.css';
 import './hud/slate.css';
 import './hud/skin-a.css';
+import './hud/desktop.css';
 
 const mode: Mode = 'classic';
 const params = new URLSearchParams(location.search);
