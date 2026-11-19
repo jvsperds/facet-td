@@ -37,7 +37,7 @@ const preview = params.get('preview') === 'all';
 const title = !preview && (params.has('title') || !(params.has('seed') || params.has('resume')));
 // The seed is the only outside input; `?seed=` replays a game.
 const seed = Number(params.get('seed')) || Date.now() >>> 0;
-// `?wip` keeps the free hero loadout (sandbox); a normal run's hero is fixed by its config.
+// `?wip` enables sandbox commands; a normal run's hero is fixed by its config.
 const data = loadData(mode);
 const restored = params.has('resume') ? loadSavedRun(data) : null;
 const sim =

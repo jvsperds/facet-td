@@ -178,7 +178,9 @@ export function UpcomingDialog({
                 <small>Wave</small>
                 {p.level}
               </span>
-              <CreepIcon name={p.names[0]} />
+              <div class="upcoming-portrait">
+                <CreepIcon name={p.names[0]} />
+              </div>
               <span>
                 <strong>{p.names.map((n) => displayName(data, n)).join(' or ')}</strong>
                 <small>{p.boss ? 'Boss' : `${p.count} enemies${p.fly ? ' · flying' : ''}`}</small>

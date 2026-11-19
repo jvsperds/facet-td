@@ -281,16 +281,6 @@ export function createPieces(
   tunnel?: { x: number; z: number },
   castleGate?: { x: number; z: number },
 ) {
-  const hero = new THREE.Group();
-  const heroMaterial = new THREE.MeshStandardMaterial({ color: '#f4e3a4', roughness: 0.6 });
-  const body = new THREE.Mesh(new THREE.ConeGeometry(0.25, 0.7, 6), heroMaterial);
-  body.position.y = 0.5;
-  const crown = new THREE.Mesh(new THREE.OctahedronGeometry(0.17), heroMaterial);
-  crown.position.y = 1;
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.38, 0.035, 4, 16), heroMaterial);
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.05;
-  hero.add(body, crown, ring);
   // Light-pillar beacon: a translucent column the ground route bends through.
   const beacon = new THREE.Mesh(
     new THREE.CylinderGeometry(0.3, 0.3, 2.4, 12, 1, true),
@@ -303,7 +293,7 @@ export function createPieces(
   );
   beacon.position.y = 1.2;
   beacon.visible = false;
-  scene.add(hero, beacon);
+  scene.add(beacon);
   /** Tower models by cell key. */
   const cells = new Map<number, Piece>();
   /** Wall blocks by cell key, for every stone and tower cell. */
@@ -660,9 +650,6 @@ export function createPieces(
           name: g.name,
         };
       };
-      hero.visible = !!game.hero.selected;
-      const position = toScene(game.heroPosition);
-      hero.position.set(position.x, 0, position.z);
       beacon.visible = !!game.beacon;
       if (game.beacon) {
         const b = toScene(game.beacon);

@@ -398,7 +398,7 @@ kbd {
   min-height: 104px;
   flex-direction: column;
 }
-/* The aim row sits at the bottom of that reserved space, level on every tower, ability or not. */
+/* Keep any tower detail below its ability content. */
 .card.tower .card-body {
   margin-top: auto;
 }
@@ -884,4 +884,409 @@ dialog.menu::backdrop {
 .guide-picker button[aria-checked='true'] {
   outline: 1px solid #f2c52e;
   color: #f2c52e;
+}
+
+/* Hero casts share the selected unit's frame. */
+.hero-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0 0;
+}
+.hero-slots {
+  display: flex;
+  gap: 6px;
+}
+.hero-slots .cmd {
+  width: 48px;
+  height: 44px;
+  min-height: 44px;
+  padding: 5px;
+}
+.hero-slots .slot-key {
+  display: block;
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  z-index: 1;
+  font-size: 10px;
+  pointer-events: none;
+}
+.hero-slots .cmd-icon svg {
+  width: 26px;
+  height: 26px;
+}
+.settings-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+.settings-tabs button {
+  flex: 1;
+}
+.settings [hidden] {
+  display: none;
+}
+.context-commands > .aim {
+  margin: 0 0 2px;
+}
+.wave-info {
+  position: fixed;
+  top: 12px;
+  left: 64px;
+  max-width: 245px;
+  min-height: 36px;
+  padding: 6px 10px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.wave-info .next-skills {
+  display: flex;
+}
+.wave-info .effect-icon {
+  width: 20px;
+  height: 20px;
+}
+@media (max-width: 600px) {
+  .hero-bar > .section-label {
+    display: none;
+  }
+  .hero-slots {
+    gap: 3px;
+  }
+  .hero-slots .cmd {
+    width: 44px;
+  }
+  .wave-info {
+    top: 60px;
+    left: 8px;
+    max-width: calc(100vw - 16px);
+  }
+  .top-left .draft {
+    margin-top: 100px;
+  }
+}
+
+/* Match the tower inspector's close-up portrait and soft lower edge. */
+.upcoming-portrait {
+  display: grid;
+  place-items: center;
+  flex: 0 0 104px;
+  height: 96px;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 55%, transparent 92%);
+}
+.upcoming-portrait .glyph {
+  width: 128px;
+  height: 128px;
+  max-width: none;
+  margin-top: -8px;
+}
+@media (max-width: 600px) {
+  .upcoming-portrait {
+    flex-basis: 76px;
+    height: 80px;
+  }
+  .upcoming-portrait .glyph {
+    width: 104px;
+    height: 104px;
+  }
+}
+
+/* Reference proportions: compact portrait/stat rail, one ability row, thin bars below. */
+.hero-hud {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--safe-b) + 46px);
+  transform: translateX(-50%);
+  width: min(540px, calc(100vw - 24px));
+  height: 156px;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) 38px;
+  gap: 6px 12px;
+  padding: 8px;
+  z-index: 3;
+}
+.hero-summary {
+  display: contents;
+}
+.hero-identity {
+  grid-column: 1;
+  grid-row: 1 / 3;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 54px;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.hero-portrait {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  align-self: stretch;
+  padding: 4px;
+  min-width: 0;
+  background: linear-gradient(#3a4046, #1c2024);
+  border-radius: 4px;
+}
+.hero-portrait strong {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  text-transform: capitalize;
+}
+.hero-portrait .hero-mark {
+  width: 64px;
+  height: 64px;
+  margin: 0;
+}
+.hero-level {
+  position: absolute;
+  bottom: 2px;
+  left: 2px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid #bdc5cc;
+  border-radius: 50%;
+  background: #202429;
+}
+.hero-stats {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  font-size: 12px;
+}
+.hero-stats > div {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.hero-stats dt {
+  display: flex;
+}
+.hero-stats svg {
+  width: 14px;
+  height: 14px;
+}
+.hero-stats dd {
+  margin: 0;
+}
+.hero-resources {
+  grid-column: 2;
+  grid-row: 2;
+  display: grid;
+  gap: 4px;
+}
+.hero-resources .bar {
+  height: 16px;
+  margin: 0;
+}
+.hero-resources .bar span {
+  font-size: 11px;
+}
+.hero-hud .hero-bar {
+  grid-column: 2;
+  grid-row: 1;
+  align-items: center;
+  padding: 0;
+  min-width: 0;
+}
+.hero-hud .hero-bar > .section-label {
+  display: none;
+}
+.hero-hud .hero-slots {
+  flex-wrap: nowrap;
+  gap: 6px;
+  width: 100%;
+}
+.hero-hud .hero-slots .slot-cell {
+  flex: 1;
+  min-width: 0;
+  max-width: 64px;
+}
+.hero-hud .hero-slots .cmd {
+  width: 100%;
+  height: 60px;
+}
+@media (max-width: 1100px) and (min-width: 601px) {
+  .hero-hud {
+    left: auto;
+    right: 8px;
+    transform: none;
+    width: min(500px, calc(100vw - 280px));
+  }
+}
+@media (max-width: 600px) {
+  .hero-hud {
+    height: 128px;
+    grid-template-columns: 116px minmax(0, 1fr);
+    gap: 4px 8px;
+    padding: 6px;
+  }
+  .hero-identity {
+    grid-template-columns: minmax(0, 1fr) 40px;
+    gap: 4px;
+  }
+  .hero-portrait strong {
+    font-size: 10px;
+  }
+  .hero-portrait .hero-mark {
+    width: 44px;
+    height: 44px;
+  }
+  .hero-stats {
+    font-size: 10px;
+  }
+  .hero-hud .hero-slots {
+    gap: 4px;
+  }
+  .hero-hud .hero-slots .cmd {
+    height: 44px;
+  }
+  body:has(.hero-hud) .selection-stack:not(.hero-hud .selection-stack) {
+    bottom: calc(var(--safe-b) + 184px);
+  }
+}
+
+/* Graphite cavern stone: broken outer slabs around dark, recessed controls. */
+.hero-hud {
+  isolation: isolate;
+  color: #d4d4d4;
+  background: #161616 url('./stone-texture.png') center / 128px 128px;
+  background-blend-mode: multiply;
+  border: 0;
+  border-radius: 2px;
+  box-shadow: 0 8px 16px #0009;
+}
+.hero-hud::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: url('./hero-stone-frame.svg') center / 100% 100% no-repeat;
+  filter: drop-shadow(0 3px 2px #0009);
+}
+.hero-hud .hero-portrait {
+  color: #d4d4d4;
+  background: linear-gradient(145deg, #2d2d2d88, #0b0b0be8), url('./stone-texture.png');
+  background-blend-mode: multiply;
+  border: 2px solid;
+  border-color: #454545 #101010 #080808 #353535;
+  border-radius: 1px;
+  box-shadow:
+    inset 0 0 12px #000b,
+    0 1px 0 #4446;
+}
+.hero-hud .hero-portrait strong {
+  color: #c6c6c6;
+  text-shadow: 0 1px 2px #000;
+}
+.hero-hud .hero-mark {
+  color: #999;
+  filter: drop-shadow(0 2px 1px #000);
+}
+.hero-hud .hero-level {
+  color: #ccc;
+  background: radial-gradient(circle at 35% 25%, #3b3b3b, #111 75%);
+  border: 2px solid;
+  border-color: #666 #262626 #151515 #4a4a4a;
+  box-shadow: 0 2px 3px #000a;
+}
+.hero-hud .hero-stats {
+  color: #aaa;
+}
+.hero-hud .hero-stats svg {
+  color: #858585;
+}
+.hero-hud .hero-bar {
+  background: linear-gradient(180deg, #09090999, #20202055);
+  border-radius: 1px;
+  box-shadow:
+    inset 0 1px 3px #000b,
+    0 1px 0 #4a4a4a44;
+}
+.hero-hud .hero-slots .cmd {
+  color: #c4c4c4;
+  background: linear-gradient(140deg, #363636bb, #111e), url('./stone-texture.png');
+  background-blend-mode: multiply;
+  border: 2px solid;
+  border-color: #555 #181818 #080808 #3b3b3b;
+  border-radius: 2px;
+  box-shadow:
+    inset 0 0 8px #0007,
+    0 2px 3px #000a;
+}
+.hero-hud .hero-slots .cmd:disabled {
+  opacity: 1;
+  color: #777;
+  border-color: #333 #131313 #090909 #292929;
+}
+.hero-hud .hero-slots .cmd:disabled .cmd-icon {
+  opacity: 0.7;
+}
+.hero-hud .cmd-icon img {
+  filter: grayscale(1);
+}
+.hero-hud .slot-key {
+  color: #b6b6b6;
+  background: #171717;
+  border-radius: 1px;
+}
+.hero-hud .cmd-cooldown {
+  color: #ddd;
+  background: #080808d9;
+}
+.hero-hud .hero-slots .cmd:hover:not(:disabled) {
+  background-color: #3e3e3e;
+  border-top-color: #737373;
+}
+.hero-hud button:focus-visible {
+  outline: 2px solid #bdbdbd;
+  outline-offset: 3px;
+}
+.hero-hud .hero-slots .cmd:active:not(:disabled) {
+  box-shadow: inset 0 2px 5px #000;
+}
+.hero-hud .hero-resources .bar {
+  color: #ddd;
+  background: #080808;
+  border: 1px solid;
+  border-color: #090909 #303030 #414141 #101010;
+  border-radius: 1px;
+  box-shadow: inset 0 1px 3px #000;
+}
+.hero-hud .hero-resources .bar i {
+  background: linear-gradient(#686868, #414141);
+}
+.hero-hud .hero-resources .bar.mana i {
+  background: linear-gradient(#454545, #2b2b2b);
+}
+.hero-hud .hero-resources .bar.hp.low i {
+  background: repeating-linear-gradient(135deg, #666 0 4px, #333 4px 8px);
+}
+.hero-hud .hero-resources .bar span {
+  text-shadow: 0 1px 2px #000;
+}
+
+/* Desktop docks share a baseline; narrow screens retain separate rows. */
+@media (min-width: 1101px) {
+  .hero-hud {
+    left: var(--safe-l);
+    bottom: var(--safe-b);
+    transform: none;
+  }
+  body:has(.hero-hud) .selection-stack {
+    bottom: calc(var(--safe-b) + 168px);
+  }
 }
