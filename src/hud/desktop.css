@@ -151,8 +151,9 @@
     width: calc(var(--desk-right) - 16px);
     box-sizing: border-box;
   }
-  body:has(.selection-stack) .top-left > .draft {
-    display: none;
+  /* The gem slots stay on top while building; a selection card stacks below them. */
+  body:has(.top-left > .draft) .selection-stack {
+    top: calc(var(--desk-top) + 124px);
   }
   .top-left > .draft .slots > * {
     flex: 1;
