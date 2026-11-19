@@ -569,14 +569,8 @@ function CellCard({
   const game = sim.game;
   const gem = game.gemAt(cell);
   const kind = sim.board.kind(cell);
-  // Open floor shows a card only while placing: its Place gem button.
-  if (
-    !gem &&
-    !game.stoneAt(cell) &&
-    (kind === 'open' || kind === 'stone') &&
-    !pending.value &&
-    game.phase !== 'build'
-  )
+  // Open floor shows no card: tapping the selected cell again places a gem (B also does).
+  if (!gem && !game.stoneAt(cell) && (kind === 'open' || kind === 'stone') && !pending.value)
     return null;
   let title = 'Open cell';
   let subtitle = '';
